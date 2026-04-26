@@ -1,0 +1,44 @@
+{
+  "name": "hrr-betting",
+  "version": "0.1.0",
+  "description": "A standalone MLB betting tool that ranks the best **Hits + Runs + RBIs** prop plays for the day across three rungs (1+, 2+, 3+ HRR). Each rung is its own independently-ranked board. Picks are auto-tracked with calibration metrics over time.",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint",
+    "test": "jest",
+    "test:watch": "jest --watch"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/lucasreydman/hrr-betting.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/lucasreydman/hrr-betting/issues"
+  },
+  "homepage": "https://github.com/lucasreydman/hrr-betting#readme",
+  "dependencies": {
+    "@vercel/kv": "^3.0.0",
+    "next": "^16.2.4",
+    "react": "^19.2.5",
+    "react-dom": "^19.2.5"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.2.4",
+    "@types/jest": "^30.0.0",
+    "@types/node": "^25.6.0",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "eslint": "^9.39.4",
+    "eslint-config-next": "^16.2.4",
+    "jest": "^30.3.0",
+    "tailwindcss": "^4.2.4",
+    "ts-jest": "^29.4.9",
+    "typescript": "^6.0.3"
+  }
+}
