@@ -130,7 +130,18 @@ For each PA index `i` (1st PA, 2nd PA, …) for a given batter, compute:
 P(starter still in | PA_i) = derived from starter's IP distribution over recent starts
 ```
 
-Build empirical CDF of "did starter complete inning N" from the starter's last 5–10 starts. For each batter PA, map to expected inning, then use CDF for the probability the starter is still pitching.
+Build empirical CDF of "did starter complete inning N" from the starter's recent starts. For each batter PA, map to expected inning, then use CDF for the probability the starter is still pitching.
+
+#### Tiered fallback for thin samples
+
+| Starts this season | CDF source |
+|---|---|
+| ≥ 5 | Empirical CDF from this season's last 5–10 starts |
+| 1–4 | Bayesian blend: `weight_empirical = n/5`, rest from league-avg-by-pitcher-type prior |
+| 0 (call-up / debut) but career history | Career CDF if ≥ 5 career starts |
+| 0 anywhere | League-average CDF **by pitcher type** — regular starter (~5.5 IP modal) vs opener (1–2 IP modal). Type determined from `gamesStarted` history or pre-game role designation in MLB Stats. |
+
+**Openers also reduce confidence factor** by 0.90× because the bullpen-after-opener composition is harder to predict (manager makes mid-game decisions about which long-relief follower to use).
 
 ```
 expected_AB_vs_starter = Σᵢ P(starter still in | PA_i)
@@ -231,7 +242,20 @@ Output per batter: empirical histogram of HRR. Compute `P(HRR ≥ 1)`, `P(HRR �
 - Walks-as-baserunners matter — a high-walk-rate target who reaches on a BB still scores when the next batter doubles them in
 - Naturally produces "HR with 2 on = 3 RBI" scenarios that drive the 3+ rung
 
-**Performance**: ~40–45 PAs simulated per iteration × 10k iterations × 15 games per slate ≈ 6M PA samples per refresh. Should complete in < 5s with vectorized JS or moved to a Vercel serverless function with longer timeout if needed.
+**Extra innings**: end sim at 9 innings if the game is tied (record partial-game outcome). The 2023+ ghost-runner-on-2nd extras rule is **not modeled in v1** — its impact on 1+/2+/3+ probabilities is < 0.5% absolute (extras occur in ~8% of games), and modeling baserunner-on-2nd-each-inning adds non-trivial baserunner-state complexity for trivial signal gain. Listed in §11 as a known minor downward bias on HRR; revisit if 3+ Brier is consistently off in extras-heavy stretches.
+
+#### Runtime location
+
+Run the sim in a **dedicated compute path**, NOT inline on `/api/picks`:
+
+- Endpoint: `/api/sim/[gameId]` with `maxDuration: 60` (Vercel Pro)
+- Output: full per-game sim result (all 9 batters' HRR distributions) cached in KV under `sim:{gameId}:{lineupHash}`
+- `/api/picks` only **reads** these cached results and aggregates per-rung rankings — stays < 1s
+- Sim is recomputed when the lineup hash changes (lineup confirmed, slot reorder, weather forecast meaningfully shifts) — invalidation key is `(gameId, lineupHash, weatherHash)`
+
+**Why separate path**: ~15 games × 10k iter × ~40 PAs ≈ 6M samples per slate. Inline on Hobby would timeout (10s); on Pro it would burn compute on every `/api/picks` refresh. Separate path means the heavy work runs once per lineup change, not every 5 min.
+
+**Cron-driven prewarming** during slate hours: every 5 min, iterate today's games and call `/api/sim/[gameId]` for any whose `(lineupHash, weatherHash)` has changed since last sim. Failed sims (timeout, API hiccup) are retried independently — one bad game doesn't block the rest.
 
 ### 4.10 `P_typical`: replay-the-season simulation
 
@@ -305,7 +329,10 @@ A pick is **Watching** if it clears the display floor (`SCORE ≥ 0.05`) but doe
 
 ### 5.4 Settlement
 
-- **Lock**: 30 min before each game's first pitch (or when lineups confirm) — snapshot all Tracked picks for that game with current SCORE/EDGE/P_matchup/confidence
+- **Lock trigger** — earliest-wins, with quality conditions:
+  - Fires when lineup is **officially confirmed** AND `now ≥ first_pitch − 90 min` (don't lock 5+ hours early on rare super-early confirmations — matchup conditions like weather can still update meaningfully), OR
+  - `now ≥ first_pitch − 30 min` regardless of lineup status (forced fallback lock with estimated lineup if not confirmed)
+- **At lock**: snapshot all Tracked picks for that game with current SCORE/EDGE/P_matchup/confidence — these become the immutable per-game record
 - **Settle**: Vercel cron at 3 AM Pacific the next day. For each Tracked pick:
   - Pull boxscore via MLB Stats API
   - Compute actual `H + R + RBI` for the player
@@ -330,16 +357,17 @@ The headline metric is **Tracked-overall hit rate over the last 30 days**. Brier
 | Framework | Next.js 16 App Router |
 | UI | React 19, Tailwind v4 (`@import "tailwindcss"`) |
 | Language | TypeScript |
-| Cache | Vercel KV (in-memory fallback for local dev) |
+| Cache | Vercel KV via `@vercel/kv@^3.0.0` (matches yrfi/nrfi/bvp-betting); `lib/kv.ts` wrapper with in-memory fallback for local dev (direct port of `yrfi/lib/kv.ts`) |
 | APIs | MLB Stats API, Baseball Savant CSV, Open-Meteo (all free, no auth) |
-| Deployment | Vercel, auto-deploys from `main` |
+| Deployment | Vercel **Pro** (required for `maxDuration: 60` on `/api/sim/[gameId]`), auto-deploys from `main` |
 | Production URL | `hrr-betting.vercel.app` |
 | Repo | `github.com/lucasreydman/hrr-betting` (public) |
 
 ### Cron schedule (`vercel.json`)
 
-- **Refresh picks**: every 5 min during slate hours (10 AM – 11 PM Pacific) — recomputes top of `/api/picks` (faster cadence triggered when any lineup is still estimated)
-- **Settle previous day**: 3 AM Pacific daily — runs `/api/settle`
+- **Sim prewarming**: every 5 min during slate hours (10 AM – 11 PM Pacific) — iterates today's games, recomputes `/api/sim/[gameId]` for any whose `(lineupHash, weatherHash)` changed since last sim
+- **Lock check**: every 5 min — for each game, if lock trigger conditions clear (see §5.4), snapshot Tracked picks to `picks:locked:YYYY-MM-DD`
+- **Settle previous day**: 3 AM Pacific daily — runs `/api/settle`, pulls boxscores, marks HIT/MISS
 
 ---
 
@@ -352,8 +380,11 @@ Mirrors yrfi/nrfi naming patterns:
 | `picks:current:YYYY-MM-DD` | Current ranked picks for today's slate (refreshed every 5 min) | 24h |
 | `picks:locked:YYYY-MM-DD` | Tracked picks snapshotted at lock-time (immutable) | 60d |
 | `picks:settled:YYYY-MM-DD` | Locked picks with HIT/MISS appended after settlement | 365d |
+| `sim:{gameId}:{lineupHash}` | Per-game 10k-iter sim result (all 9 batters' HRR distributions) | 24h |
+| `sim-meta:{gameId}` | Latest `(lineupHash, weatherHash)` and sim timestamp for invalidation check | 24h |
 | `p-typical:{playerId}:YYYY-MM-DD` | Cached P_typical replay-sim per player | 24h |
 | `pitcher-tto:{pitcherId}:YYYY-MM-DD` | Cached pitcher-specific TTO splits | 7d |
+| `pitcher-ipcdf:{pitcherId}:YYYY-MM-DD` | Cached starter IP CDF (with fallback tier metadata) | 7d |
 | `bullpen-tiers:{teamId}:WEEK` | Leverage-tier bullpen rates per team | 7d |
 | `metrics:rolling:{rung}` | Pre-computed rolling 30-day stats per rung | 1h |
 | `metrics:calibration` | Brier score history per rung | 1h |
@@ -368,7 +399,9 @@ Mirrors yrfi/nrfi naming patterns:
 hits-runs-rbis/
 ├── app/
 │   ├── api/
-│   │   ├── picks/route.ts          ← daily picks endpoint
+│   │   ├── picks/route.ts          ← daily picks endpoint (reads cached sim results)
+│   │   ├── sim/[gameId]/route.ts   ← per-game 10k-iter Monte Carlo, maxDuration: 60
+│   │   ├── lock/route.ts           ← cron-triggered Tracked-pick snapshotting
 │   │   ├── history/route.ts        ← settled-history endpoint
 │   │   └── settle/route.ts         ← cron-triggered settlement
 │   ├── page.tsx                    ← main board
@@ -454,6 +487,7 @@ hits-runs-rbis/
 - **Automated recalibration** — `scripts/recalibrate.ts` is manual run for v1; surfaces suggested floor adjustments based on settled history
 - **Backtest harness** with full historical data ingestion — separate v2 effort once a few months of forward-tracked picks exist
 - **Pitcher-specific TTO when sample is < 5 starts** — falls back to league averages until enough data accumulates
+- **2023+ ghost-runner extras rule** — not modeled; introduces a known minor downward bias on HRR for batters who play into extras (~8% of games). Revisit if 3+ Brier shows consistent miscalibration during extras-heavy stretches.
 
 ---
 
