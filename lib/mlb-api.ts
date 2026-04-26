@@ -233,6 +233,11 @@ interface RawBoxscoreResponse {
     home?: RawBoxscoreTeam
     away?: RawBoxscoreTeam
   }
+  gameData?: {
+    status?: {
+      abstractGameState?: string
+    }
+  }
 }
 
 interface RawGameLogPitcherStat {
@@ -240,6 +245,16 @@ interface RawGameLogPitcherStat {
   stat: {
     inningsPitched?: string
   }
+}
+
+type RelieverStats = {
+  id: number
+  appearances: number
+  ip: number
+  fip: number
+  kPct: number
+  bbPct: number
+  hrPer9: number
 }
 
 // ---------------------------------------------------------------------------
@@ -275,7 +290,7 @@ export async function fetchSchedule(date: string): Promise<Game[]> {
 
   const url = `${MLB_BASE}/schedule?sportId=1&date=${date}&hydrate=probablePitcher,lineups`
   const res = await fetch(url, { cache: 'no-store' })
-  if (!res.ok) throw new Error(`fetchSchedule failed: ${res.status}`)
+  if (!res.ok) return []
 
   const data: RawScheduleResponse = await res.json()
   const rawGames: RawScheduleGame[] = data.dates?.[0]?.games ?? []
@@ -315,6 +330,8 @@ export async function fetchProbablePitchers(
   // Try a targeted game endpoint to avoid fetching the full schedule
   const url = `${MLB_BASE}/schedule?sportId=1&gamePk=${gameId}&hydrate=probablePitcher`
   const res = await fetch(url, { cache: 'no-store' })
+  // Not cached on failure — { home: 0, away: 0 } is a sentinel, not a fallback;
+  // retrying immediately is correct here since the caller can re-fetch on the next request.
   if (!res.ok) return { home: 0, away: 0 }
 
   const data: RawScheduleResponse = await res.json()
@@ -458,7 +475,7 @@ async function buildEstimatedLineupForTeam(
   const res = await fetch(url, { cache: 'no-store' })
 
   if (!res.ok) {
-    // Return a completely empty lineup if we can't get any data
+    // Not cached on failure — estimated lineups change frequently; retry-immediately is correct.
     return { status: 'estimated', entries: [] }
   }
 
@@ -543,7 +560,11 @@ export async function fetchBoxscore(gameId: number): Promise<Boxscore> {
   const res = await fetch(url, { cache: 'no-store' })
 
   if (!res.ok) {
-    return { gameId, status: 'scheduled', playerStats: {} }
+    // Cache the empty fallback with a short TTL so callers don't hammer a broken endpoint,
+    // but it expires quickly enough to pick up data once the game starts.
+    const fallback: Boxscore = { gameId, status: 'scheduled', playerStats: {} }
+    await kvSet(cacheKey, fallback, 5 * 60)
+    return fallback
   }
 
   const data: RawBoxscoreResponse = await res.json()
@@ -564,9 +585,12 @@ export async function fetchBoxscore(gameId: number): Promise<Boxscore> {
     }
   }
 
-  // Derive status from game state — a rough heuristic via players having non-zero stats
-  const hasData = Object.values(playerStats).some(s => s.hits > 0 || s.runs > 0 || s.rbis > 0)
-  const status: Boxscore['status'] = hasData ? 'final' : 'scheduled'
+  // Derive status from the API's abstractGameState field
+  const rawStatus = data.gameData?.status?.abstractGameState
+  const status: Boxscore['status'] =
+    rawStatus === 'Final'   ? 'final'       :
+    rawStatus === 'Live'    ? 'in_progress' :
+                              'scheduled'
 
   const result: Boxscore = { gameId, status, playerStats }
   await kvSet(cacheKey, result, TTL_6H)
@@ -594,7 +618,9 @@ export async function fetchPitcherSeasonStats(
   const res = await fetch(url, { cache: 'no-store' })
 
   if (!res.ok) {
-    return fallbackPitcherStats(pitcherId)
+    const result = fallbackPitcherStats(pitcherId)
+    await kvSet(cacheKey, result, 5 * 60)
+    return result
   }
 
   const data: RawStatsResponse<RawPitcherStat> = await res.json()
@@ -701,7 +727,9 @@ export async function fetchBatterSeasonStats(
   const res = await fetch(url, { cache: 'no-store' })
 
   if (!res.ok) {
-    return fallbackBatterStats(batterId)
+    const result = fallbackBatterStats(batterId)
+    await kvSet(cacheKey, result, 5 * 60)
+    return result
   }
 
   const data: RawStatsResponse<RawBatterStat> = await res.json()
@@ -860,16 +888,6 @@ export async function fetchTeamBullpenStats(
 
   const splits = data.stats?.[0]?.splits ?? []
 
-  interface RelieverStats {
-    id: number
-    appearances: number
-    ip: number
-    fip: number
-    kPct: number
-    bbPct: number
-    hrPer9: number
-  }
-
   const relievers: RelieverStats[] = splits
     .filter(split => {
       const st = split.stat
@@ -957,7 +975,7 @@ export async function fetchTeamBullpenStats(
  *  vs-L batters: K slightly lower, BB slightly higher, HR slightly higher
  */
 function buildApproxSplit(
-  fip:    number,
+  _fip:   number,
   kPct:   number,
   bbPct:  number,
   hrPer9: number,
@@ -994,7 +1012,6 @@ function buildApproxSplit(
     }
   }
 
-  void fip  // available for future use (FIP-adjusted rates)
   return rates
 }
 
