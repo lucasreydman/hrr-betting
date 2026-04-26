@@ -1,0 +1,1160 @@
+/**
+ * lib/mlb-api.ts
+ *
+ * Unified MLB Stats API adapter for hits-runs-rbis.
+ *
+ * All public functions apply a 6-hour KV cache (keyed by inputs) with a
+ * live-fetch fallback on miss.  fetchPlayerSlotFrequency uses a 24-hour TTL
+ * because iterating a full season's game log is expensive.
+ *
+ * Ported and adapted from:
+ *  - yrfi/lib/mlb-api.ts  — pitcher stats, FIP helpers, linescore
+ *  - bvp-betting/lib/mlb-api.ts — schedule, BvP, boxscore, lineup history
+ *  - bvp-betting/lib/lineup-estimation.ts — estimated lineup construction
+ */
+
+import { kvGet, kvSet } from './kv'
+import type {
+  Game,
+  TeamRef,
+  Lineup,
+  LineupEntry,
+  PlayerRef,
+  Boxscore,
+  PlayerGameStats,
+  PitcherStats,
+  BatterStats,
+  BullpenStats,
+  OutcomeRates,
+  StartLine,
+  GameLogEntry,
+  BvPRecord,
+} from './types'
+
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
+const MLB_BASE = 'https://statsapi.mlb.com/api/v1'
+
+/** Standard cache TTL: 6 hours in seconds */
+const TTL_6H = 6 * 60 * 60
+
+/** Long cache TTL for expensive season-aggregation calls: 24 hours */
+const TTL_24H = 24 * 60 * 60
+
+const LEAGUE_AVG_FIP = 4.05
+const LEAGUE_AVG_K_PCT = 0.222
+const LEAGUE_AVG_BB_PCT = 0.082
+const LEAGUE_AVG_HR_PER9 = 1.28
+/** FIP constant (2023-era) */
+const FIP_CONSTANT = 3.1
+
+/** League-average outcome rates used as fallback across the board */
+const LEAGUE_AVG_OUTCOME_RATES: OutcomeRates = {
+  '1B': 0.148,
+  '2B': 0.046,
+  '3B': 0.005,
+  HR:   0.034,
+  BB:   0.082,
+  K:    0.222,
+  OUT:  0.463,
+}
+
+const SKIP_STATES = new Set(['Postponed', 'Cancelled', 'Suspended'])
+
+// ---------------------------------------------------------------------------
+// Private helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Parse MLB's fractional innings-pitched string (e.g. "85.2" = 85⅔ IP).
+ * The decimal digit is outs (0–2), so .1 = 1 out = ⅓ inning.
+ */
+function parseIP(ip: string): number {
+  const [whole, frac = '0'] = ip.split('.')
+  return parseInt(whole, 10) + parseInt(frac, 10) / 3
+}
+
+/** Derive the current MLB season from a calendar year (spring training starts ~Feb). */
+function seasonForYear(year: number): number {
+  return year  // MLB seasons match calendar year
+}
+
+/** Current season based on today's date. */
+function currentSeason(): number {
+  return seasonForYear(new Date().getFullYear())
+}
+
+/**
+ * Shift a YYYY-MM-DD date string by `days` (can be negative).
+ */
+function shiftDate(date: string, days: number): string {
+  const d = new Date(`${date}T12:00:00Z`)
+  d.setUTCDate(d.getUTCDate() + days)
+  return d.toISOString().slice(0, 10)
+}
+
+/**
+ * Compute innings-pitched-based FIP.
+ * Returns LEAGUE_AVG_FIP when ip === 0.
+ */
+function calcFip(hr: number, bb: number, hbp: number, so: number, ip: number): number {
+  if (ip === 0) return LEAGUE_AVG_FIP
+  return (13 * hr + 3 * (bb + hbp) - 2 * so) / ip + FIP_CONSTANT
+}
+
+/**
+ * Derive outcome rates from raw counting stats.
+ * PA = AB + BB + HBP + SF (approximation — MLB API doesn't always surface SF).
+ */
+function ratesFromCounts(opts: {
+  pa: number
+  hits: number
+  doubles: number
+  triples: number
+  homeRuns: number
+  baseOnBalls: number
+  strikeOuts: number
+  hitByPitch?: number
+}): OutcomeRates {
+  const { pa, hits, doubles, triples, homeRuns, baseOnBalls, strikeOuts, hitByPitch = 0 } = opts
+  if (pa === 0) return { ...LEAGUE_AVG_OUTCOME_RATES }
+  const singles = Math.max(0, hits - doubles - triples - homeRuns)
+  const bb = baseOnBalls + hitByPitch
+  const out = Math.max(0, pa - hits - bb - strikeOuts)
+  return {
+    '1B': singles / pa,
+    '2B': doubles / pa,
+    '3B': triples / pa,
+    HR:   homeRuns / pa,
+    BB:   bb / pa,
+    K:    strikeOuts / pa,
+    OUT:  out / pa,
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Raw MLB API shape types (private — not exported)
+// ---------------------------------------------------------------------------
+
+interface RawScheduleGame {
+  gamePk: number
+  gameDate: string
+  status: { detailedState: string; abstractGameState: string }
+  venue: { id: number; name: string }
+  teams: {
+    home: {
+      team: { id: number; name: string; abbreviation?: string }
+      probablePitcher?: { id: number; fullName: string }
+    }
+    away: {
+      team: { id: number; name: string; abbreviation?: string }
+      probablePitcher?: { id: number; fullName: string }
+    }
+  }
+  lineups?: {
+    homePlayers?: Array<{ id: number; fullName?: string }>
+    awayPlayers?: Array<{ id: number; fullName?: string }>
+  }
+}
+
+interface RawScheduleResponse {
+  dates?: Array<{ games?: RawScheduleGame[] }>
+}
+
+interface RawPitcherStat {
+  homeRuns: number
+  baseOnBalls: number
+  hitByPitch: number
+  strikeOuts: number
+  inningsPitched: string
+  battersFaced: number
+  era?: string
+}
+
+interface RawBatterStat {
+  plateAppearances: number
+  atBats: number
+  hits: number
+  doubles: number
+  triples: number
+  homeRuns: number
+  baseOnBalls: number
+  strikeOuts: number
+  hitByPitch?: number
+}
+
+interface RawPlayerSplitEntry<T> {
+  split?: { code?: string }
+  stat: T
+}
+
+interface RawStatsResponse<T> {
+  stats?: Array<{ splits?: RawPlayerSplitEntry<T>[] }>
+}
+
+interface RawGameLogEntry {
+  date?: string
+  stat: {
+    plateAppearances?: number
+    atBats?: number
+    hits?: number
+    doubles?: number
+    triples?: number
+    homeRuns?: number
+    baseOnBalls?: number
+    strikeOuts?: number
+    inningsPitched?: string
+  }
+}
+
+interface RawBoxscorePlayer {
+  person?: { id: number; fullName?: string }
+  stats?: {
+    batting?: {
+      hits?: number
+      runs?: number
+      rbi?: number
+    }
+  }
+  battingOrder?: string
+  position?: { code?: string; abbreviation?: string }
+}
+
+interface RawBoxscoreTeam {
+  team?: { id: number; name?: string; abbreviation?: string }
+  players?: Record<string, RawBoxscorePlayer>
+  batters?: Array<number | { id: number }>
+}
+
+interface RawBoxscoreResponse {
+  teams?: {
+    home?: RawBoxscoreTeam
+    away?: RawBoxscoreTeam
+  }
+}
+
+interface RawGameLogPitcherStat {
+  date?: string
+  stat: {
+    inningsPitched?: string
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Status mapping helpers
+// ---------------------------------------------------------------------------
+
+function mapGameStatus(raw: RawScheduleGame): Game['status'] {
+  const state = raw.status.abstractGameState
+  const detail = raw.status.detailedState
+  if (SKIP_STATES.has(detail)) return 'postponed'
+  if (state === 'Final') return 'final'
+  if (state === 'Live') return 'in_progress'
+  return 'scheduled'
+}
+
+function toTeamRef(t: { id: number; name: string; abbreviation?: string }): TeamRef {
+  return { teamId: t.id, abbrev: t.abbreviation ?? t.name.slice(0, 3).toUpperCase(), name: t.name }
+}
+
+// ---------------------------------------------------------------------------
+// Public: fetchSchedule
+// ---------------------------------------------------------------------------
+
+/**
+ * Fetch all non-postponed MLB games for `date` (YYYY-MM-DD).
+ * Hydrates probable pitchers and lineups in one call.
+ * 6-hour KV cache.
+ */
+export async function fetchSchedule(date: string): Promise<Game[]> {
+  const cacheKey = `hrr:schedule:${date}`
+  const cached = await kvGet<Game[]>(cacheKey)
+  if (cached) return cached
+
+  const url = `${MLB_BASE}/schedule?sportId=1&date=${date}&hydrate=probablePitcher,lineups`
+  const res = await fetch(url, { cache: 'no-store' })
+  if (!res.ok) throw new Error(`fetchSchedule failed: ${res.status}`)
+
+  const data: RawScheduleResponse = await res.json()
+  const rawGames: RawScheduleGame[] = data.dates?.[0]?.games ?? []
+
+  const games: Game[] = rawGames
+    .filter(g => !SKIP_STATES.has(g.status?.detailedState))
+    .map(g => ({
+      gameId:    g.gamePk,
+      gameDate:  g.gameDate,
+      homeTeam:  toTeamRef(g.teams.home.team),
+      awayTeam:  toTeamRef(g.teams.away.team),
+      venueId:   g.venue.id,
+      venueName: g.venue.name,
+      status:    mapGameStatus(g),
+    }))
+
+  await kvSet(cacheKey, games, TTL_6H)
+  return games
+}
+
+// ---------------------------------------------------------------------------
+// Public: fetchProbablePitchers
+// ---------------------------------------------------------------------------
+
+/**
+ * Return the home and away probable pitcher IDs for `gameId`.
+ * Derived from the schedule hydration — returns 0 when not yet announced.
+ * 6-hour KV cache.
+ */
+export async function fetchProbablePitchers(
+  gameId: number,
+): Promise<{ home: number; away: number }> {
+  const cacheKey = `hrr:probables:${gameId}`
+  const cached = await kvGet<{ home: number; away: number }>(cacheKey)
+  if (cached) return cached
+
+  // Try a targeted game endpoint to avoid fetching the full schedule
+  const url = `${MLB_BASE}/schedule?sportId=1&gamePk=${gameId}&hydrate=probablePitcher`
+  const res = await fetch(url, { cache: 'no-store' })
+  if (!res.ok) return { home: 0, away: 0 }
+
+  const data: RawScheduleResponse = await res.json()
+  const game = data.dates?.[0]?.games?.[0]
+
+  const result = {
+    home: game?.teams.home.probablePitcher?.id ?? 0,
+    away: game?.teams.away.probablePitcher?.id ?? 0,
+  }
+
+  await kvSet(cacheKey, result, TTL_6H)
+  return result
+}
+
+// ---------------------------------------------------------------------------
+// Private helpers: lineup construction
+// ---------------------------------------------------------------------------
+
+/** Stub PlayerRef used when we only have a player ID from the schedule lineups. */
+function stubPlayerRef(id: number, fullName?: string, teamAbbrev?: string): PlayerRef {
+  return {
+    playerId: id,
+    fullName: fullName ?? `Player ${id}`,
+    team:     teamAbbrev ?? '???',
+    bats:     'R',  // unknown — caller should hydrate if needed
+  }
+}
+
+/**
+ * Build a Lineup from a confirmed ordered list of player IDs (e.g. from boxscore.batters).
+ * Slots are 1-indexed.
+ */
+function buildConfirmedLineup(ids: number[], teamAbbrev: string): Lineup {
+  const entries: LineupEntry[] = ids.slice(0, 9).map((id, i) => ({
+    slot:   i + 1,
+    player: stubPlayerRef(id, undefined, teamAbbrev),
+  }))
+  return {
+    status:  entries.length >= 9 ? 'confirmed' : 'partial',
+    entries: entries.slice(0, 9),
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Public: fetchLineup
+// ---------------------------------------------------------------------------
+
+/**
+ * Fetch the lineup for one side of a game.
+ *
+ * Strategy (in priority order):
+ *  1. Boxscore `batters` field — confirmed, available at first pitch
+ *  2. Schedule `lineups.homePlayers` / `lineups.awayPlayers` — pre-game confirmation
+ *  3. Recent batting-order history from the previous 14 days — estimated
+ *
+ * Status field reflects which tier succeeded:
+ *  - 'confirmed'  → boxscore or schedule lineups (≥9 players)
+ *  - 'partial'    → schedule lineups present but < 9 players
+ *  - 'estimated'  → built from historical batting-order data
+ *
+ * 6-hour KV cache.
+ */
+export async function fetchLineup(
+  gameId:   number,
+  teamId:   number,
+  side:     'home' | 'away',
+  date?:    string,
+): Promise<Lineup> {
+  const cacheKey = `hrr:lineup:${gameId}:${teamId}:${side}`
+  const cached = await kvGet<Lineup>(cacheKey)
+  if (cached) return cached
+
+  // --- Tier 1: live boxscore batters ---
+  const boxUrl = `${MLB_BASE}/game/${gameId}/boxscore`
+  const boxRes = await fetch(boxUrl, { cache: 'no-store' })
+  if (boxRes.ok) {
+    const boxData: RawBoxscoreResponse = await boxRes.json()
+    const teamData = boxData.teams?.[side]
+    const teamAbbrev = teamData?.team?.abbreviation ?? '???'
+    const rawBatters = teamData?.batters ?? []
+    const ids = rawBatters
+      .map((b: number | { id: number }) => (typeof b === 'number' ? b : b.id))
+      .filter(Boolean)
+    if (ids.length >= 9) {
+      const lineup = buildConfirmedLineup(ids, teamAbbrev)
+      await kvSet(cacheKey, lineup, TTL_6H)
+      return lineup
+    }
+  }
+
+  // --- Tier 2: schedule lineups hydration ---
+  const schedUrl = `${MLB_BASE}/schedule?sportId=1&gamePk=${gameId}&hydrate=lineups`
+  const schedRes = await fetch(schedUrl, { cache: 'no-store' })
+  if (schedRes.ok) {
+    const schedData: RawScheduleResponse = await schedRes.json()
+    const game = schedData.dates?.[0]?.games?.[0]
+    const schedulePlayers = side === 'home'
+      ? (game?.lineups?.homePlayers ?? [])
+      : (game?.lineups?.awayPlayers ?? [])
+    if (schedulePlayers.length >= 9) {
+      const entries: LineupEntry[] = schedulePlayers.slice(0, 9).map((p, i) => ({
+        slot:   i + 1,
+        player: stubPlayerRef(p.id, p.fullName),
+      }))
+      const lineup: Lineup = { status: 'confirmed', entries }
+      await kvSet(cacheKey, lineup, TTL_6H)
+      return lineup
+    }
+    if (schedulePlayers.length > 0) {
+      const entries: LineupEntry[] = schedulePlayers.slice(0, 9).map((p, i) => ({
+        slot:   i + 1,
+        player: stubPlayerRef(p.id, p.fullName),
+      }))
+      const lineup: Lineup = { status: 'partial', entries }
+      await kvSet(cacheKey, lineup, TTL_6H)
+      return lineup
+    }
+  }
+
+  // --- Tier 3: estimated from recent batting-order history ---
+  const targetDate = date ?? new Date().toISOString().slice(0, 10)
+  const estimated = await buildEstimatedLineupForTeam(teamId, targetDate)
+  await kvSet(cacheKey, estimated, TTL_6H)
+  return estimated
+}
+
+/**
+ * Build an estimated 9-man lineup from recent batting-order history for `teamId`.
+ * Looks back 14 days, uses up to 6 recent games, ranks players by:
+ *  1. Number of recent starts (descending)
+ *  2. Median lineup slot (ascending)
+ *  3. Career PA (descending) — used as tiebreaker; we skip fetching it here
+ */
+async function buildEstimatedLineupForTeam(
+  teamId:      number,
+  targetDate:  string,
+): Promise<Lineup> {
+  const endDate   = shiftDate(targetDate, -1)
+  const startDate = shiftDate(endDate, -14)
+  const url = `${MLB_BASE}/schedule?sportId=1&teamId=${teamId}&startDate=${startDate}&endDate=${endDate}&hydrate=lineups`
+  const res = await fetch(url, { cache: 'no-store' })
+
+  if (!res.ok) {
+    // Return a completely empty lineup if we can't get any data
+    return { status: 'estimated', entries: [] }
+  }
+
+  const data: RawScheduleResponse = await res.json()
+  const allGames = (data.dates ?? [])
+    .flatMap(d => d.games ?? [])
+    .filter(g => !SKIP_STATES.has(g.status?.detailedState))
+    .sort((a, b) => new Date(b.gameDate).getTime() - new Date(a.gameDate).getTime())
+
+  const positions = new Map<number, number[]>()
+  let usedGames = 0
+
+  for (const game of allGames) {
+    if (usedGames >= 6) break
+    const gameSide =
+      game.teams.home.team.id === teamId ? 'home'
+      : game.teams.away.team.id === teamId ? 'away'
+      : null
+    if (!gameSide) continue
+
+    const lineupPlayers = gameSide === 'home'
+      ? (game.lineups?.homePlayers ?? [])
+      : (game.lineups?.awayPlayers ?? [])
+    if (lineupPlayers.length < 8) continue
+
+    usedGames++
+    lineupPlayers.slice(0, 9).forEach((player, idx) => {
+      const slots = positions.get(player.id) ?? []
+      slots.push(idx + 1)
+      positions.set(player.id, slots)
+    })
+  }
+
+  // Sort by: most recent starts DESC, then median slot ASC
+  const candidates = [...positions.entries()]
+    .sort(([aId, aSlots], [bId, bSlots]) => {
+      if (bSlots.length !== aSlots.length) return bSlots.length - aSlots.length
+      const aMedian = medianOf(aSlots) ?? 9
+      const bMedian = medianOf(bSlots) ?? 9
+      if (aMedian !== bMedian) return aMedian - bMedian
+      return aId - bId
+    })
+    .slice(0, 9)
+
+  const entries: LineupEntry[] = candidates.map(([id, slots], i) => ({
+    slot:   (medianOf(slots) ?? i + 1),
+    player: stubPlayerRef(id),
+  }))
+
+  // Re-sort by slot to get a consistent order
+  entries.sort((a, b) => a.slot - b.slot)
+
+  return { status: 'estimated', entries }
+}
+
+/** Return the median of an array of numbers, or null for empty array. */
+function medianOf(arr: number[]): number | null {
+  if (arr.length === 0) return null
+  const sorted = [...arr].sort((a, b) => a - b)
+  const mid = Math.floor(sorted.length / 2)
+  return sorted.length % 2 === 0
+    ? (sorted[mid - 1] + sorted[mid]) / 2
+    : sorted[mid]
+}
+
+// ---------------------------------------------------------------------------
+// Public: fetchBoxscore
+// ---------------------------------------------------------------------------
+
+/**
+ * Fetch the boxscore for `gameId`.
+ * Returns hits, runs, and RBIs per player (keyed by playerId).
+ * Used by the settle route to record final stat lines.
+ * 6-hour KV cache (no-store fetch — we want fresh data, but cache the parse).
+ */
+export async function fetchBoxscore(gameId: number): Promise<Boxscore> {
+  const cacheKey = `hrr:boxscore:${gameId}`
+  const cached = await kvGet<Boxscore>(cacheKey)
+  if (cached) return cached
+
+  const url = `${MLB_BASE}/game/${gameId}/boxscore`
+  const res = await fetch(url, { cache: 'no-store' })
+
+  if (!res.ok) {
+    return { gameId, status: 'scheduled', playerStats: {} }
+  }
+
+  const data: RawBoxscoreResponse = await res.json()
+
+  const playerStats: Record<number, PlayerGameStats> = {}
+  for (const sideKey of ['home', 'away'] as const) {
+    const players = data.teams?.[sideKey]?.players ?? {}
+    for (const [key, player] of Object.entries(players)) {
+      const id = Number(key.replace('ID', ''))
+      if (!id) continue
+      const batting = (player as RawBoxscorePlayer).stats?.batting
+      if (!batting) continue
+      playerStats[id] = {
+        hits: batting.hits  ?? 0,
+        runs: batting.runs  ?? 0,
+        rbis: batting.rbi   ?? 0,
+      }
+    }
+  }
+
+  // Derive status from game state — a rough heuristic via players having non-zero stats
+  const hasData = Object.values(playerStats).some(s => s.hits > 0 || s.runs > 0 || s.rbis > 0)
+  const status: Boxscore['status'] = hasData ? 'final' : 'scheduled'
+
+  const result: Boxscore = { gameId, status, playerStats }
+  await kvSet(cacheKey, result, TTL_6H)
+  return result
+}
+
+// ---------------------------------------------------------------------------
+// Public: fetchPitcherSeasonStats
+// ---------------------------------------------------------------------------
+
+/**
+ * Fetch a pitcher's season stat line and derive FIP, K%, BB%, HR/9.
+ * Falls back to league averages when the pitcher has insufficient data.
+ * 6-hour KV cache.
+ */
+export async function fetchPitcherSeasonStats(
+  pitcherId: number,
+  season:    number,
+): Promise<PitcherStats> {
+  const cacheKey = `hrr:pitcher:season:${pitcherId}:${season}`
+  const cached = await kvGet<PitcherStats>(cacheKey)
+  if (cached) return cached
+
+  const url = `${MLB_BASE}/people/${pitcherId}/stats?stats=season&group=pitching&season=${season}`
+  const res = await fetch(url, { cache: 'no-store' })
+
+  if (!res.ok) {
+    return fallbackPitcherStats(pitcherId)
+  }
+
+  const data: RawStatsResponse<RawPitcherStat> = await res.json()
+  const stat: RawPitcherStat | null = data.stats?.[0]?.splits?.[0]?.stat ?? null
+
+  if (!stat) {
+    const result = fallbackPitcherStats(pitcherId)
+    await kvSet(cacheKey, result, TTL_6H)
+    return result
+  }
+
+  const ip = parseIP(stat.inningsPitched)
+  const bf = stat.battersFaced ?? 0
+
+  const result: PitcherStats = {
+    pitcherId,
+    ip,
+    fip:     calcFip(stat.homeRuns, stat.baseOnBalls, stat.hitByPitch, stat.strikeOuts, ip),
+    kPct:    bf > 0 ? stat.strikeOuts / bf : LEAGUE_AVG_K_PCT,
+    bbPct:   bf > 0 ? stat.baseOnBalls / bf : LEAGUE_AVG_BB_PCT,
+    hrPer9:  ip > 0 ? (stat.homeRuns * 9) / ip : LEAGUE_AVG_HR_PER9,
+  }
+
+  await kvSet(cacheKey, result, TTL_6H)
+  return result
+}
+
+function fallbackPitcherStats(pitcherId: number): PitcherStats {
+  return {
+    pitcherId,
+    ip:     0,
+    fip:    LEAGUE_AVG_FIP,
+    kPct:   LEAGUE_AVG_K_PCT,
+    bbPct:  LEAGUE_AVG_BB_PCT,
+    hrPer9: LEAGUE_AVG_HR_PER9,
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Public: fetchPitcherRecentStarts
+// ---------------------------------------------------------------------------
+
+/**
+ * Fetch the last `n` starts for a pitcher in the current season.
+ * Returns an array of { gameDate, ip } sorted newest-first.
+ * Used by starter-share (Task 15) to build an IP CDF.
+ * 6-hour KV cache.
+ */
+export async function fetchPitcherRecentStarts(
+  pitcherId: number,
+  n:         number,
+  season?:   number,
+): Promise<StartLine[]> {
+  const s = season ?? currentSeason()
+  const cacheKey = `hrr:pitcher:starts:${pitcherId}:${s}:${n}`
+  const cached = await kvGet<StartLine[]>(cacheKey)
+  if (cached) return cached
+
+  const url = `${MLB_BASE}/people/${pitcherId}/stats?stats=gameLog&group=pitching&season=${s}`
+  const res = await fetch(url, { cache: 'no-store' })
+
+  if (!res.ok) {
+    await kvSet(cacheKey, [], TTL_6H)
+    return []
+  }
+
+  const data = await res.json() as { stats?: Array<{ splits?: RawGameLogPitcherStat[] }> }
+  const splits: RawGameLogPitcherStat[] = data.stats?.[0]?.splits ?? []
+
+  const starts: StartLine[] = splits
+    .filter(s => {
+      const ipStr = s.stat.inningsPitched ?? '0'
+      return parseIP(ipStr) > 0  // exclude relief appearances (0 IP entries)
+    })
+    .map(s => ({
+      gameDate: s.date ?? '',
+      ip: parseIP(s.stat.inningsPitched ?? '0'),
+    }))
+    .sort((a, b) => b.gameDate.localeCompare(a.gameDate))
+    .slice(0, n)
+
+  await kvSet(cacheKey, starts, TTL_6H)
+  return starts
+}
+
+// ---------------------------------------------------------------------------
+// Public: fetchBatterSeasonStats
+// ---------------------------------------------------------------------------
+
+/**
+ * Fetch a batter's season stat line and derive outcome rates.
+ * Outcome rates are derived from full-season counting stats.
+ * 6-hour KV cache.
+ */
+export async function fetchBatterSeasonStats(
+  batterId: number,
+  season:   number,
+): Promise<BatterStats> {
+  const cacheKey = `hrr:batter:season:${batterId}:${season}`
+  const cached = await kvGet<BatterStats>(cacheKey)
+  if (cached) return cached
+
+  const url = `${MLB_BASE}/people/${batterId}/stats?stats=season&group=hitting&season=${season}`
+  const res = await fetch(url, { cache: 'no-store' })
+
+  if (!res.ok) {
+    return fallbackBatterStats(batterId)
+  }
+
+  const data: RawStatsResponse<RawBatterStat> = await res.json()
+  const stat: RawBatterStat | null = data.stats?.[0]?.splits?.[0]?.stat ?? null
+
+  if (!stat || stat.plateAppearances === 0) {
+    const result = fallbackBatterStats(batterId)
+    await kvSet(cacheKey, result, TTL_6H)
+    return result
+  }
+
+  const result: BatterStats = {
+    batterId,
+    pa:    stat.plateAppearances,
+    hits:  stat.hits,
+    outcomeRates: ratesFromCounts({
+      pa:           stat.plateAppearances,
+      hits:         stat.hits,
+      doubles:      stat.doubles,
+      triples:      stat.triples,
+      homeRuns:     stat.homeRuns,
+      baseOnBalls:  stat.baseOnBalls,
+      strikeOuts:   stat.strikeOuts,
+      hitByPitch:   stat.hitByPitch,
+    }),
+  }
+
+  await kvSet(cacheKey, result, TTL_6H)
+  return result
+}
+
+function fallbackBatterStats(batterId: number): BatterStats {
+  return {
+    batterId,
+    pa:           0,
+    hits:         0,
+    outcomeRates: { ...LEAGUE_AVG_OUTCOME_RATES },
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Public: fetchBatterGameLog
+// ---------------------------------------------------------------------------
+
+/**
+ * Fetch a batter's game-by-game log for a season.
+ * Used by p-typical (Task 12) to compute L15/L30 rolling averages.
+ * Results are sorted newest-first.
+ * 6-hour KV cache.
+ */
+export async function fetchBatterGameLog(
+  batterId: number,
+  season:   number,
+): Promise<GameLogEntry[]> {
+  const cacheKey = `hrr:batter:gamelog:${batterId}:${season}`
+  const cached = await kvGet<GameLogEntry[]>(cacheKey)
+  if (cached) return cached
+
+  const url = `${MLB_BASE}/people/${batterId}/stats?stats=gameLog&group=hitting&season=${season}`
+  const res = await fetch(url, { cache: 'no-store' })
+
+  if (!res.ok) {
+    await kvSet(cacheKey, [], TTL_6H)
+    return []
+  }
+
+  const data = await res.json() as { stats?: Array<{ splits?: RawGameLogEntry[] }> }
+  const splits: RawGameLogEntry[] = data.stats?.[0]?.splits ?? []
+
+  const entries: GameLogEntry[] = splits
+    .map(s => {
+      const st = s.stat
+      const ab     = st.atBats ?? 0
+      const bb     = st.baseOnBalls ?? 0
+      const hits   = st.hits ?? 0
+      const so     = st.strikeOuts ?? 0
+      const pa     = st.plateAppearances ?? (ab + bb)
+      return {
+        gameDate:   s.date ?? '',
+        pa,
+        hits,
+        doubles:    st.doubles    ?? 0,
+        triples:    st.triples    ?? 0,
+        homeRuns:   st.homeRuns   ?? 0,
+        walks:      bb,
+        strikeouts: so,
+      }
+    })
+    .sort((a, b) => b.gameDate.localeCompare(a.gameDate))
+
+  await kvSet(cacheKey, entries, TTL_6H)
+  return entries
+}
+
+// ---------------------------------------------------------------------------
+// Public: fetchTeamBullpenStats
+// ---------------------------------------------------------------------------
+
+/**
+ * Fetch aggregate bullpen stats for a team, split into high-leverage and rest tiers.
+ *
+ * ## Leverage-tier classification
+ *
+ * MLB Stats API does not expose per-reliever leverage index (pLI) directly.
+ * Baseball Savant does, but Savant integration is deferred to a later task.
+ *
+ * v1 uses the following proxy (in priority order):
+ *
+ * 1. **FIP proxy (primary):** Among relievers with ≥10 appearances, rank by FIP ascending.
+ *    Top 3–4 pitchers by FIP = high-leverage tier.
+ *    Rationale: managers tend to deploy their best relievers in high-leverage spots.
+ *
+ * This intentionally avoids the inning-count proxy because MLB Stats season game-log
+ * endpoints don't surface per-game leverage states — that would require iterating
+ * every game log entry, which is prohibitively expensive.
+ *
+ * When Savant integration (next task) is available, replace with pLI threshold ≥ 1.2.
+ *
+ * 6-hour KV cache.
+ */
+export async function fetchTeamBullpenStats(
+  teamId: number,
+  season?: number,
+): Promise<BullpenStats> {
+  const s = season ?? currentSeason()
+  const cacheKey = `hrr:bullpen:${teamId}:${s}`
+  const cached = await kvGet<BullpenStats>(cacheKey)
+  if (cached) return cached
+
+  const url = `${MLB_BASE}/teams/${teamId}/stats?stats=season&group=pitching&season=${s}&sportId=1`
+  const res = await fetch(url, { cache: 'no-store' })
+
+  if (!res.ok) {
+    const result = fallbackBullpenStats()
+    await kvSet(cacheKey, result, TTL_6H)
+    return result
+  }
+
+  const data = await res.json() as {
+    stats?: Array<{
+      splits?: Array<{
+        player?: { id: number; fullName?: string }
+        stat: {
+          gamesPlayed?: number
+          gamesStarted?: number
+          homeRuns?: number
+          baseOnBalls?: number
+          hitByPitch?: number
+          strikeOuts?: number
+          inningsPitched?: string
+          battersFaced?: number
+        }
+      }>
+    }>
+  }
+
+  const splits = data.stats?.[0]?.splits ?? []
+
+  interface RelieverStats {
+    id: number
+    appearances: number
+    ip: number
+    fip: number
+    kPct: number
+    bbPct: number
+    hrPer9: number
+  }
+
+  const relievers: RelieverStats[] = splits
+    .filter(split => {
+      const st = split.stat
+      const starts = st.gamesStarted ?? 0
+      const games  = st.gamesPlayed  ?? 0
+      // Reliever = more relief appearances than starts, ≥10 total appearances
+      return (games - starts) >= 10 && starts < games * 0.5
+    })
+    .map(split => {
+      const st  = split.stat
+      const ip  = parseIP(st.inningsPitched ?? '0')
+      const bf  = st.battersFaced ?? 0
+      const hr  = st.homeRuns     ?? 0
+      const bb  = st.baseOnBalls  ?? 0
+      const hbp = st.hitByPitch   ?? 0
+      const so  = st.strikeOuts   ?? 0
+      return {
+        id:          split.player?.id ?? 0,
+        appearances: st.gamesPlayed ?? 0,
+        ip,
+        fip:    calcFip(hr, bb, hbp, so, ip),
+        kPct:   bf > 0 ? so / bf : LEAGUE_AVG_K_PCT,
+        bbPct:  bf > 0 ? bb / bf : LEAGUE_AVG_BB_PCT,
+        hrPer9: ip > 0 ? (hr * 9) / ip : LEAGUE_AVG_HR_PER9,
+      }
+    })
+    .sort((a, b) => a.fip - b.fip)  // ascending FIP: best pitchers first
+
+  if (relievers.length === 0) {
+    const result = fallbackBullpenStats()
+    await kvSet(cacheKey, result, TTL_6H)
+    return result
+  }
+
+  const highLevN = Math.min(4, Math.max(3, Math.ceil(relievers.length * 0.25)))
+  const highLev  = relievers.slice(0, highLevN)
+  const rest     = relievers.slice(highLevN)
+
+  function aggregateTier(tier: RelieverStats[]): BullpenStats['highLeverage'] {
+    if (tier.length === 0) {
+      return {
+        fip:    LEAGUE_AVG_FIP,
+        kPct:   LEAGUE_AVG_K_PCT,
+        bbPct:  LEAGUE_AVG_BB_PCT,
+        hrPer9: LEAGUE_AVG_HR_PER9,
+        vsR:    { ...LEAGUE_AVG_OUTCOME_RATES },
+        vsL:    { ...LEAGUE_AVG_OUTCOME_RATES },
+      }
+    }
+    // IP-weighted averages
+    const totalIp = tier.reduce((acc, r) => acc + r.ip, 0)
+    const w = (stat: keyof RelieverStats) =>
+      totalIp > 0
+        ? tier.reduce((acc, r) => acc + (r[stat] as number) * r.ip, 0) / totalIp
+        : (tier.reduce((acc, r) => acc + (r[stat] as number), 0) / tier.length)
+
+    const fip    = w('fip')
+    const kPct   = w('kPct')
+    const bbPct  = w('bbPct')
+    const hrPer9 = w('hrPer9')
+
+    // v1: vsR/vsL splits not available from this endpoint without per-split calls.
+    // Derive approximate splits by applying league-average L/R adjustments.
+    // Savant integration (next task) will replace with real splits.
+    const vsR = buildApproxSplit(fip, kPct, bbPct, hrPer9, 'R')
+    const vsL = buildApproxSplit(fip, kPct, bbPct, hrPer9, 'L')
+    return { fip, kPct, bbPct, hrPer9, vsR, vsL }
+  }
+
+  const result: BullpenStats = {
+    highLeverage: aggregateTier(highLev),
+    rest:         aggregateTier(rest.length > 0 ? rest : relievers),
+  }
+
+  await kvSet(cacheKey, result, TTL_6H)
+  return result
+}
+
+/**
+ * Build approximate vs-R / vs-L outcome rates from aggregate stats.
+ * Uses league-average platoon adjustments as a rough proxy until Savant splits are available.
+ *
+ * League-average platoon factors (rough 2023 empirical):
+ *  vs-R batters: K slightly higher, BB slightly lower, HR slightly lower
+ *  vs-L batters: K slightly lower, BB slightly higher, HR slightly higher
+ */
+function buildApproxSplit(
+  fip:    number,
+  kPct:   number,
+  bbPct:  number,
+  hrPer9: number,
+  hand:   'R' | 'L',
+): OutcomeRates {
+  const kAdj    = hand === 'R' ?  0.01 : -0.01
+  const bbAdj   = hand === 'R' ? -0.005 : 0.005
+  const hrAdj   = hand === 'R' ? -0.002 : 0.002
+
+  const adjK    = Math.max(0, kPct  + kAdj)
+  const adjBB   = Math.max(0, bbPct + bbAdj)
+  const adjHR   = Math.max(0, (hrPer9 / 9) + hrAdj)
+
+  // Rough hit rate: overall OBP minus BB minus HBP ≈ BABIP component
+  const hitRate   = 0.240  // approximate league-avg hit/PA
+  const singlesR  = hitRate - adjHR - 0.046 - 0.005  // subtract 2B, 3B, HR rates
+  const outR      = Math.max(0, 1 - adjK - adjBB - adjHR - hitRate)
+
+  const rates: OutcomeRates = {
+    '1B': Math.max(0, singlesR),
+    '2B': 0.046,
+    '3B': 0.005,
+    HR:   adjHR,
+    BB:   adjBB,
+    K:    adjK,
+    OUT:  outR,
+  }
+
+  // Normalise so rates sum to 1
+  const sum = Object.values(rates).reduce((a, b) => a + b, 0)
+  if (sum > 0) {
+    for (const key of Object.keys(rates) as (keyof OutcomeRates)[]) {
+      rates[key] /= sum
+    }
+  }
+
+  void fip  // available for future use (FIP-adjusted rates)
+  return rates
+}
+
+function fallbackBullpenStats(): BullpenStats {
+  const tier = {
+    fip:    LEAGUE_AVG_FIP,
+    kPct:   LEAGUE_AVG_K_PCT,
+    bbPct:  LEAGUE_AVG_BB_PCT,
+    hrPer9: LEAGUE_AVG_HR_PER9,
+    vsR:    { ...LEAGUE_AVG_OUTCOME_RATES },
+    vsL:    { ...LEAGUE_AVG_OUTCOME_RATES },
+  }
+  return { highLeverage: tier, rest: { ...tier } }
+}
+
+// ---------------------------------------------------------------------------
+// Public: fetchBvP
+// ---------------------------------------------------------------------------
+
+/**
+ * Fetch batter-vs-pitcher career totals.
+ * Returns null-safe defaults (0 AB) when the matchup has never occurred.
+ * 6-hour KV cache.
+ */
+export async function fetchBvP(
+  batterId:  number,
+  pitcherId: number,
+): Promise<BvPRecord> {
+  const cacheKey = `hrr:bvp:${batterId}:${pitcherId}`
+  const cached = await kvGet<BvPRecord>(cacheKey)
+  if (cached) return cached
+
+  const url = `${MLB_BASE}/people/${batterId}/stats?stats=vsPlayerTotal&opposingPlayerId=${pitcherId}&group=hitting`
+  const res = await fetch(url, { cache: 'no-store' })
+
+  const empty: BvPRecord = { ab: 0, hits: 0, '1B': 0, '2B': 0, '3B': 0, HR: 0, BB: 0, K: 0 }
+
+  if (!res.ok) {
+    await kvSet(cacheKey, empty, TTL_6H)
+    return empty
+  }
+
+  const data = await res.json() as {
+    stats?: Array<{
+      splits?: Array<{
+        stat: {
+          atBats:      number
+          hits:        number
+          doubles:     number
+          triples:     number
+          homeRuns:    number
+          baseOnBalls: number
+          strikeOuts:  number
+          hitByPitch?: number
+        }
+      }>
+    }>
+  }
+
+  const split = data.stats?.[0]?.splits?.[0]
+  if (!split) {
+    await kvSet(cacheKey, empty, TTL_6H)
+    return empty
+  }
+
+  const s = split.stat
+  const singles = Math.max(0, s.hits - s.doubles - s.triples - s.homeRuns)
+  const result: BvPRecord = {
+    ab:   s.atBats,
+    hits: s.hits,
+    '1B': singles,
+    '2B': s.doubles,
+    '3B': s.triples,
+    HR:   s.homeRuns,
+    BB:   s.baseOnBalls + (s.hitByPitch ?? 0),
+    K:    s.strikeOuts,
+  }
+
+  await kvSet(cacheKey, result, TTL_6H)
+  return result
+}
+
+// ---------------------------------------------------------------------------
+// Public: fetchPlayerSlotFrequency
+// ---------------------------------------------------------------------------
+
+/**
+ * Compute the historical lineup-slot distribution for a player in a given season.
+ *
+ * Iterates every game log entry for the season, inspects the lineup for each
+ * game the player appeared in as a starter (batting order present, not a
+ * pinch-hit appearance), and counts how many times they batted in each slot.
+ *
+ * Returns a normalized fraction map, e.g. `{ 4: 0.80, 3: 0.20 }`.
+ * Returns an empty object when the player has no lineup data for the season.
+ *
+ * Implementation note:
+ *  MLB Stats game-log endpoint (`stats=gameLog&group=hitting`) returns per-game
+ *  splits that include a `battingOrder` field when lineup data is available.
+ *  We parse that field (a 3-digit string like "400" → slot 4) rather than
+ *  making individual game-level calls, which would be prohibitively expensive.
+ *
+ * 24-hour KV cache — this is expensive and changes rarely during the season.
+ */
+export async function fetchPlayerSlotFrequency(
+  playerId: number,
+  season:   number,
+): Promise<Record<number, number>> {
+  const cacheKey = `hrr:slotfreq:${playerId}:${season}`
+  const cached = await kvGet<Record<number, number>>(cacheKey)
+  if (cached) return cached
+
+  const url = `${MLB_BASE}/people/${playerId}/stats?stats=gameLog&group=hitting&season=${season}`
+  const res = await fetch(url, { cache: 'no-store' })
+
+  if (!res.ok) {
+    await kvSet(cacheKey, {}, TTL_24H)
+    return {}
+  }
+
+  const data = await res.json() as {
+    stats?: Array<{
+      splits?: Array<{
+        stat: { plateAppearances?: number }
+        battingOrder?: string  // e.g. "400" → slot 4, or absent for PH
+        isHome?: boolean
+        date?: string
+      }>
+    }>
+  }
+
+  const splits = data.stats?.[0]?.splits ?? []
+  const slotCounts: Record<number, number> = {}
+
+  for (const split of splits) {
+    const orderStr = split.battingOrder
+    if (!orderStr) continue  // pinch-hit or no lineup data
+    // MLB batting-order is a 3-char string: "100" = slot 1, "400" = slot 4
+    const slot = parseInt(orderStr[0], 10)
+    if (slot < 1 || slot > 9) continue
+    // Exclude pinch-hit appearances (batting order ends in non-zero, e.g. "401" = PH for #4 slot)
+    const isPinchHit = orderStr.length >= 3 && orderStr[2] !== '0'
+    if (isPinchHit) continue
+    slotCounts[slot] = (slotCounts[slot] ?? 0) + 1
+  }
+
+  const total = Object.values(slotCounts).reduce((a, b) => a + b, 0)
+  const freq: Record<number, number> = {}
+  if (total > 0) {
+    for (const [slot, count] of Object.entries(slotCounts)) {
+      freq[Number(slot)] = count / total
+    }
+  }
+
+  await kvSet(cacheKey, freq, TTL_24H)
+  return freq
+}
+
+// ---------------------------------------------------------------------------
+// Re-export parseIP for callers that need it (e.g. starter-share)
+// ---------------------------------------------------------------------------
+
+export { parseIP }
