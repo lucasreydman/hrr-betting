@@ -93,3 +93,22 @@ export interface BvPRecord {
   BB: number
   K: number
 }
+
+// --- Baseball Savant Statcast metrics ---
+
+export interface BatterStatcast {
+  batterId: number
+  barrelPct: number      // 0-1
+  hardHitPct: number     // 0-1
+  xwOBA: number
+  xISO: number
+  avgExitVelo: number
+}
+
+export interface PitcherStatcast {
+  pitcherId: number
+  barrelsAllowedPct: number
+  hardHitPctAllowed: number
+  xwOBAAllowed: number
+  whiffPct: number
+}
