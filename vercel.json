@@ -1,0 +1,17 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "functions": {
+    "app/api/sim/[gameId]/route.ts": { "maxDuration": 60 },
+    "app/api/sim/route.ts": { "maxDuration": 60 },
+    "app/api/lock/route.ts": { "maxDuration": 30 },
+    "app/api/settle/route.ts": { "maxDuration": 60 },
+    "app/api/picks/route.ts": { "maxDuration": 30 }
+  },
+  "crons": [
+    { "path": "/api/sim", "schedule": "*/5 14-23 * * *" },
+    { "path": "/api/sim", "schedule": "*/5 0-6 * * *" },
+    { "path": "/api/lock", "schedule": "*/5 14-23 * * *" },
+    { "path": "/api/lock", "schedule": "*/5 0-6 * * *" },
+    { "path": "/api/settle", "schedule": "0 10 * * *" }
+  ]
+}
