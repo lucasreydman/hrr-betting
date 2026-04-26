@@ -1,4 +1,20 @@
+import { createHash } from 'crypto'
 import type { WeatherData } from './types'
+
+export function weatherHash(w: { temp?: number; tempF?: number; windSpeed?: number; windSpeedMph?: number; windDirection?: number; windFromDegrees?: number }): string {
+  // Accept either spec naming (temp/windSpeed/windDirection) or internal naming (tempF/windSpeedMph/windFromDegrees)
+  const temp = w.tempF ?? w.temp ?? 70
+  const wind = w.windSpeedMph ?? w.windSpeed ?? 0
+  const dir = w.windFromDegrees ?? w.windDirection ?? 0
+
+  // Round to coarse buckets so trivial forecast jitter doesn't invalidate sim cache
+  const rounded = {
+    temp: Math.round(temp / 5) * 5,    // 5°F buckets
+    wind: Math.round(wind / 3) * 3,    // 3 mph buckets
+    dir: Math.round(dir / 30) * 30,    // 30° buckets
+  }
+  return createHash('sha1').update(JSON.stringify(rounded)).digest('hex').slice(0, 12)
+}
 
 export interface StadiumConstants {
   venueId: number

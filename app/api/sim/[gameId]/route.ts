@@ -26,11 +26,10 @@ import {
   fetchProbablePitchers,
 } from '@/lib/mlb-api'
 import { fetchLineup, lineupHash } from '@/lib/lineup'
-import { fetchWeather } from '@/lib/weather-api'
+import { fetchWeather, weatherHash } from '@/lib/weather-api'
 import { getParkFactors } from '@/lib/park-factors'
-import { createHash } from 'crypto'
 import { buildBatterContext, parkFactorsToOutcomeMap, neutralWeatherFactors } from './build-context'
-import type { WeatherData, Handedness } from '@/lib/types'
+import type { Handedness } from '@/lib/types'
 
 // ---------------------------------------------------------------------------
 // Vercel config
@@ -59,17 +58,6 @@ type SimEnvelope = {
 
 const SIM_TTL = 24 * 60 * 60  // 24 hours
 const SIM_ITERATIONS = 1000
-
-// ---------------------------------------------------------------------------
-// weatherHash helper
-// weatherHash is not yet exported from lib/weather-api (Task 18b adds it).
-// Use a local implementation for now.
-// ---------------------------------------------------------------------------
-
-function localWeatherHash(w: WeatherData): string {
-  const canonical = `${w.tempF}:${w.windSpeedMph}:${w.windFromDegrees}:${w.failure}:${w.controlled}`
-  return createHash('sha1').update(canonical).digest('hex').slice(0, 12)
-}
 
 // ---------------------------------------------------------------------------
 // Route context type (Next.js App Router)
@@ -109,7 +97,7 @@ export async function GET(req: NextRequest, ctx: RouteContext): Promise<NextResp
 
   // --- Build weather hash ---
   const weather = await fetchWeather(game.venueId, game.gameDate)
-  const weatherH = localWeatherHash(weather)
+  const weatherH = weatherHash(weather)
 
   // --- Check cache ---
   const metaKey = `sim-meta:${gameId}`
