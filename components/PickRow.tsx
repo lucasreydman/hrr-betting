@@ -38,7 +38,7 @@ export function PickRow({ pick }: { pick: Pick }) {
         <div className="text-xs text-ink-muted">conf</div>
       </div>
       <div className="col-span-2 text-right font-mono">
-        <div className="text-lg font-semibold">{pick.score.toFixed(2)}</div>
+        <div className="text-lg font-semibold">{(pick.score * 100).toFixed(1)}</div>
         <div className="text-xs text-ink-muted">score</div>
       </div>
     </div>
