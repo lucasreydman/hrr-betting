@@ -1,18 +1,17 @@
 name: Cron — sim/lock/settle
 
-# Replaces Vercel Cron (which on Hobby is capped at 2 schedules / once-per-day).
+# Replaces Vercel Cron (Hobby is capped at 2 schedules / once-per-day).
 # GitHub Actions free tier: 2000 min/mo on public repos. We use ~50.
 # Cron has 5-15 min jitter on free tier — fine for our use case.
 
 on:
   schedule:
     # Sim prewarm + lock check: every 5 min during slate hours (UTC).
-    # Slate roughly = 17:00 UTC (10 AM Pacific) – 06:00 UTC next day (11 PM Pacific).
-    # GitHub Actions cron is UTC-based.
-    - cron: '*/5 17-23 * * *'   # 17-23 UTC
-    - cron: '*/5 0-6 * * *'     # 0-6 UTC (continuation through PT evening)
+    # Slate ≈ 17:00 UTC (10 AM Pacific) – 06:00 UTC next day (11 PM Pacific).
+    - cron: '*/5 17-23 * * *'
+    - cron: '*/5 0-6 * * *'
 
-    # Settle: daily at 10:00 UTC (3 AM PDT / 2 AM PST). Runs after games are final.
+    # Settle: daily at 10:00 UTC (3 AM PDT / 2 AM PST).
     - cron: '0 10 * * *'
 
   # Allow manual trigger from GitHub UI (Actions tab → Run workflow)
@@ -27,18 +26,52 @@ on:
 
 jobs:
   sim:
-    # Prewarm sims for today's slate
     if: github.event_name == 'schedule' && github.event.schedule != '0 10 * * *' || (github.event_name == 'workflow_dispatch' && github.event.inputs.job == 'sim')
     runs-on: ubuntu-latest
     steps:
-      - name: Trigger /api/sim
+      - name: Get today's eligible game IDs
+        id: list
         run: |
-          curl --silent --show-error --fail \
+          set -e
+          DATE=$(date -u +%Y-%m-%d)
+          echo "date=$DATE" >> "$GITHUB_OUTPUT"
+
+          RESPONSE=$(curl --silent --show-error --fail \
             -H "x-cron-secret: ${{ secrets.CRON_SECRET }}" \
-            "${{ secrets.VERCEL_DEPLOY_URL }}/api/sim"
+            "${{ secrets.VERCEL_DEPLOY_URL }}/api/sim?date=$DATE")
+
+          echo "Orchestrator response:"
+          echo "$RESPONSE" | jq .
+
+          # Extract eligible game IDs into a space-separated list
+          GAME_IDS=$(echo "$RESPONSE" | jq -r '.summary[] | select(.status == "eligible") | .gameId' | tr '\n' ' ')
+          echo "game_ids=$GAME_IDS" >> "$GITHUB_OUTPUT"
+          echo "Found $(echo "$GAME_IDS" | wc -w) eligible games"
+
+      - name: Warm per-game sims in parallel
+        if: steps.list.outputs.game_ids != ''
+        run: |
+          set -e
+          DATE="${{ steps.list.outputs.date }}"
+          GAME_IDS="${{ steps.list.outputs.game_ids }}"
+
+          # Fire one curl per game in the background; each Vercel function
+          # invocation gets its own 10s budget. Per-endpoint cache check skips
+          # work if hashes are unchanged (returns ~100ms with fromCache=true).
+          for gameId in $GAME_IDS; do
+            (
+              echo "→ Kicking sim for game $gameId"
+              curl --silent --show-error --max-time 15 \
+                -H "x-cron-secret: ${{ secrets.CRON_SECRET }}" \
+                "${{ secrets.VERCEL_DEPLOY_URL }}/api/sim/$gameId?date=$DATE" \
+                -o /dev/null \
+                -w "← Game $gameId: HTTP %{http_code} in %{time_total}s\n"
+            ) &
+          done
+          wait
+          echo "All sims complete"
 
   lock:
-    # Lock-trigger check
     if: github.event_name == 'schedule' && github.event.schedule != '0 10 * * *' || (github.event_name == 'workflow_dispatch' && github.event.inputs.job == 'lock')
     runs-on: ubuntu-latest
     steps:
@@ -49,7 +82,6 @@ jobs:
             "${{ secrets.VERCEL_DEPLOY_URL }}/api/lock"
 
   settle:
-    # Settle previous day's locked picks (only the daily 10 UTC schedule)
     if: github.event_name == 'schedule' && github.event.schedule == '0 10 * * *' || (github.event_name == 'workflow_dispatch' && github.event.inputs.job == 'settle')
     runs-on: ubuntu-latest
     steps:
