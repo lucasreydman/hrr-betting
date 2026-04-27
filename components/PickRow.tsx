@@ -52,7 +52,17 @@ function useLocalTime(iso: string | undefined) {
 }
 
 function LineupBadge({ status }: { status: Pick['lineupStatus'] }) {
-  if (status === 'confirmed') return null
+  if (status === 'confirmed') {
+    return (
+      <span
+        className="ml-1 inline-flex items-center rounded border border-hit/40 bg-hit/10 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider leading-none text-hit"
+        title="Lineup confirmed"
+        aria-label="Lineup confirmed"
+      >
+        ✓
+      </span>
+    )
+  }
   return (
     <span className="ml-1 rounded border border-warn/40 bg-warn/10 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider text-warn">
       {status === 'estimated' ? 'est' : 'partial'}
@@ -63,21 +73,25 @@ function LineupBadge({ status }: { status: Pick['lineupStatus'] }) {
 function PitcherBadge({ status }: { status: Pick['opposingPitcher']['status'] }) {
   if (status === 'tbd') {
     return (
-      <span className="ml-1 rounded border border-warn/40 bg-warn/10 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider text-warn">
+      <span className="ml-1 rounded border border-border-strong/70 bg-border/30 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider text-ink-muted">
         TBD
       </span>
     )
   }
   if (status === 'probable') {
     return (
-      <span className="ml-1 text-[11px] uppercase tracking-wider text-ink-muted">
-        probable
+      <span className="ml-1 rounded border border-hit/40 bg-hit/10 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider text-hit">
+        prob
       </span>
     )
   }
   return (
-    <span className="ml-1 text-[11px] uppercase tracking-wider text-hit">
-      confirmed
+    <span
+      className="ml-1 inline-flex items-center rounded border border-hit/40 bg-hit/10 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider leading-none text-hit"
+      title="Pitcher confirmed"
+      aria-label="Pitcher confirmed"
+    >
+      ✓
     </span>
   )
 }
