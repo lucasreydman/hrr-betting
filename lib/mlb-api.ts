@@ -29,6 +29,7 @@ import type {
   StartLine,
   GameLogEntry,
   BvPRecord,
+  Handedness,
 } from './types'
 
 // ---------------------------------------------------------------------------
