@@ -494,7 +494,12 @@ export async function fetchLineup(
   side:     'home' | 'away',
   date?:    string,
 ): Promise<Lineup> {
-  const cacheKey = `hrr:lineup:${gameId}:${teamId}:${side}`
+  // `v2:` prefix bump (was `hrr:lineup:{gameId}:...`) — forces a re-fetch
+  // for any lineup cached under the old median-based slot logic, which
+  // could produce fractional slots like 4.5 and assign multiple players
+  // to the same slot. The new mode-based estimator guarantees integer
+  // slots 1-9 with no duplicates.
+  const cacheKey = `hrr:lineup:v2:${gameId}:${teamId}:${side}`
   const cached = await kvGet<Lineup>(cacheKey)
   if (cached) return cached
 
