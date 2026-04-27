@@ -1,13 +1,22 @@
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { settlePicks } from '@/lib/tracker'
+import { verifyCronRequest } from '@/lib/cron-auth'
 
-export const maxDuration = 60
+// Settle reads boxscores for ~5-15 picks. Each fetch is ~200-500ms; even with
+// 20 picks we're under 10s.
+export const maxDuration = 10
 
 /**
  * Cron endpoint: 3 AM Pacific (10 AM UTC).
  * Settle the previous day's Tracked picks by pulling boxscores.
+ *
+ * Auth: requires `x-cron-secret` header matching CRON_SECRET env var.
  */
-export async function GET(): Promise<NextResponse> {
+export async function GET(req: NextRequest): Promise<NextResponse> {
+  if (!verifyCronRequest(req)) {
+    return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
+  }
+
   // "Previous day" = yesterday in Pacific time
   const now = new Date()
   // Compute Pacific date — Vercel runs in UTC; PT is UTC-7 or -8

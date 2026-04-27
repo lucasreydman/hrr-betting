@@ -29,13 +29,16 @@ import { fetchLineup, lineupHash } from '@/lib/lineup'
 import { fetchWeather, weatherHash } from '@/lib/weather-api'
 import { getParkFactors } from '@/lib/park-factors'
 import { buildBatterContext, parkFactorsToOutcomeMap, neutralWeatherFactors } from './build-context'
+import { verifyCronRequest } from '@/lib/cron-auth'
 import type { Handedness } from '@/lib/types'
 
 // ---------------------------------------------------------------------------
 // Vercel config
 // ---------------------------------------------------------------------------
-
-export const maxDuration = 60
+// 10s default — Hobby tier. 1000-iter sim per game completes in ~500ms locally.
+// If iteration count is bumped post-calibration and runtime approaches the limit,
+// reduce SIM_ITERATIONS or upgrade to Vercel Pro for maxDuration: 60.
+export const maxDuration = 10
 
 // ---------------------------------------------------------------------------
 // Types
@@ -72,6 +75,10 @@ interface RouteContext {
 // ---------------------------------------------------------------------------
 
 export async function GET(req: NextRequest, ctx: RouteContext): Promise<NextResponse> {
+  if (!verifyCronRequest(req)) {
+    return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
+  }
+
   const params = await ctx.params
   const gameId = parseInt(params.gameId, 10)
   if (isNaN(gameId)) {

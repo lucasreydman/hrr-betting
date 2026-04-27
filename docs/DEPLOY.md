@@ -1,169 +1,160 @@
 # HRR Betting — Deployment Runbook
 
-This is the manual-action checklist for taking the codebase from "v0.1.0-rc1 on `main`" to "live at `hrr-betting.vercel.app`."
+Manual checklist for taking the codebase from "v0.1.0-rc2 on `main`" to "live at `hrr-betting.vercel.app`."
 
-**Current state:** all 32 code tasks complete, build/lint/tests clean, pushed to `main`. The only remaining steps are external infrastructure (Vercel project + KV + domain) which require dashboard access.
+**Stack at deploy time:**
+- **Vercel Hobby** (free) — hosts the Next.js app, no `maxDuration` overrides needed
+- **Vercel KV** — hot caches (sim results, P_typical, weather, Savant CSVs)
+- **Supabase free tier** — persistent picks history (locked_picks, settled_picks)
+- **GitHub Actions cron** (free on public repos) — sim prewarm, lock checks, daily settle
 
 ---
 
-## Phase 8 / Task 33 — Vercel project setup
+## 1. Vercel project setup (Hobby tier — free)
 
-### 1. Link the repo to Vercel
-
-From the repo root in your terminal:
+### 1a. Link repo
 
 ```bash
 cd C:/Users/lucas/dev/hits-runs-rbis
 npx vercel link
 ```
 
-When prompted: "Set up and deploy?" → **Yes** → "Create new project?" → **Yes** → name it **`hrr-betting`** → confirm scope (your personal Vercel team).
+When prompted: "Set up and deploy?" → **Yes** → "Create new project?" → **Yes** → name **`hrr-betting`** → confirm scope.
 
-**Alternative (dashboard):** go to vercel.com/new → Import Git Repository → select `lucasreydman/hrr-betting` → name it `hrr-betting`.
+(Or import via dashboard at vercel.com/new → Git Repository → `lucasreydman/hrr-betting`.)
 
-### 2. Provision Vercel KV
+### 1b. Provision Vercel KV
 
-Dashboard → your project (`hrr-betting`) → **Storage** tab → **Create Database** → **KV** → attach to the `hrr-betting` project. Vercel auto-injects:
+Project dashboard → **Storage** tab → **Create Database** → **KV** → attach to `hrr-betting`. Vercel auto-injects:
 - `KV_REST_API_URL`
 - `KV_REST_API_TOKEN`
 - `KV_REST_API_READ_ONLY_TOKEN`
 
-Verify in Project Settings → **Environment Variables** that these three are present in the Production scope.
+Verify in Project Settings → Environment Variables.
 
-### 3. Upgrade to Vercel Pro
+### 1c. Domain alias
 
-**Required.** The Hobby tier caps `maxDuration` at 10s and does not run cron jobs. The sim endpoint needs `maxDuration: 60`.
+Settings → **Domains** → confirm `hrr-betting.vercel.app` is listed (Vercel reserves it because the project name matches).
 
-Settings → Plan → Upgrade to Pro ($20/mo as of 2025).
+### 1d. **Stay on Hobby** — do NOT upgrade to Pro
 
-### 4. Domain alias
+Hobby is intentionally fine for this app:
+- `maxDuration` defaults to 10s. The 10k-iter Monte Carlo for one game completes in ~500ms locally, well under that.
+- Vercel cron is disabled — we use GitHub Actions instead (see step 4).
+- Vercel KV on Hobby has generous free limits (3k requests/day, 256MB storage).
 
-Settings → **Domains**. By default Vercel assigns `hrr-betting.vercel.app` because the project name matches. Verify it's listed; if not, add it manually.
+---
 
-If you want a custom domain later (e.g. `hrr.lucasreydman.com`), add it here too.
+## 2. Supabase project setup (free tier)
 
-### 5. First deploy
+### 2a. Create the project (you already did this)
+
+If not done: supabase.com → New Project → name `hrr-betting`, region East US (`aws-us-east-1`) to match Vercel `iad1`. Free plan. Save the database password in your password manager.
+
+### 2b. Link the local CLI to the remote project
+
+The CLI is already installed locally (`devDependency: supabase` in package.json). You need to log in via OAuth and link to your project:
+
+```bash
+cd C:/Users/lucas/dev/hits-runs-rbis
+npx supabase login                                    # browser OAuth — approve in browser
+npx supabase link --project-ref hzfzuemmhjnnlptoyqlg  # paste DB password when prompted
+```
+
+### 2c. Apply the migration
+
+```bash
+npx supabase db push
+```
+
+This applies `supabase/migrations/20260426000000_initial_schema.sql` to your remote project, creating `locked_picks` and `settled_picks` tables with proper indexes and RLS enabled. ~5 sec.
+
+To verify in the Supabase dashboard: Tables tab → you should see both tables; click each to confirm RLS is on with no policies (locked to service-role-only access).
+
+### 2d. Get the service role key for Vercel
+
+Supabase dashboard → Project Settings → API → **`service_role`** key. **Do not paste this in chat.** Copy directly into the Vercel env var below.
+
+---
+
+## 3. Vercel env vars
+
+Project Settings → Environment Variables → add the following to **Production** scope:
+
+| Name | Value |
+|---|---|
+| `SUPABASE_URL` | `https://hzfzuemmhjnnlptoyqlg.supabase.co` |
+| `SUPABASE_SERVICE_ROLE_KEY` | (from step 2d — secret) |
+| `CRON_SECRET` | `tixqKv4paliuUCi3Dvfudw1S8Sh6TM-ZabL5RvDw16w` |
+
+The `CRON_SECRET` was pre-generated for you and lives in this repo's deploy notes. Use the same value in the next step.
+
+---
+
+## 4. GitHub Actions secrets (free cron replacement)
+
+Repo → Settings → Secrets and variables → **Actions** → New repository secret:
+
+| Name | Value |
+|---|---|
+| `VERCEL_DEPLOY_URL` | `https://hrr-betting.vercel.app` (after first deploy succeeds) |
+| `CRON_SECRET` | same value as the Vercel one above |
+
+The workflow at `.github/workflows/cron.yml` triggers three jobs on these schedules (UTC):
+- `sim` — every 5 min from 17-23 UTC and 0-6 UTC (slate hours)
+- `lock` — same schedule
+- `settle` — once daily at 10 UTC (3 AM Pacific)
+
+Note: GitHub Actions cron has 5-15 min jitter on free tier — fine for our use case (eventually-consistent refresh, not exact-time triggers). Total compute usage is ~50 min/month against a 2000 min/month free quota.
+
+---
+
+## 5. First deploy
 
 After steps 1-4 are complete:
 
 ```bash
-git push origin main  # if not already pushed
+git push origin main
 ```
 
-Or trigger from dashboard. The build should:
+Or trigger from the Vercel dashboard. Build should:
 - Compile Next.js
 - Bundle all routes (verify in build output: `/`, `/history`, `/methodology`, `/api/picks`, `/api/sim`, `/api/sim/[gameId]`, `/api/lock`, `/api/settle`, `/api/history`)
 - Static-generate `/methodology`
 
 If the build fails, check Vercel logs.
 
-### 6. Verify cron jobs registered
+### Manually fire the first cron
 
-Dashboard → **Cron Jobs** tab. Should show 5 schedules:
-| Path | Schedule (UTC) | Purpose |
-|---|---|---|
-| `/api/sim` | `*/5 14-23 * * *` | Sim prewarm (afternoon-evening UTC) |
-| `/api/sim` | `*/5 0-6 * * *` | Sim prewarm (early morning UTC, evening Pacific) |
-| `/api/lock` | `*/5 14-23 * * *` | Lock-trigger check |
-| `/api/lock` | `*/5 0-6 * * *` | Lock-trigger check (continued) |
-| `/api/settle` | `0 10 * * *` | Daily settle at 3 AM Pacific (10 UTC) |
+To trigger the first sim warmup without waiting:
+- GitHub → repo → Actions tab → "Cron — sim/lock/settle" → "Run workflow" → choose `sim` → Run.
 
-If they're missing, the `vercel.json` config didn't deploy — check for typos.
+After ~30 sec the workflow log should show `200 OK` from `/api/sim`. Then visit `https://hrr-betting.vercel.app/` to see the slate populate.
 
 ---
 
-## Phase 8 / Task 34 — Local end-to-end test (optional but recommended before relying on production)
+## 6. Smoke test (production)
 
-### 1. Run dev server with real MLB data
+After the first deploy and first cron run:
 
-```bash
-npm run dev
-```
+- `https://hrr-betting.vercel.app/` — main slate (3 boards, may show "warming" if sims are still in flight)
+- `https://hrr-betting.vercel.app/history` — empty until first settle (returns `0/0` rates)
+- `https://hrr-betting.vercel.app/methodology` — static documentation
 
-Note: locally there's no Vercel KV, so the in-memory fallback is used. Cache TTLs apply but caches reset on every restart.
+### Verify cron jobs registered
 
-### 2. Hit `/api/picks` for today
+GitHub Actions tab → "Cron — sim/lock/settle" workflow → see the three jobs listed. Their first-fire happens at the next 5-minute mark UTC.
 
-Pick a date during MLB regular season (April-October):
-
-```bash
-curl 'http://localhost:3000/api/picks?date=2025-07-04' | head -100
-```
-
-Expected: JSON `PicksResponse` with `rung1`, `rung2`, `rung3` arrays. May be empty on early calls — the simulator runs lazily; `gamesWithoutSim` will list game IDs that need warming.
-
-### 3. Warm a game manually
-
-Pick a `gameId` from today's MLB schedule and trigger the sim:
-
-```bash
-curl 'http://localhost:3000/api/sim/{gameId}?date=2025-07-04'
-```
-
-Should complete in 5-15 seconds (10k-iter Monte Carlo for 1 game). On second call, returns instantly with `fromCache: true`.
-
-### 4. Trigger the prewarm orchestrator
-
-```bash
-curl 'http://localhost:3000/api/sim?date=2025-07-04'
-```
-
-Iterates today's games, runs sim for any whose lineup/weather hash has changed. Returns a per-game summary.
-
-### 5. Test lock + settle paths
-
-```bash
-curl 'http://localhost:3000/api/lock'    # checks if any game is past lock trigger
-curl 'http://localhost:3000/api/settle'  # tries to settle yesterday's locked picks
-```
-
-Both should return JSON status responses without errors.
-
-### 6. Visit the pages
-
-- `http://localhost:3000/` — main slate (3 boards)
-- `http://localhost:3000/history` — empty until first settle (returns `{ rolling30Day: { overall: { hits: 0, total: 0, rate: 0 }, ... } }`)
-- `http://localhost:3000/methodology` — static documentation page
-
----
-
-## Phase 8 / Task 35 — Production smoke test
-
-After the first Vercel deploy succeeds:
-
-### 1. Visit the production URL
-
-`https://hrr-betting.vercel.app/` — main slate page should render (may show "0 tracked" with empty boards if it's the first refresh).
-
-`https://hrr-betting.vercel.app/methodology` — documentation page renders.
-
-### 2. Trigger sim warmup manually (first run)
-
-The cron runs every 5 minutes, so picks should populate within 5-10 minutes of first deploy. To force-warm immediately:
-
-```bash
-curl 'https://hrr-betting.vercel.app/api/sim'
-```
-
-Wait for the response, then refresh `/`.
-
-### 3. Verify cron is firing
-
-Vercel dashboard → **Logs** → filter by function. Should see:
-- `/api/sim` invocations every 5 min during slate hours
-- `/api/lock` invocations every 5 min during slate hours
-- `/api/settle` invocation at ~10 UTC daily
-
-### 4. First-day end-to-end validation
+### Verify Supabase rows after first lock + settle
 
 After the first MLB game day completes:
-1. Wait for the 3 AM Pacific settle cron
-2. Visit `/history` — should show settled picks for the previous day
-3. Verify Brier scores, calibration table populates
+1. Wait for ~3 AM Pacific settle workflow run
+2. Supabase dashboard → Tables → `locked_picks` and `settled_picks` should have rows
+3. Visit `/history` — should show settled picks for the previous day
 
 ---
 
-## Calibration kickoff (post-launch, ~30 days)
+## 7. Calibration kickoff (post-launch, ~30 days)
 
 Once you have ~30 days of settled history, run:
 
@@ -171,17 +162,11 @@ Once you have ~30 days of settled history, run:
 npx tsx scripts/recalibrate.ts
 ```
 
-(Install `tsx` if needed: `npm i -D tsx`.)
+(Install `tsx` if needed: `npm i -D tsx`. Set `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` in your shell first — or just `vercel env pull .env.local` to grab them.)
 
-The script reports:
-- Per-rung hit rate vs predicted average (calibration delta)
-- Brier scores
-- Hit rate by EDGE bucket
-
-Use the output to adjust the floors in `lib/constants.ts`:
+The script reports per-rung Brier scores and hit rate by EDGE bucket. Use the output to adjust the floors in `lib/constants.ts`:
 - `EDGE_FLOORS` — raise if too many low-edge picks are slipping through
 - `PROB_FLOORS` — raise if low-probability picks have poor hit rates
-- Stabilization weights (`STABILIZATION_PA` in same file) — only adjust if you have evidence the model is over- or under-shrinking
 
 Commit floor adjustments as `chore(calibration): tune Tracked floors based on N days settled history`.
 
@@ -189,13 +174,14 @@ Commit floor adjustments as `chore(calibration): tune Tracked floors based on N 
 
 ## Out of scope for v0.1.0 (deferred)
 
-- Book odds integration (compare EDGE to actual sportsbook lines)
+- Book odds integration
 - Discord notifications
 - Mobile-specific layouts
 - Automated recalibration cron
-- 2023+ ghost-runner extras rule (documented as ~0.5% downward bias on rung probabilities)
-- Per-handedness park HR factors (currently both `vsR`/`vsL` use the same value)
-- Per-pitcher TTO splits from Statcast pitch-level data (currently league-avg fallback)
+- 2023+ ghost-runner extras rule
+- Per-handedness park HR factors
+- Per-pitcher TTO splits from Statcast pitch-level data
+- Real-time leaderboard via Supabase Realtime subscriptions
 
 These are all noted in the spec (`docs/superpowers/specs/2026-04-26-hrr-betting-design.md`) sections 10 and 11.
 
@@ -203,12 +189,12 @@ These are all noted in the spec (`docs/superpowers/specs/2026-04-26-hrr-betting-
 
 ## Troubleshooting
 
-**`npm run dev` fails with "module not found"**: run `npm install` first.
+**`/api/picks` returns 500 with Supabase error**: verify `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` are set in Vercel. Without them, the code silently falls back to KV (which won't have the data). Check Vercel logs.
 
-**`/api/picks` returns 500**: check that you're hitting it for a date with MLB games scheduled (April-October). Off-season returns `gamesTotal: 0`.
+**GitHub Actions cron jobs return `401 unauthorized`**: the `CRON_SECRET` GitHub secret doesn't match the Vercel env var. Regenerate (use the value in step 3) and update both.
 
-**Sim takes > 60s**: drop the iteration count in `app/api/sim/[gameId]/build-context.ts` (currently 1000) or in `lib/sim.ts` if simSinglePlayerHRR is slow. Each simGame call should complete in < 1s on local hardware.
+**Supabase tables exist but no rows after first lock**: check Vercel function logs for `/api/lock` — confirms whether it found Tracked picks or returned `no-lock` (lineups not confirmed yet, or no game in lock window).
 
-**Cron doesn't fire**: verify Vercel Pro is active and `vercel.json` deployed.
+**`npx supabase db push` fails with auth error**: re-run `npx supabase login` (the CLI's auth token may have expired) and `npx supabase link` again.
 
-**Lock fires but settle doesn't see picks**: settle reads `picks:locked:YYYY-MM-DD` for *yesterday's* Pacific date — verify the date computation is correct in `app/api/settle/route.ts` (it accounts for UTC offset).
+**Sim is timing out**: drop `SIM_ITERATIONS` in `app/api/sim/[gameId]/route.ts` from 1000 to 500. If still timing out, the build context fan-out is the bottleneck — profile via local `npm run dev` first.

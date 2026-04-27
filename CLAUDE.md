@@ -8,33 +8,54 @@ denominator. Tracked picks (high-conviction tier) auto-settle from boxscore.
 
 ## Architecture
 
-- `app/` — Next.js App Router. Three pages (`/`, `/history`, `/methodology`) and four
-  API routes (`picks`, `sim/[gameId]`, `lock`, `settle`, `history`).
-- `lib/` — pure math + data adapters. Math files have NO I/O; data files handle KV +
-  network caching.
+- `app/` — Next.js App Router. Three pages (`/`, `/history`, `/methodology`) and five
+  API routes (`picks`, `sim` orchestrator, `sim/[gameId]`, `lock`, `settle`, `history`).
+- `lib/` — pure math + data adapters. Math files have NO I/O; data files handle
+  caching against KV (hot data) or Supabase (persistent picks history).
 - `components/` — UI building blocks.
 - `__tests__/` — Jest unit tests for math primitives.
+- `supabase/migrations/` — Postgres schema (locked_picks, settled_picks).
+- `.github/workflows/cron.yml` — GitHub Actions cron (replaces Vercel cron, free).
 
 ## Stack
 
-Next.js 16 App Router · React 19 · Tailwind v4 · TypeScript · @vercel/kv@^3.0.0 · Jest.
-Free APIs only (MLB Stats, Baseball Savant CSV, Open-Meteo). Vercel Pro deployment
-required for `maxDuration: 60` on `/api/sim/[gameId]`.
+- **Runtime**: Next.js 16 App Router · React 19 · Tailwind v4 · TypeScript · Jest
+- **Persistence**: Vercel KV (hot caches) + Supabase Postgres (locked/settled picks)
+- **Cron**: GitHub Actions (free on public repos)
+- **Hosting**: Vercel **Hobby** (free tier — no Pro upgrade needed; sim runs in <10s)
+- **APIs**: MLB Stats, Baseball Savant CSV, Open-Meteo (all free, no auth)
+
+## Storage model
+
+| What | Where | Why |
+|---|---|---|
+| Sim results, P_typical, weather, Savant CSVs | Vercel KV | Hot cache, exact-key blob lookups, sub-5ms reads |
+| Locked + settled picks | Supabase Postgres | History queries (rolling 30-day, recalibration) want SQL |
+| Pitcher TTO splits, bullpen tiers | Vercel KV | Computed once, cached 7d |
+
+Use `lib/db.ts` (`getSupabase()` returns null in dev when env vars missing — KV
+fallback path activates automatically).
 
 ## Critical files
 
 - `lib/sim.ts` — the lineup-aware Monte Carlo. Heart of the model.
 - `lib/per-pa.ts` — log-5 + Statcast hybrid 7-outcome distribution.
-- `lib/edge.ts` — EDGE = `P_matchup / max(P_typical, 0.01) − 1`.
-- `lib/tracker.ts` — lock snapshot + settlement.
+- `lib/edge.ts` — `EDGE = P_matchup / max(P_typical, 0.01) − 1`.
+- `lib/tracker.ts` — lock snapshot + settlement (writes to Supabase, KV fallback).
+- `lib/cron-auth.ts` — `x-cron-secret` header check for cron-triggered routes.
+- `app/api/sim/route.ts` — orchestrator that fire-and-forgets per-game sims.
+- `supabase/migrations/20260426000000_initial_schema.sql` — schema.
 
 ## Commands
 
-- `npm run dev` — local dev with in-memory KV fallback.
-- `npm run build` — production build (must stay green).
-- `npm test` — run unit tests.
+- `npm run dev` — local dev (KV in-memory fallback; Supabase no-op without env vars)
+- `npm run build` — production build (must stay green)
+- `npm test` — run unit tests
+- `npx supabase db push` — apply migrations to remote Supabase project (after `supabase link`)
+- `npx tsx scripts/recalibrate.ts` — manual audit tool, run after ~30 days of settled history
 
 ## Spec & plan
 
 - Spec: `docs/superpowers/specs/2026-04-26-hrr-betting-design.md`
-- Implementation plan: `docs/superpowers/plans/2026-04-26-hrr-betting.md`
+- Plan: `docs/superpowers/plans/2026-04-26-hrr-betting.md`
+- Deploy runbook: `docs/DEPLOY.md`

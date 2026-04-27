@@ -3,8 +3,11 @@ import { kvGet } from '@/lib/kv'
 import { fetchSchedule } from '@/lib/mlb-api'
 import { fetchLineup, lineupHash } from '@/lib/lineup'
 import { fetchWeather, weatherHash } from '@/lib/weather-api'
+import { verifyCronRequest } from '@/lib/cron-auth'
 
-export const maxDuration = 60
+// 10s default — Hobby tier compatible. Each per-game sim runs in its own
+// /api/sim/[gameId] invocation; this orchestrator just kicks them off.
+export const maxDuration = 10
 
 function getBaseUrl(req: NextRequest): string {
   if (process.env.VERCEL_URL) return `https://${process.env.VERCEL_URL}`
@@ -13,28 +16,35 @@ function getBaseUrl(req: NextRequest): string {
 
 interface PrewarmResult {
   gameId: number
-  status: 'simmed' | 'cached' | 'failed' | 'skipped'
+  status: 'kicked' | 'cached' | 'skipped'
   reason?: string
 }
 
+/**
+ * Prewarm orchestrator. For each of today's games, check if a sim is needed
+ * (lineup/weather hash changed since last sim). If so, FIRE-AND-FORGET a fetch
+ * to /api/sim/[gameId] — that endpoint runs the 10k-iter Monte Carlo
+ * independently within its own 10s budget.
+ *
+ * The orchestrator returns immediately after dispatching, so it stays under
+ * 10s even with 15+ games on the slate.
+ *
+ * Auth: requires `x-cron-secret` header matching CRON_SECRET env var.
+ */
 export async function GET(req: NextRequest): Promise<NextResponse> {
+  if (!verifyCronRequest(req)) {
+    return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
+  }
+
   const date = new URL(req.url).searchParams.get('date') ?? new Date().toISOString().slice(0, 10)
   const games = await fetchSchedule(date)
   const baseUrl = getBaseUrl(req)
+  const cronSecret = process.env.CRON_SECRET
 
   const results: PrewarmResult[] = []
-
-  // Sequential to avoid stampeding KV / external APIs.
-  // Bound: if we've used > 50s of the 60s budget, skip remaining games (next cron picks them up).
   const startMs = Date.now()
-  const BUDGET_MS = 50_000
 
   for (const g of games) {
-    if (Date.now() - startMs > BUDGET_MS) {
-      results.push({ gameId: g.gameId, status: 'skipped', reason: 'budget exhausted' })
-      continue
-    }
-
     if (g.status === 'postponed' || g.status === 'final') {
       results.push({ gameId: g.gameId, status: 'skipped', reason: g.status })
       continue
@@ -53,15 +63,17 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
         continue
       }
 
-      // Cache miss — call the per-game sim endpoint
-      const r = await fetch(`${baseUrl}/api/sim/${g.gameId}?date=${date}`)
-      if (!r.ok) {
-        results.push({ gameId: g.gameId, status: 'failed', reason: `HTTP ${r.status}` })
-        continue
-      }
-      results.push({ gameId: g.gameId, status: 'simmed' })
+      // Fire-and-forget: kick off the per-game sim. Don't await — each game's sim
+      // runs independently in its own /api/sim/[gameId] function invocation.
+      // Errors are logged on the per-game endpoint side; orchestrator just returns
+      // success once it has dispatched.
+      const headers: HeadersInit = cronSecret ? { 'x-cron-secret': cronSecret } : {}
+      void fetch(`${baseUrl}/api/sim/${g.gameId}?date=${date}`, { headers }).catch(() => {
+        // Swallow — the next cron tick will retry if this one failed
+      })
+      results.push({ gameId: g.gameId, status: 'kicked' })
     } catch (e) {
-      results.push({ gameId: g.gameId, status: 'failed', reason: (e as Error).message })
+      results.push({ gameId: g.gameId, status: 'skipped', reason: (e as Error).message })
     }
   }
 

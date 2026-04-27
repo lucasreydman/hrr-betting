@@ -1,0 +1,60 @@
+name: Cron — sim/lock/settle
+
+# Replaces Vercel Cron (which on Hobby is capped at 2 schedules / once-per-day).
+# GitHub Actions free tier: 2000 min/mo on public repos. We use ~50.
+# Cron has 5-15 min jitter on free tier — fine for our use case.
+
+on:
+  schedule:
+    # Sim prewarm + lock check: every 5 min during slate hours (UTC).
+    # Slate roughly = 17:00 UTC (10 AM Pacific) – 06:00 UTC next day (11 PM Pacific).
+    # GitHub Actions cron is UTC-based.
+    - cron: '*/5 17-23 * * *'   # 17-23 UTC
+    - cron: '*/5 0-6 * * *'     # 0-6 UTC (continuation through PT evening)
+
+    # Settle: daily at 10:00 UTC (3 AM PDT / 2 AM PST). Runs after games are final.
+    - cron: '0 10 * * *'
+
+  # Allow manual trigger from GitHub UI (Actions tab → Run workflow)
+  workflow_dispatch:
+    inputs:
+      job:
+        description: 'Which job to run manually'
+        required: true
+        default: 'sim'
+        type: choice
+        options: [sim, lock, settle]
+
+jobs:
+  sim:
+    # Prewarm sims for today's slate
+    if: github.event_name == 'schedule' && github.event.schedule != '0 10 * * *' || (github.event_name == 'workflow_dispatch' && github.event.inputs.job == 'sim')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger /api/sim
+        run: |
+          curl --silent --show-error --fail \
+            -H "x-cron-secret: ${{ secrets.CRON_SECRET }}" \
+            "${{ secrets.VERCEL_DEPLOY_URL }}/api/sim"
+
+  lock:
+    # Lock-trigger check
+    if: github.event_name == 'schedule' && github.event.schedule != '0 10 * * *' || (github.event_name == 'workflow_dispatch' && github.event.inputs.job == 'lock')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger /api/lock
+        run: |
+          curl --silent --show-error --fail \
+            -H "x-cron-secret: ${{ secrets.CRON_SECRET }}" \
+            "${{ secrets.VERCEL_DEPLOY_URL }}/api/lock"
+
+  settle:
+    # Settle previous day's locked picks (only the daily 10 UTC schedule)
+    if: github.event_name == 'schedule' && github.event.schedule == '0 10 * * *' || (github.event_name == 'workflow_dispatch' && github.event.inputs.job == 'settle')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger /api/settle
+        run: |
+          curl --silent --show-error --fail \
+            -H "x-cron-secret: ${{ secrets.CRON_SECRET }}" \
+            "${{ secrets.VERCEL_DEPLOY_URL }}/api/settle"

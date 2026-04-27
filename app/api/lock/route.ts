@@ -1,18 +1,22 @@
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { fetchSchedule } from '@/lib/mlb-api'
 import { fetchLineup } from '@/lib/lineup'
 import { shouldLock, snapshotLockedPicks } from '@/lib/tracker'
+import { verifyCronRequest } from '@/lib/cron-auth'
 
-export const maxDuration = 30
+export const maxDuration = 10
 
 /**
  * Cron endpoint: every 5 min during slate hours.
  * For today's date, check if lock trigger fires. If yes, snapshot Tracked picks.
  *
- * NB: The picks snapshot is per-date, not per-game. Once we fire the lock for today,
- * the snapshot captures all currently-Tracked picks. Subsequent cron runs no-op.
+ * Auth: requires `x-cron-secret` header matching CRON_SECRET env var.
  */
-export async function GET(): Promise<NextResponse> {
+export async function GET(req: NextRequest): Promise<NextResponse> {
+  if (!verifyCronRequest(req)) {
+    return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
+  }
+
   const date = new Date().toISOString().slice(0, 10)
   const now = Date.now()
 
