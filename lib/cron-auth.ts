@@ -11,8 +11,8 @@ import type { NextRequest } from 'next/server'
  * 401 immediately if it returns false.
  */
 export function verifyCronRequest(req: NextRequest): boolean {
-  const expected = process.env.CRON_SECRET
+  const expected = process.env.CRON_SECRET?.trim()
   if (!expected) return true  // dev-mode bypass
-  const header = req.headers.get('x-cron-secret')
+  const header = req.headers.get('x-cron-secret')?.trim()
   return header === expected
 }
