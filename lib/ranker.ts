@@ -16,7 +16,7 @@ import { kvGet } from './kv'
 import { computeEdge, computeScore } from './edge'
 import { computeConfidence, passesHardGates } from './confidence'
 import { getPTypical } from './p-typical'
-import { fetchSchedule, fetchProbablePitchers, fetchPitcherRecentStarts } from './mlb-api'
+import { fetchSchedule, fetchProbablePitchers, fetchPitcherRecentStarts, fetchBvP } from './mlb-api'
 import { fetchLineup, lineupHash } from './lineup'
 import {
   EDGE_FLOORS,
