@@ -61,12 +61,25 @@ export function computePerPA(args: {
   // Statcast adjustments — only when BOTH sides provide Statcast data.
   // Geometric blend (sqrt) tempers each adjustment to avoid overcorrection.
   // Calibration target: spec §11 lists these exponents as forward-tracked outputs.
+  //
+  // The multipliers are clamped to [0.25, 4] before the sqrt so that:
+  //  - A small-sample 0 in any input doesn't zero out an outcome entirely
+  //    (e.g. a pitcher with 0 whiffs over 5 PAs would otherwise drive K → 0).
+  //  - An extreme outlier (e.g. 25% barrel rate vs 7.5% league avg) still gets
+  //    a strong-but-bounded boost (~2x via sqrt(4)) instead of an explosive value.
+  // After sqrt, the effective adjustment lands in [0.5x, 2x], which is a sane
+  // band for a per-outcome temper on top of the log-5 baseline.
   if (batter.statcast && pitcher.statcast) {
-    const barrelMult = (batter.statcast.barrelPct / LG_BARREL_PCT) *
-                       (pitcher.statcast.barrelsAllowedPct / LG_BARREL_PCT)
-    const hardHitMult = (batter.statcast.hardHitPct / LG_HARD_HIT_PCT) *
-                        (pitcher.statcast.hardHitPctAllowed / LG_HARD_HIT_PCT)
-    const whiffMult = pitcher.statcast.whiffPct / LG_WHIFF_PCT
+    const clamp = (x: number) => Math.min(4, Math.max(0.25, x))
+    const barrelMult = clamp(
+      (batter.statcast.barrelPct / LG_BARREL_PCT) *
+      (pitcher.statcast.barrelsAllowedPct / LG_BARREL_PCT)
+    )
+    const hardHitMult = clamp(
+      (batter.statcast.hardHitPct / LG_HARD_HIT_PCT) *
+      (pitcher.statcast.hardHitPctAllowed / LG_HARD_HIT_PCT)
+    )
+    const whiffMult = clamp(pitcher.statcast.whiffPct / LG_WHIFF_PCT)
 
     base.HR = (base.HR ?? 0) * Math.sqrt(barrelMult)
     base['1B'] = (base['1B'] ?? 0) * Math.sqrt(hardHitMult)

@@ -19,8 +19,8 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   const batterId = parseInt(url.searchParams.get('b') ?? '0', 10)
   const pitcherId = parseInt(url.searchParams.get('p') ?? '0', 10)
 
-  if (!batterId || !pitcherId) {
-    return NextResponse.json({ error: 'need ?b=<batterId>&p=<pitcherId>' }, { status: 400 })
+  if (!Number.isInteger(batterId) || batterId <= 0 || !Number.isInteger(pitcherId) || pitcherId <= 0) {
+    return NextResponse.json({ error: 'need ?b=<batterId>&p=<pitcherId> (positive integers)' }, { status: 400 })
   }
 
   const cacheKey = `hrr:bvp:${batterId}:${pitcherId}`

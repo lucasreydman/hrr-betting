@@ -1,0 +1,48 @@
+name: CI
+
+# Runs on every push and PR. Mirrors the gates the audits stabilised:
+# lint → typecheck → test → build. All four must pass before code lands on main.
+# Live MLB / Savant / weather smoke tests stay opt-in via RUN_LIVE_TESTS=1
+# (not enabled in CI to keep runs hermetic).
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Avoid wasting minutes on stale runs when a PR is updated rapidly.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: lint · typecheck · test · build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Unit tests
+        run: npm test -- --ci
+
+      - name: Build
+        run: npm run build

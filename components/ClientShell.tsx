@@ -4,26 +4,28 @@ import { useEffect, useState, useCallback, useTransition } from 'react'
 import type { PicksResponse } from '@/lib/ranker'
 import { BoardSection } from './BoardSection'
 import { StatusBanner } from './StatusBanner'
+import { pacificDateString, shiftIsoDate } from '@/lib/date-utils'
 
-function todayPacificDateString(): string {
-  // Pacific date: rough offset (UTC-8 in PST, UTC-7 in PDT). Off by an hour
-  // during DST transitions, but for date display this is fine.
-  const now = new Date()
-  const pacificMs = now.getTime() - 7 * 60 * 60 * 1000  // PDT-leaning
-  return new Date(pacificMs).toISOString().slice(0, 10)
-}
-
-function shiftDate(date: string, days: number): string {
-  const d = new Date(date + 'T12:00:00Z')
-  d.setUTCDate(d.getUTCDate() + days)
-  return d.toISOString().slice(0, 10)
-}
+const todayPacificDateString = () => pacificDateString()
+const shiftDate = shiftIsoDate
 
 function relativeLabel(date: string, today: string): string {
   if (date === today) return "Today's slate"
   if (date === shiftDate(today, 1)) return "Tomorrow's slate"
   if (date === shiftDate(today, -1)) return "Yesterday's slate"
   return 'Slate'
+}
+
+/** "Sat, Apr 27" style label — friendlier than ISO at-a-glance. */
+function prettyDate(date: string): string {
+  // Anchor at noon UTC so the formatted weekday/month doesn't drift across timezones.
+  const d = new Date(`${date}T12:00:00Z`)
+  return d.toLocaleDateString(undefined, {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+    timeZone: 'UTC',
+  })
 }
 
 export function ClientShell({ initialPicks }: { initialPicks: PicksResponse }) {
@@ -66,37 +68,65 @@ export function ClientShell({ initialPicks }: { initialPicks: PicksResponse }) {
                        picks.rung2.filter(p => p.tier === 'tracked').length +
                        picks.rung3.filter(p => p.tier === 'tracked').length
 
+  // Shared button base — consistent height, focus ring, disabled state.
+  const navBtn =
+    'inline-flex h-10 min-w-10 items-center justify-center rounded-md border border-border ' +
+    'bg-card/40 px-3 text-sm font-mono text-ink transition-colors ' +
+    'hover:bg-card hover:border-border-strong ' +
+    'disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-card/40 disabled:hover:border-border'
+
   return (
-    <main className="max-w-5xl mx-auto p-6 space-y-6">
-      <header className="space-y-3">
-        <h1 className="text-3xl font-semibold">HRR Betting</h1>
-        <div className="flex items-center gap-3">
+    <main className="mx-auto max-w-5xl space-y-6 px-4 py-6 sm:px-6 sm:py-8">
+      <header className="space-y-4">
+        <div>
+          <h1 className="text-3xl font-semibold tracking-tight">Today&apos;s board</h1>
+          <p className="mt-1 text-sm text-ink-muted">
+            Hits + Runs + RBIs prop picks ranked by matchup edge × confidence.
+          </p>
+        </div>
+
+        <div
+          className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-card/30 p-2"
+          role="group"
+          aria-label="Slate date navigation"
+        >
           <button
+            type="button"
             onClick={() => navigateToDate(shiftDate(date, -1))}
             disabled={isPending}
-            className="px-3 py-1.5 border border-border rounded text-sm font-mono hover:bg-card/50 disabled:opacity-50"
+            className={navBtn}
             aria-label="Previous day"
           >
-            ←
+            <span aria-hidden="true">←</span>
           </button>
-          <div className="flex-1 text-center">
-            <div className="text-sm text-ink-muted">{relativeLabel(date, today)}</div>
-            <div className="font-mono text-base">{date}</div>
+
+          <div className="flex flex-1 flex-col items-center justify-center px-2 text-center min-w-0">
+            <span className="text-xs font-medium uppercase tracking-wider text-ink-muted">
+              {relativeLabel(date, today)}
+            </span>
+            <span className="font-mono text-base text-ink truncate">
+              {prettyDate(date)}
+              <span className="ml-2 text-ink-muted">{date}</span>
+            </span>
           </div>
+
           <button
+            type="button"
             onClick={() => navigateToDate(shiftDate(date, 1))}
             disabled={isPending || atForwardLimit}
-            className="px-3 py-1.5 border border-border rounded text-sm font-mono hover:bg-card/50 disabled:opacity-30 disabled:cursor-not-allowed"
+            className={navBtn}
             aria-label="Next day"
             title={atForwardLimit ? 'Forward preview is capped at +1 day — lineups and starters too uncertain further out' : 'Next day'}
           >
-            →
+            <span aria-hidden="true">→</span>
           </button>
+
           {date !== today && (
             <button
+              type="button"
               onClick={() => navigateToDate(today)}
               disabled={isPending}
-              className="px-3 py-1.5 border border-border rounded text-sm font-mono hover:bg-card/50 disabled:opacity-50"
+              className={navBtn + ' px-4'}
             >
               Today
             </button>
@@ -107,22 +137,26 @@ export function ClientShell({ initialPicks }: { initialPicks: PicksResponse }) {
       <StatusBanner refreshedAt={picks.refreshedAt} meta={picks.meta} totalTracked={totalTracked} />
 
       {error && (
-        <div className="px-4 py-3 border border-miss/40 rounded-lg text-miss text-sm">
-          Refresh error: {error}
+        <div
+          role="alert"
+          className="rounded-lg border border-miss/40 bg-miss/5 px-4 py-3 text-sm text-miss"
+        >
+          <span className="font-medium">Couldn&apos;t refresh picks.</span>{' '}
+          <span className="text-miss/80">{error}</span>
         </div>
       )}
 
-      <div className="space-y-6">
+      <div
+        className={
+          'space-y-6 transition-opacity ' +
+          (isPending ? 'opacity-60' : 'opacity-100')
+        }
+        aria-busy={isPending}
+      >
         <BoardSection rung={1} picks={picks.rung1} />
         <BoardSection rung={2} picks={picks.rung2} />
         <BoardSection rung={3} picks={picks.rung3} />
       </div>
-
-      <footer className="pt-8 text-center text-xs text-ink-muted">
-        <a href="/methodology" className="hover:text-accent">methodology</a>
-        <span className="mx-2">·</span>
-        <a href="/history" className="hover:text-accent">history</a>
-      </footer>
     </main>
   )
 }

@@ -78,3 +78,45 @@ test('weak vs weak should still produce a valid distribution', () => {
     expect(Number.isFinite(v)).toBe(true)
   }
 })
+
+test('zero barrel% does not collapse HR rate to zero (Statcast clamp)', () => {
+  // Small-sample batter who happens to have 0 barrels — without the multiplier
+  // clamp, sqrt(0) would zero out the HR baseline entirely. With the clamp
+  // [0.25, 4], HR is still tempered but stays positive.
+  const zeroBarrelBatter = {
+    rates: elliteBatter.rates,
+    statcast: { barrelPct: 0, hardHitPct: 0.40, xwOBA: 0.350, xISO: 0.180, avgExitVelo: 88 },
+  }
+  const out = computePerPA({ batter: zeroBarrelBatter, pitcher: avgPitcher, ctx: neutralCtx })
+  const sum = Object.values(out).reduce((a, b) => a + b, 0)
+  expect(sum).toBeCloseTo(1, 6)
+  expect(out.HR).toBeGreaterThan(0)
+})
+
+test('zero whiff% pitcher does not collapse K rate to zero (Statcast clamp)', () => {
+  const zeroWhiffPitcher = {
+    rates: avgPitcher.rates,
+    statcast: { ...avgPitcher.statcast, whiffPct: 0 },
+  }
+  const out = computePerPA({ batter: elliteBatter, pitcher: zeroWhiffPitcher, ctx: neutralCtx })
+  expect(out.K).toBeGreaterThan(0)
+  expect(Number.isFinite(out.K)).toBe(true)
+})
+
+test('extreme barrel-rate combination is clamped — HR boost stays bounded', () => {
+  // Both batter and pitcher are far above league avg — without clamping, the
+  // raw multiplier would be (5 * 5) = 25 → sqrt = 5x boost, which is too much.
+  const extremeBatter = {
+    rates: elliteBatter.rates,
+    statcast: { ...elliteBatter.statcast, barrelPct: 0.40 },  // 5.3x league avg of 0.075
+  }
+  const extremePitcher = {
+    rates: avgPitcher.rates,
+    statcast: { ...avgPitcher.statcast, barrelsAllowedPct: 0.40 },
+  }
+  const outNeutral = computePerPA({ batter: elliteBatter, pitcher: avgPitcher, ctx: neutralCtx })
+  const outExtreme = computePerPA({ batter: extremeBatter, pitcher: extremePitcher, ctx: neutralCtx })
+  // Boost is positive, but not unbounded — HR shouldn't more than triple under the clamp
+  expect(outExtreme.HR).toBeGreaterThan(outNeutral.HR)
+  expect(outExtreme.HR).toBeLessThan(outNeutral.HR * 3)
+})

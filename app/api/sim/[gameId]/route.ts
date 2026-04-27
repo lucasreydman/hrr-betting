@@ -11,8 +11,6 @@
  *   Otherwise re-runs the sim and overwrites both keys.
  *
  * V1 simplifications (see build-context.ts for full list):
- *   - date defaults to today's UTC date (not Pacific — Pacific adjustment is a future task)
- *   - weatherHash falls back to 'pending' until lib/weather-api exports it (Task 18b)
  *   - 1000 sim iterations (suitable for < 5s wall time; increase post-calibration)
  *   - No BvP layer in per-PA computation
  *   - Season stats only (no L30/L15 rolling blend)
@@ -24,12 +22,14 @@ import { simGame, type GameSimResult, type BatterSimContext } from '@/lib/sim'
 import {
   fetchSchedule,
   fetchProbablePitchers,
+  fetchPeople,
 } from '@/lib/mlb-api'
 import { fetchLineup, lineupHash } from '@/lib/lineup'
 import { fetchWeather, weatherHash } from '@/lib/weather-api'
 import { getParkFactors } from '@/lib/park-factors'
 import { buildBatterContext, parkFactorsToOutcomeMap, neutralWeatherFactors } from './build-context'
 import { verifyCronRequest } from '@/lib/cron-auth'
+import { pacificDateString, isValidIsoDate } from '@/lib/date-utils'
 import type { Handedness } from '@/lib/types'
 
 // ---------------------------------------------------------------------------
@@ -93,11 +93,15 @@ export async function GET(req: NextRequest, ctx: RouteContext): Promise<NextResp
 
   const params = await ctx.params
   const gameId = parseInt(params.gameId, 10)
-  if (isNaN(gameId)) {
+  if (!Number.isInteger(gameId) || gameId <= 0) {
     return NextResponse.json({ error: 'invalid gameId' }, { status: 400 })
   }
 
-  const date = new URL(req.url).searchParams.get('date') ?? new Date().toISOString().slice(0, 10)
+  const dateParam = new URL(req.url).searchParams.get('date')
+  if (dateParam !== null && !isValidIsoDate(dateParam)) {
+    return NextResponse.json({ error: 'invalid date — expected YYYY-MM-DD' }, { status: 400 })
+  }
+  const date = dateParam ?? pacificDateString()
 
   // --- Locate game in schedule ---
   const games = await fetchSchedule(date)
@@ -152,6 +156,20 @@ export async function GET(req: NextRequest, ctx: RouteContext): Promise<NextResp
 
   // probables already fetched above for the cache key
 
+  // Resolve pitcher handedness from /people for both probable starters in one
+  // batched call. fetchPeople has a per-ID 24h cache, so on a warm slate this
+  // is free. Falls back to 'R' (the most common handedness) when MLB hasn't
+  // populated pitchHand yet — same fallback as before, but now driven by data
+  // for the ~30% of starts that aren't right-handed.
+  const pitcherIds = [probables.home, probables.away].filter(id => id > 0)
+  const pitcherPeople = pitcherIds.length > 0
+    ? await fetchPeople(pitcherIds).catch(() => new Map())
+    : new Map()
+  const handForPitcher = (id: number): Handedness => {
+    const ref = pitcherPeople.get(id)
+    return ref?.throws ?? 'R'
+  }
+
   // Park factors
   const pf = getParkFactors(game.venueId)
   const parkFactors = parkFactorsToOutcomeMap(pf.factors)
@@ -165,11 +183,12 @@ export async function GET(req: NextRequest, ctx: RouteContext): Promise<NextResp
     opposingPitcherId: number,
     opposingTeamId: number,
   ): Promise<BatterSimContext[]> {
-    // We need pitcher handedness. Attempt to derive from PitcherStats; fall back to 'R'.
-    // MLB Stats API doesn't surface handedness in the stats endpoint directly; we'd need
-    // the people endpoint. For v1, default to 'R' (most pitchers are right-handed).
-    // TODO: fetch from /people/{id} endpoint for actual handedness.
-    const opposingStarterThrows: Handedness = 'R'
+    // Real pitcher handedness from /people (cached). When the pitcher is TBD
+    // (id 0) or /people fails, fall back to 'R'.
+    const opposingStarterThrows: Handedness =
+      opposingPitcherId > 0 ? handForPitcher(opposingPitcherId) : 'R'
+    // v1: opener detection requires pitch-by-pitch data (Savant). Treat all
+    // probable starters as 'starter' until that wires up.
     const pitcherType: 'starter' | 'opener' = 'starter'
 
     // Build all 9 batter contexts in parallel (IO-bound, safe to fan out)

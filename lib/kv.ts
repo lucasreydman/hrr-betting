@@ -10,6 +10,7 @@
  */
 
 import { getSupabase } from './db'
+export { sanitizeEnvValue } from './env'
 
 interface MemoryEntry { value: unknown; expiresAt: number }
 const memoryStore = new Map<string, MemoryEntry>()
@@ -28,23 +29,6 @@ interface CacheRow {
  */
 export function isVercelKvAvailable(): boolean {
   return getSupabase() !== null
-}
-
-/**
- * Sanitize an env value (strip whitespace + matching surrounding quotes).
- * Kept as a public export because some callers in the codebase use it for
- * other env-var sanitization needs.
- */
-export function sanitizeEnvValue(value: string | undefined): string | undefined {
-  if (!value) return undefined
-  const trimmed = value.trim()
-  if (!trimmed) return undefined
-  const first = trimmed[0]
-  const last = trimmed[trimmed.length - 1]
-  if ((first === '"' || first === "'") && first === last) {
-    return trimmed.slice(1, -1).trim() || undefined
-  }
-  return trimmed
 }
 
 export async function kvGet<T>(key: string): Promise<T | null> {

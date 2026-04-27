@@ -7,9 +7,11 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint",
+    "lint": "eslint app lib components scripts __tests__",
     "test": "jest",
-    "test:watch": "jest --watch"
+    "typecheck": "tsc --noEmit",
+    "test:watch": "jest --watch",
+    "recalibrate": "tsx scripts/recalibrate.ts"
   },
   "repository": {
     "type": "git",
@@ -42,6 +44,7 @@
     "supabase": "^2.95.3",
     "tailwindcss": "^4.2.4",
     "ts-jest": "^29.4.9",
+    "tsx": "^4.20.0",
     "typescript": "^6.0.3"
   }
 }

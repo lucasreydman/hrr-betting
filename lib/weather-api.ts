@@ -124,7 +124,11 @@ export async function fetchWeather(
       failure: false,
       controlled: false,
     }
-  } catch {
+  } catch (err) {
+    // Surface the inner error so Open-Meteo flakiness shows up in Vercel logs.
+    // The return contract (failure: true, neutral defaults) is unchanged so
+    // callers don't break — this is purely for observability.
+    console.warn(`[weather-api] fetchWeather failed for venue ${venueId} @ ${gameTimeIso}:`, err)
     return { tempF: 72, windSpeedMph: 0, windFromDegrees: 0, failure: true, controlled: false }
   }
 }

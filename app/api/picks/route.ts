@@ -2,12 +2,18 @@ import { NextRequest, NextResponse } from 'next/server'
 import { kvGet, kvSet, kvDel } from '@/lib/kv'
 import { rankPicks } from '@/lib/ranker'
 import type { PicksResponse } from '@/lib/ranker'
+import { pacificDateString, isValidIsoDate } from '@/lib/date-utils'
 
 export const revalidate = 60
 
 export async function GET(req: NextRequest): Promise<NextResponse> {
   const url = new URL(req.url)
-  const date = url.searchParams.get('date') ?? new Date().toISOString().slice(0, 10)
+  const dateParam = url.searchParams.get('date')
+  if (dateParam !== null && !isValidIsoDate(dateParam)) {
+    // Validate before letting an attacker-controlled value flow into MLB API URLs / cache keys.
+    return NextResponse.json({ error: 'invalid date — expected YYYY-MM-DD' }, { status: 400 })
+  }
+  const date = dateParam ?? pacificDateString()
   const nocache = url.searchParams.get('nocache') === '1'
 
   const cacheKey = `picks:current:${date}`

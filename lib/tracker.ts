@@ -36,6 +36,7 @@ export function shouldLock(args: ShouldLockArgs): boolean {
 
 export interface SettledPick extends Pick {
   rung: Rung
+  date: string  // YYYY-MM-DD — slate date this pick belongs to
   outcome: 'HIT' | 'MISS' | 'PENDING'
   actualHRR?: number
 }
@@ -257,7 +258,7 @@ async function settlePicksKv(date: string): Promise<{ settled: number; pending: 
   for (const p of locked.picks) {
     const { outcome, actual_hrr } = await computeOutcome(p.gameId, p.player.playerId, p.rung, cache)
     if (outcome === 'PENDING') pendingCount++
-    settled.push({ ...p, outcome, ...(actual_hrr !== null ? { actualHRR: actual_hrr } : {}) })
+    settled.push({ ...p, date: locked.date, outcome, ...(actual_hrr !== null ? { actualHRR: actual_hrr } : {}) })
   }
 
   await kvSet(settledKey, { date, picks: settled }, 365 * 24 * 60 * 60)
@@ -286,13 +287,16 @@ export async function getSettledPicks(args: { sinceDate: string }): Promise<Sett
     return (data ?? []) as SettledPickRow[]
   }
 
-  // KV fallback: walk dates from today back to sinceDate
+  // KV fallback: walk dates from today back to sinceDate.
+  // Use UTC consistently (anchor at noon UTC, mutate via setUTCDate, format
+  // via toISOString) so that local-zone DST transitions can't push the cursor
+  // off by a day or skip a date during traversal.
   const rows: SettledPickRow[] = []
-  const since = new Date(args.sinceDate)
-  const cursor = new Date()
-  cursor.setHours(0, 0, 0, 0)
+  const since = new Date(`${args.sinceDate}T00:00:00Z`)
+  const todayStr = new Date().toISOString().slice(0, 10)
+  const cursor = new Date(`${todayStr}T12:00:00Z`)
 
-  while (cursor >= since) {
+  while (cursor.getTime() >= since.getTime()) {
     const dateStr = cursor.toISOString().slice(0, 10)
     const day = await kvGet<SettledDay>(`picks:settled:${dateStr}`)
     if (day) {
@@ -300,7 +304,7 @@ export async function getSettledPicks(args: { sinceDate: string }): Promise<Sett
         rows.push(settledPickToRow(day.date, p as SettledPick & { rung: Rung }))
       }
     }
-    cursor.setDate(cursor.getDate() - 1)
+    cursor.setUTCDate(cursor.getUTCDate() - 1)
   }
 
   return rows

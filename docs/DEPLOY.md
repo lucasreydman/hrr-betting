@@ -153,10 +153,10 @@ After the first MLB game day completes:
 Once you have ~30 days of settled history, run:
 
 ```bash
-npx tsx scripts/recalibrate.ts
+npm run recalibrate
 ```
 
-(Install `tsx` if needed: `npm i -D tsx`. Set `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` in your shell first — or just `vercel env pull .env.local` to grab them.)
+(`tsx` is already pinned in devDependencies. Set `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` in your shell first — or just `vercel env pull .env.local` to grab them.)
 
 The script reports per-rung Brier scores and hit rate by EDGE bucket. Use the output to adjust the floors in `lib/constants.ts`:
 - `EDGE_FLOORS` — raise if too many low-edge picks are slipping through

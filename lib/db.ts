@@ -1,4 +1,5 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
+import { sanitizeEnvValue } from './env'
 
 /**
  * Supabase database client wrapper.
@@ -22,8 +23,8 @@ let cached: SupabaseClient | null | undefined  // undefined = not yet checked
 export function getSupabase(): SupabaseClient | null {
   if (cached !== undefined) return cached
 
-  const url = sanitize(process.env.SUPABASE_URL)
-  const serviceKey = sanitize(process.env.SUPABASE_SERVICE_ROLE_KEY)
+  const url = sanitizeEnvValue(process.env.SUPABASE_URL)
+  const serviceKey = sanitizeEnvValue(process.env.SUPABASE_SERVICE_ROLE_KEY)
 
   if (!url || !serviceKey) {
     cached = null
@@ -38,18 +39,6 @@ export function getSupabase(): SupabaseClient | null {
 
 export function isSupabaseAvailable(): boolean {
   return getSupabase() !== null
-}
-
-function sanitize(value: string | undefined): string | undefined {
-  if (!value) return undefined
-  const trimmed = value.trim()
-  if (!trimmed) return undefined
-  const first = trimmed[0]
-  const last = trimmed[trimmed.length - 1]
-  if ((first === '"' || first === "'") && first === last) {
-    return trimmed.slice(1, -1).trim() || undefined
-  }
-  return trimmed
 }
 
 // ============================================================================

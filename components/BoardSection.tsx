@@ -2,6 +2,13 @@
 
 import type { Pick } from '@/lib/ranker'
 import { PickRow } from './PickRow'
+import { EmptyState } from './EmptyState'
+
+const RUNG_HINTS: Record<1 | 2 | 3, string> = {
+  1: 'Most playable rung. Floor: prob ≥ 85%, edge ≥ 10%.',
+  2: 'Mid-conviction tier. Floor: prob ≥ 55%, edge ≥ 30%.',
+  3: 'Long-shot tier. Floor: prob ≥ 20%, edge ≥ 60%.',
+}
 
 export function BoardSection({ rung, picks }: { rung: 1 | 2 | 3; picks: Pick[] }) {
   const tracked = picks.filter(p => p.tier === 'tracked')
@@ -9,39 +16,64 @@ export function BoardSection({ rung, picks }: { rung: 1 | 2 | 3; picks: Pick[] }
   const trackedCount = tracked.length
 
   return (
-    <section className="border border-border rounded-lg overflow-hidden bg-card/20">
-      <header className="px-4 py-3 border-b border-border bg-card/50 flex items-baseline justify-between">
-        <h2 className="text-xl font-semibold">{rung}+ HRR</h2>
-        <div className="text-sm text-ink-muted font-mono">
-          {trackedCount > 0
-            ? <span className="text-tracked">🔥 {trackedCount} tracked</span>
-            : <span>no tracked picks</span>}
-          {watching.length > 0 && <span className="ml-3">{watching.length} watching</span>}
+    <section
+      aria-labelledby={`board-rung-${rung}`}
+      className="overflow-hidden rounded-lg border border-border bg-card/20"
+    >
+      <header className="flex flex-wrap items-baseline justify-between gap-2 border-b border-border bg-card/50 px-4 py-3">
+        <div className="space-y-0.5">
+          <h2 id={`board-rung-${rung}`} className="text-xl font-semibold tracking-tight">
+            {rung}+ HRR
+          </h2>
+          <p className="text-xs text-ink-muted">{RUNG_HINTS[rung]}</p>
+        </div>
+        <div className="font-mono text-sm">
+          {trackedCount > 0 ? (
+            <span className="text-tracked">
+              <span aria-hidden="true">🔥</span> {trackedCount} tracked
+            </span>
+          ) : (
+            <span className="text-ink-muted">no tracked picks</span>
+          )}
+          {watching.length > 0 && (
+            <span className="ml-3 text-ink-muted">{watching.length} watching</span>
+          )}
         </div>
       </header>
 
-      {/* Header row */}
-      <div className="grid grid-cols-12 gap-2 px-3 py-2 border-b border-border bg-card/30 text-xs uppercase tracking-wider text-ink-muted">
+      {/* Column header — desktop only. Mobile uses a card-style PickRow. */}
+      <div
+        className="hidden grid-cols-12 gap-2 border-b border-border bg-card/30 px-4 py-2 text-xs uppercase tracking-wider text-ink-muted sm:grid"
+        aria-hidden="true"
+      >
         <div className="col-span-1"></div>
-        <div className="col-span-3">Player</div>
+        <div className="col-span-4">Player</div>
         <div className="col-span-2 text-right">Prob (today / typical)</div>
         <div className="col-span-2 text-right">Edge</div>
-        <div className="col-span-2 text-right">Conf</div>
+        <div className="col-span-1 text-right">Conf</div>
         <div className="col-span-2 text-right">Score</div>
       </div>
 
-      {/* Tracked first, then watching */}
-      {tracked.map((p, i) => <PickRow key={`t-${p.gameId}-${p.player.playerId}-${i}`} pick={p} />)}
+      {tracked.map((p, i) => (
+        <PickRow key={`t-${p.gameId}-${p.player.playerId}-${i}`} pick={p} />
+      ))}
+
       {watching.length > 0 && tracked.length > 0 && (
-        <div className="px-4 py-1 text-xs text-ink-muted bg-card/10 border-y border-border/50">
-          Watching (not tracked, shown for transparency):
+        <div className="border-y border-border/50 bg-card/10 px-4 py-1.5 text-xs uppercase tracking-wider text-ink-muted">
+          Watching · not tracked, shown for transparency
         </div>
       )}
-      {watching.map((p, i) => <PickRow key={`w-${p.gameId}-${p.player.playerId}-${i}`} pick={p} />)}
+
+      {watching.map((p, i) => (
+        <PickRow key={`w-${p.gameId}-${p.player.playerId}-${i}`} pick={p} />
+      ))}
 
       {tracked.length === 0 && watching.length === 0 && (
-        <div className="px-4 py-8 text-center text-ink-muted">
-          No picks for this rung — slate may be weak today.
+        <div className="p-4 sm:p-6">
+          <EmptyState
+            title="No picks for this rung"
+            description="Either no game is on the slate yet, or the model didn't find anything above the floor today."
+          />
         </div>
       )}
     </section>

@@ -1,10 +1,14 @@
 import { ClientShell } from '@/components/ClientShell'
 import { rankPicks } from '@/lib/ranker'
+import { pacificDateString } from '@/lib/date-utils'
 
 export const revalidate = 60
 
 export default async function Home() {
-  const date = new Date().toISOString().slice(0, 10)
+  // Use Pacific (slate) date so the server-rendered initial state matches
+  // the client's first request — otherwise late-night PT users would see UTC's
+  // tomorrow flash on hydration before the client refetches.
+  const date = pacificDateString()
   const picks = await rankPicks(date).catch(() => ({
     date,
     refreshedAt: new Date().toISOString(),

@@ -26,6 +26,7 @@ function rowToSettledPick(row: SettledPickRow): SettledPick {
     opposingPitcher: { id: 0, name: 'unknown', status: 'confirmed' },
     gameId: row.game_id,
     rung: row.rung,
+    date: row.date,
     lineupSlot: row.lineup_slot,
     lineupStatus: row.lineup_status,
     pMatchup: row.p_matchup,

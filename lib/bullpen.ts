@@ -30,5 +30,6 @@ export async function getBullpenTiers(args: {
 export function weightForPA(paIndex: number): number {
   if (paIndex <= 2) return 0.10
   if (paIndex === 3) return 0.45
-  return Math.min(0.85, 1.0)  // 4th+ PA → almost always high-leverage; capped at 0.85
+  return 0.85  // 4th+ PA → almost always high-leverage. Capped here, not at 1.0,
+               // so an extra-inning sequence still leaves a 15% chance of low-lev.
 }

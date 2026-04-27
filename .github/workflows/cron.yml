@@ -73,18 +73,6 @@ jobs:
           echo "pairs=$ALL_PAIRS" >> "$GITHUB_OUTPUT"
           echo "Total eligible game-date pairs: $(echo "$ALL_PAIRS" | wc -w)"
 
-          RESPONSE=$(curl --silent --show-error --fail \
-            -H "x-cron-secret: ${{ secrets.CRON_SECRET }}" \
-            "${{ secrets.VERCEL_DEPLOY_URL }}/api/sim?date=$DATE")
-
-          echo "Orchestrator response:"
-          echo "$RESPONSE" | jq .
-
-          # Extract eligible game IDs into a space-separated list
-          GAME_IDS=$(echo "$RESPONSE" | jq -r '.summary[] | select(.status == "eligible") | .gameId' | tr '\n' ' ')
-          echo "game_ids=$GAME_IDS" >> "$GITHUB_OUTPUT"
-          echo "Found $(echo "$GAME_IDS" | wc -w) eligible games"
-
       - name: Warm per-game sims in parallel
         if: steps.games.outputs.pairs != ''
         run: |

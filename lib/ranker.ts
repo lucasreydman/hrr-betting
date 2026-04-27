@@ -24,6 +24,7 @@ import {
   CONFIDENCE_FLOOR_TRACKED,
   DISPLAY_FLOOR_SCORE,
 } from './constants'
+import type { BatterHRRDist } from './sim'
 import type { Rung } from './types'
 
 // ---------------------------------------------------------------------------
@@ -67,14 +68,6 @@ export interface PicksResponse {
 // ---------------------------------------------------------------------------
 // Sim cache shape (matches what /api/sim/[gameId] writes)
 // ---------------------------------------------------------------------------
-
-interface BatterHRRDist {
-  batterId: number
-  totalSims: number
-  /** atLeast[N] = P(HRR >= N); indices 0–4 */
-  atLeast: number[]
-  meanHRR: number
-}
 
 interface SimCachePayload {
   batterHRR: Record<string, BatterHRRDist>
@@ -173,36 +166,30 @@ export async function rankPicks(date: string): Promise<PicksResponse> {
     // Each call to getPTypical hits its own cache; cold misses run a sim
     // internally. Without parallelism this is 18 × 30ms (cache hit) or
     // 18 × ~1s (cache miss) sequential — multiplied by 15 games it times out.
+    //
+    // Per-side hard gate is evaluated once here; per-batter confidence is
+    // recomputed below because it depends on the batter's own BvP sample.
     const sideJobs = sides.map(({ lineup, opponent, isHome }) => {
       // The opposing starter is whoever the BATTERS face — home batters face the away starter.
       const opposingStarterId = isHome ? probables.away : probables.home
-      const opposingStarterStartCount = isHome ? awayPitcherStarts.length : homePitcherStarts.length
       return {
         lineup,
         opponent,
         // Pass sentinel `1` when probable starter is TBD (common in early season /
         // far-from-game-time). The sim already uses league-avg fallback rates for
-        // unknown pitchers, and pitcherStartCount=0 below already penalizes confidence.
+        // unknown pitchers, and pitcherStartCount=0 already penalizes confidence below.
         sidePassesGates: passesHardGates({
           gameStatus: game.status,
           probableStarterId: opposingStarterId > 0 ? opposingStarterId : 1,
           lineupStatus: lineup.status,
           expectedPA: 4,
         }),
-        confidence: computeConfidence({
-          lineupStatus: lineup.status,
-          bvpAB: 0,                                   // v1: no BvP layer wired in
-          pitcherStartCount: opposingStarterStartCount,
-          weatherStable: true,                        // v1: no weather-volatility detection
-          isOpener: false,                            // v1: no opener detection
-          timeToFirstPitchMin,
-        }),
       }
     })
 
     // Resolve all P_typical lookups across both sides in parallel
-    const playerJobs = sideJobs.flatMap(({ lineup, opponent, sidePassesGates, confidence }) =>
-      lineup.entries.map(entry => ({ entry, lineup, opponent, sidePassesGates, confidence }))
+    const playerJobs = sideJobs.flatMap(({ lineup, opponent, sidePassesGates }) =>
+      lineup.entries.map(entry => ({ entry, lineup, opponent, sidePassesGates }))
     )
 
     // P_typical + per-batter BvP (the latter is what gives confidence its real

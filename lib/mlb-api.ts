@@ -206,6 +206,8 @@ interface RawGameLogEntry {
     homeRuns?: number
     baseOnBalls?: number
     strikeOuts?: number
+    hitByPitch?: number
+    sacFlies?: number
     inningsPitched?: string
   }
 }
@@ -394,6 +396,7 @@ export async function fetchPeople(playerIds: number[]): Promise<Map<number, Play
     id: number
     fullName?: string
     batSide?: { code?: string }
+    pitchHand?: { code?: string }
     currentTeam?: { id?: number; name?: string; abbreviation?: string }
   }
   const data = (await res.json()) as { people?: RawPerson[] }
@@ -402,12 +405,18 @@ export async function fetchPeople(playerIds: number[]): Promise<Map<number, Play
   for (const p of people) {
     if (!p.id) continue
     const bats: Handedness = p.batSide?.code === 'L' ? 'L' : p.batSide?.code === 'S' ? 'S' : 'R'
+    // pitchHand only present for pitchers — leave undefined for position players
+    // so the field's presence in the cache reliably signals "this is a pitcher".
+    const throwsCode = p.pitchHand?.code
+    const throws: Handedness | undefined =
+      throwsCode === 'L' ? 'L' : throwsCode === 'S' ? 'S' : throwsCode === 'R' ? 'R' : undefined
     const team = p.currentTeam?.abbreviation ?? p.currentTeam?.name?.slice(0, 3).toUpperCase() ?? '???'
     const ref: PlayerRef = {
       playerId: p.id,
       fullName: p.fullName ?? `Player ${p.id}`,
       team,
       bats,
+      ...(throws ? { throws } : {}),
     }
     result.set(p.id, ref)
     await kvSet(`hrr:person:${p.id}`, ref, TTL_24H)
@@ -469,6 +478,13 @@ function buildConfirmedLineup(ids: number[], teamAbbrev: string): Lineup {
  *  - 'confirmed'  → boxscore or schedule lineups (≥9 players)
  *  - 'partial'    → schedule lineups present but < 9 players
  *  - 'estimated'  → built from historical batting-order data
+ *
+ * Cache key: `hrr:lineup:{gameId}:{teamId}:{side}` — date is implicitly part of
+ * the key because each MLB `gameId` belongs to exactly one calendar date. This
+ * also holds for doubleheaders, which MLB assigns *distinct* gamePks (one for
+ * each game of the pair), so two same-day games against the same opponent
+ * still cache independently. If MLB ever changes that convention, add `date`
+ * to the cache key explicitly.
  *
  * 6-hour KV cache.
  */
@@ -633,7 +649,21 @@ function medianOf(arr: number[]): number | null {
  * Fetch the boxscore for `gameId`.
  * Returns hits, runs, and RBIs per player (keyed by playerId).
  * Used by the settle route to record final stat lines.
- * 6-hour KV cache (no-store fetch — we want fresh data, but cache the parse).
+ *
+ * TTL policy:
+ *  - **Successful, final** parse: 6h. Final games don't change, so a long
+ *    cache is fine and saves repeat fetches when settle re-runs.
+ *  - **HTTP error** fallback (status `scheduled`, empty playerStats): **5 min**
+ *    so callers don't hammer a flapping endpoint, but the cache turns over fast
+ *    enough that a transient outage doesn't lock us into an empty boxscore.
+ *
+ * The shorter TTL on the failure path is intentional and not a contradiction
+ * with the 6h success TTL — they answer different questions.
+ *
+ * Note: today's only consumer is the settle cron at 10 UTC, by which time all
+ * games are long final. If a future feature reads boxscores during games, the
+ * 6h success TTL will be too long for an in-progress score and should drop to
+ * ~2 min on a `status: 'in_progress'` parse.
  */
 export async function fetchBoxscore(gameId: number): Promise<Boxscore> {
   const cacheKey = `hrr:boxscore:${gameId}`
@@ -888,9 +918,14 @@ export async function fetchBatterGameLog(
       const st = s.stat
       const ab     = st.atBats ?? 0
       const bb     = st.baseOnBalls ?? 0
+      const hbp    = st.hitByPitch ?? 0
+      const sf     = st.sacFlies ?? 0
       const hits   = st.hits ?? 0
       const so     = st.strikeOuts ?? 0
-      const pa     = st.plateAppearances ?? (ab + bb)
+      // Prefer the API's PA when present; fall back to AB + BB + HBP + SF
+      // (true PA definition; the previous fallback of AB + BB undercounted by
+      // ~3% by ignoring HBP and sac flies).
+      const pa     = st.plateAppearances ?? (ab + bb + hbp + sf)
       return {
         gameDate:   s.date ?? '',
         pa,
