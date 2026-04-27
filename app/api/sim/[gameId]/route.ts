@@ -186,11 +186,15 @@ export async function GET(req: NextRequest, ctx: RouteContext): Promise<NextResp
   // across closure boundaries).
   const venueId = game.venueId
 
-  // Build a BatterSimContext for each batter in a lineup
+  // Build a BatterSimContext for each batter in a lineup. `side` is used
+  // only to namespace placeholder sentinel batterIds when a lineup is short
+  // — we mustn't reuse the same sentinel across home and away, otherwise
+  // their stats would conflate in the sim's per-batter stats Map.
   async function buildLineupContexts(
     lineup: typeof homeLineup,
     opposingPitcherId: number,
     opposingTeamId: number,
+    side: 'home' | 'away',
   ): Promise<BatterSimContext[]> {
     // Real pitcher handedness from /people (cached). When the pitcher is TBD
     // (id 0) or /people fails, fall back to 'R'.
@@ -221,10 +225,18 @@ export async function GET(req: NextRequest, ctx: RouteContext): Promise<NextResp
     )
 
     // If lineup is partial/estimated, pad to 9 slots with placeholder batters
-    // (use league-avg rates so the sim still runs — low-confidence result)
+    // (use league-avg rates so the sim still runs — low-confidence result).
+    // Each placeholder gets a unique sentinel batterId so they don't collide
+    // in the sim's per-batter stats Map (which would conflate their hits/runs/
+    // RBIs across iterations). Sentinels are namespaced > any real MLB id;
+    // home and away ranges don't overlap.
     if (contexts.length < 9) {
-      const placeholder = await buildLeagueAvgPlaceholder()
-      while (contexts.length < 9) contexts.push(placeholder)
+      const sideOffset = side === 'home' ? 9_000_000 : 9_100_000
+      while (contexts.length < 9) {
+        const placeholder = await buildLeagueAvgPlaceholder()
+        placeholder.batterId = sideOffset + contexts.length
+        contexts.push(placeholder)
+      }
     }
 
     return contexts
@@ -232,8 +244,8 @@ export async function GET(req: NextRequest, ctx: RouteContext): Promise<NextResp
 
   // Home lineup faces the away probable; away lineup faces the home probable
   const [homeContexts, awayContexts] = await Promise.all([
-    buildLineupContexts(homeLineup, probables.away, game.awayTeam.teamId),
-    buildLineupContexts(awayLineup, probables.home, game.homeTeam.teamId),
+    buildLineupContexts(homeLineup, probables.away, game.awayTeam.teamId, 'home'),
+    buildLineupContexts(awayLineup, probables.home, game.homeTeam.teamId, 'away'),
   ])
 
   // --- Run simulation ---

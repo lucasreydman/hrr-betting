@@ -47,18 +47,19 @@ export default function Methodology() {
       <Section heading="EDGE & SCORE">
         <p>The model&apos;s single ranking metric:</p>
         <CodeBlock>
-{`EDGE  = P_matchup / max(P_typical, 0.01) − 1
+{`EDGE  = max(P_matchup, 0.01) / max(P_typical, 0.01) − 1
 SCORE = EDGE × confidence`}
         </CodeBlock>
         <p>
           <Code>P_matchup</Code> is the model&apos;s probability for clearing the rung in this specific matchup
           (from the simulator). <Code>P_typical</Code> is the same player&apos;s average probability across their
           season&apos;s actual matchups — this is the key denominator that isolates <em>matchup</em> edge from
-          <em> player skill</em> (since books already price skill into the line).
+          <em> player skill</em> (since books already price skill into the line). Both numerator and denominator
+          are floored at 1% so that two equally-tiny probabilities don&apos;t produce a misleading huge edge.
         </p>
         <p>
           <Code>confidence</Code> is a graded multiplier (0.55–1.00) based on lineup confirmation, BvP sample
-          size, weather stability, and time-to-first-pitch.
+          size, recent-pitcher-start sample, weather stability, time-to-first-pitch, and an opener flag.
         </p>
       </Section>
 
@@ -93,15 +94,16 @@ SCORE = EDGE × confidence`}
     batter_rate × (pitcher_rate / lg_avg) × park × weather × tto`}
         </CodeBlock>
         <p>
-          Statcast adjustments (barrel%, hard-hit%, whiff%) layer on top. BvP regression (career
-          batter-vs-pitcher splits) is applied weighted by <Code>starter_share</Code> — only for the fraction of
-          PAs facing the starter, not the bullpen.
+          Statcast adjustments (barrel%, hard-hit%, whiff%) layer on top via a sqrt-tempered geometric blend
+          so a small-sample outlier can&apos;t collapse an outcome to zero. Career BvP is currently used only
+          as a confidence input, not as a per-PA rate adjustment — wiring BvP into the rate model is a
+          calibration target once enough settled history is available.
         </p>
       </Section>
 
       <Section heading="Lineup-aware Monte Carlo">
         <p>
-          For each game, the model simulates 10,000 iterations of the full game with all 9 batters of each team.
+          For each game, the model simulates 1,000 iterations of the full game with all 9 batters of each team.
           Per-PA outcomes draw from the distribution above; <Code>applyOutcome</Code> evolves the bases state
           realistically. Runs are credited to the runner who scored, RBIs to the batter who drove them in.
         </p>

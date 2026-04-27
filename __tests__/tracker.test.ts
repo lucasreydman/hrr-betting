@@ -71,7 +71,60 @@ describe('snapshotLockedPicks (in-memory KV)', () => {
   test('returns 0 when no current picks exist', async () => {
     const result = await snapshotLockedPicks('2099-12-31')
     expect(result.locked).toBe(0)
+    expect(result.newlyLocked).toBe(0)
     expect(result.alreadyLocked).toBe(false)
+  })
+
+  test('staggered slate: second call adds late-game tracked picks without overwriting earlier ones', async () => {
+    // Regression test for the lock-route bug where existence of any prior
+    // locked rows caused snapshotLockedPicks to bail out, dropping tracked
+    // picks for late-confirming games entirely.
+    const { kvSet } = await import('@/lib/kv')
+
+    const date = '2099-11-30'
+    const earlyPick = {
+      player: { playerId: 600, fullName: 'Early', team: 'BOS', bats: 'R' as const },
+      opponent: { teamId: 147, abbrev: 'NYY' },
+      opposingPitcher: { id: 1, name: 'P', status: 'confirmed' as const },
+      gameId: 1,
+      gameDate: `${date}T22:05:00Z`,
+      lineupSlot: 4,
+      lineupStatus: 'confirmed' as const,
+      pMatchup: 0.9, pTypical: 0.8, edge: 0.125, confidence: 1, score: 0.125,
+      tier: 'tracked' as const,
+    }
+    const latePick = { ...earlyPick, gameId: 2, player: { ...earlyPick.player, playerId: 700, fullName: 'Late' } }
+
+    // First lock pass: only the early game has a Tracked pick (late game still
+    // has an estimated lineup, doesn't pass the floor).
+    await kvSet(`picks:current:${date}`, {
+      date,
+      refreshedAt: new Date().toISOString(),
+      rung1: [earlyPick],
+      rung2: [],
+      rung3: [],
+      meta: { gamesTotal: 2, gamesWithSim: 2, gamesWithoutSim: [], fromCache: false },
+    })
+    const first = await snapshotLockedPicks(date)
+    expect(first.locked).toBe(1)
+    expect(first.newlyLocked).toBe(1)
+    expect(first.alreadyLocked).toBe(false)
+
+    // Late-game lineup confirms; both picks now appear as Tracked in the
+    // current picks blob. Second lock pass should add the late one and leave
+    // the early one untouched.
+    await kvSet(`picks:current:${date}`, {
+      date,
+      refreshedAt: new Date().toISOString(),
+      rung1: [earlyPick, latePick],
+      rung2: [],
+      rung3: [],
+      meta: { gamesTotal: 2, gamesWithSim: 2, gamesWithoutSim: [], fromCache: false },
+    })
+    const second = await snapshotLockedPicks(date)
+    expect(second.locked).toBe(2)
+    expect(second.newlyLocked).toBe(1)  // only the late pick is new
+    expect(second.alreadyLocked).toBe(true)
   })
 })
 

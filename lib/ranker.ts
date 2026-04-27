@@ -128,6 +128,13 @@ export interface PicksResponse {
     gamesWithSim: number
     gamesWithoutSim: number[]  // gameIds skipped this refresh
     fromCache: boolean
+    /**
+     * Game-state breakdown for the slate. Sums to gamesTotal modulo `postponed`,
+     * which is excluded everywhere else in the pipeline. Surfaced in the
+     * StatusBanner so users can see slate progress at a glance — useful as
+     * games tip off and finish over the course of the day.
+     */
+    gameStates: { scheduled: number; inProgress: number; final: number; postponed: number }
   }
 }
 
@@ -482,6 +489,16 @@ export async function rankPicks(date: string): Promise<PicksResponse> {
 
   const byScoreDesc = (a: Pick, b: Pick) => b.score - a.score
 
+  // Tally game states for the slate-progress chip in the status banner.
+  // Use the schedule's status field directly — it's authoritative.
+  const gameStates = { scheduled: 0, inProgress: 0, final: 0, postponed: 0 }
+  for (const g of games) {
+    if (g.status === 'scheduled') gameStates.scheduled++
+    else if (g.status === 'in_progress') gameStates.inProgress++
+    else if (g.status === 'final') gameStates.final++
+    else if (g.status === 'postponed') gameStates.postponed++
+  }
+
   return {
     date,
     refreshedAt: new Date().toISOString(),
@@ -493,6 +510,7 @@ export async function rankPicks(date: string): Promise<PicksResponse> {
       gamesWithSim,
       gamesWithoutSim,
       fromCache: false,
+      gameStates,
     },
   }
 }

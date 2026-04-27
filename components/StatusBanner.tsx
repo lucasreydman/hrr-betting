@@ -1,10 +1,11 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import type { PicksResponse } from '@/lib/ranker'
 
 interface StatusBannerProps {
   refreshedAt: string
-  meta: { gamesTotal: number; gamesWithSim: number; gamesWithoutSim: number[] }
+  meta: PicksResponse['meta']
   totalTracked: number
 }
 
@@ -52,6 +53,20 @@ export function StatusBanner({ refreshedAt, meta, totalTracked }: StatusBannerPr
   const refreshedLabel =
     minAgo === null ? '…' : minAgo === 0 ? 'just now' : `${minAgo}m ago`
 
+  // Slate-progress chip. Shown only once at least one game has tipped off
+  // OR finished — no point cluttering the pre-game UI with "0 final / 0 live".
+  const states = meta.gameStates
+  const showProgress = states && (states.inProgress > 0 || states.final > 0)
+  const progressValue = states
+    ? [
+        states.final > 0 ? `${states.final} final` : null,
+        states.inProgress > 0 ? `${states.inProgress} live` : null,
+        states.scheduled > 0 ? `${states.scheduled} upcoming` : null,
+      ]
+        .filter(Boolean)
+        .join(' · ')
+    : ''
+
   return (
     <div
       className="flex flex-wrap items-stretch gap-2"
@@ -75,6 +90,14 @@ export function StatusBanner({ refreshedAt, meta, totalTracked }: StatusBannerPr
           value={`${meta.gamesWithoutSim.length}`}
           tone="warn"
           ariaLabel={`${meta.gamesWithoutSim.length} games warming`}
+        />
+      )}
+      {showProgress && (
+        <StatChip
+          label="Slate"
+          value={progressValue}
+          tone={states.inProgress > 0 ? 'tracked' : 'neutral'}
+          ariaLabel={`Slate progress: ${progressValue}`}
         />
       )}
       <StatChip

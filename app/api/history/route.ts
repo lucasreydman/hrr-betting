@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { getSettledPicks, computeRollingMetrics, type SettledPick } from '@/lib/tracker'
+import { slateDateString, shiftIsoDate } from '@/lib/date-utils'
 import type { Rung } from '@/lib/types'
 import type { SettledPickRow } from '@/lib/db'
 
@@ -41,8 +42,10 @@ function rowToSettledPick(row: SettledPickRow): SettledPick {
 }
 
 export async function GET(): Promise<NextResponse<HistoryResponse>> {
-  const today = new Date()
-  const since = new Date(today.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
+  // Anchor the rolling window on the slate date (ET, 3 AM rollover) — the
+  // same boundary used everywhere else in the app — so the window doesn't
+  // shift by a day during late-night ET hours when UTC today != slate today.
+  const since = shiftIsoDate(slateDateString(), -30)
 
   // ONE query (Supabase) or one fallback iteration (KV) — replaces 30 sequential KV gets
   const rows = await getSettledPicks({ sinceDate: since })

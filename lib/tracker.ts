@@ -4,6 +4,7 @@ import type { LockedPickRow, SettledPickRow } from './db'
 import type { Pick, PicksResponse } from './ranker'
 import type { Rung } from './types'
 import { fetchBoxscore } from './mlb-api'
+import { slateDateString } from './date-utils'
 
 // ============================================================================
 // Pure lock-trigger logic
@@ -139,53 +140,112 @@ function collectTracked(current: PicksResponse): Array<Pick & { rung: Rung }> {
  * Snapshot Tracked picks for a single date. Reads picks:current:YYYY-MM-DD,
  * filters to tier === 'tracked', writes to Supabase locked_picks table.
  *
- * Idempotent via UNIQUE(date, game_id, player_id, rung) + upsert.
+ * Insert-only semantics: existing locked rows are NEVER overwritten on a
+ * later run (so late-fetched BvP / weather can't mutate a frozen pick), but
+ * NEW picks that became Tracked since the prior lock pass DO get added. This
+ * is critical for staggered slates: an early 5 PM lock fires before late-game
+ * lineups confirm, so a 9 PM start's tracked picks need a later lock pass to
+ * be captured. Without insert-only, the existence-check used to bail and
+ * those picks were dropped entirely.
+ *
+ * Idempotent via UNIQUE(date, game_id, player_id, rung) + upsert with
+ * ignoreDuplicates: re-runs are safe and additive.
+ *
+ * Returns:
+ *   - `locked`: total locked rows for the date AFTER this call
+ *   - `newlyLocked`: rows actually inserted by this call (0 if all were
+ *     already locked or no new Tracked picks materialised)
+ *   - `alreadyLocked`: true if at least one row existed before this call
+ *
  * Falls back to KV blob write when Supabase is unavailable (local dev / tests).
  */
-export async function snapshotLockedPicks(date: string): Promise<{ locked: number; alreadyLocked: boolean }> {
+export async function snapshotLockedPicks(date: string): Promise<{
+  locked: number
+  newlyLocked: number
+  alreadyLocked: boolean
+}> {
   const current = await kvGet<PicksResponse>(`picks:current:${date}`)
 
   if (!isSupabaseAvailable()) {
-    // KV fallback path
+    // KV fallback path — same insert-only semantics as the Supabase path
     const lockedKey = `picks:locked:${date}`
     const existing = await kvGet<LockedDay>(lockedKey)
-    if (existing) return { locked: existing.picks.length, alreadyLocked: true }
-    if (!current) return { locked: 0, alreadyLocked: false }
+    const alreadyLocked = existing != null
+
+    if (!current) {
+      return { locked: existing?.picks.length ?? 0, newlyLocked: 0, alreadyLocked }
+    }
 
     const tracked = collectTracked(current)
-    await kvSet(lockedKey, { date, lockedAt: new Date().toISOString(), picks: tracked }, 60 * 24 * 60 * 60)
-    return { locked: tracked.length, alreadyLocked: false }
+
+    // Build a Set of (gameId, playerId, rung) keys already locked so we can
+    // skip dupes — KV doesn't have a unique constraint to lean on.
+    const existingKeys = new Set<string>(
+      (existing?.picks ?? []).map(p => `${p.gameId}:${p.player.playerId}:${p.rung}`),
+    )
+    const fresh = tracked.filter(
+      p => !existingKeys.has(`${p.gameId}:${p.player.playerId}:${p.rung}`),
+    )
+
+    const merged = [...(existing?.picks ?? []), ...fresh]
+    if (merged.length > 0) {
+      await kvSet(
+        lockedKey,
+        { date, lockedAt: existing?.lockedAt ?? new Date().toISOString(), picks: merged },
+        60 * 24 * 60 * 60,
+      )
+    }
+
+    return { locked: merged.length, newlyLocked: fresh.length, alreadyLocked }
   }
 
   const supabase = getSupabase()!
 
-  // Check for existing rows to determine alreadyLocked
-  const { data: existing, error: selectErr } = await supabase
+  // Count existing rows (used for alreadyLocked + the "before" delta).
+  const { count: existingCount, error: selectErr } = await supabase
     .from('locked_picks')
-    .select('id')
+    .select('*', { count: 'exact', head: true })
     .eq('date', date)
-    .limit(1)
   if (selectErr) throw new Error(`locked_picks select failed: ${selectErr.message}`)
 
-  if (existing && existing.length > 0) {
-    const { count } = await supabase
-      .from('locked_picks')
-      .select('*', { count: 'exact', head: true })
-      .eq('date', date)
-    return { locked: count ?? 0, alreadyLocked: true }
+  const alreadyLocked = (existingCount ?? 0) > 0
+
+  if (!current) {
+    return { locked: existingCount ?? 0, newlyLocked: 0, alreadyLocked }
   }
 
-  if (!current) return { locked: 0, alreadyLocked: false }
-
   const tracked = collectTracked(current)
-  if (tracked.length === 0) return { locked: 0, alreadyLocked: false }
+  if (tracked.length === 0) {
+    return { locked: existingCount ?? 0, newlyLocked: 0, alreadyLocked }
+  }
 
+  // ignoreDuplicates: existing (date, game_id, player_id, rung) rows stay
+  // frozen; only new combinations are inserted. This is the correctness
+  // fix for staggered slates — it lets a 9 PM start's Tracked picks land in
+  // a 7 PM cron run after the early-game lock already wrote rows.
   const { error: upsertErr } = await supabase
     .from('locked_picks')
-    .upsert(tracked.map(p => pickToLockedRow(date, p)), { onConflict: 'date,game_id,player_id,rung' })
+    .upsert(tracked.map(p => pickToLockedRow(date, p)), {
+      onConflict: 'date,game_id,player_id,rung',
+      ignoreDuplicates: true,
+    })
   if (upsertErr) throw new Error(`locked_picks upsert failed: ${upsertErr.message}`)
 
-  return { locked: tracked.length, alreadyLocked: false }
+  // Re-count to compute the delta. Doing this rather than trusting the upsert
+  // response lets us return precise newlyLocked even when Supabase doesn't
+  // surface per-row conflict info.
+  const { count: afterCount, error: afterErr } = await supabase
+    .from('locked_picks')
+    .select('*', { count: 'exact', head: true })
+    .eq('date', date)
+  if (afterErr) throw new Error(`locked_picks recount failed: ${afterErr.message}`)
+
+  const finalCount = afterCount ?? 0
+  return {
+    locked: finalCount,
+    newlyLocked: Math.max(0, finalCount - (existingCount ?? 0)),
+    alreadyLocked,
+  }
 }
 
 // ============================================================================
@@ -287,13 +347,15 @@ export async function getSettledPicks(args: { sinceDate: string }): Promise<Sett
     return (data ?? []) as SettledPickRow[]
   }
 
-  // KV fallback: walk dates from today back to sinceDate.
-  // Use UTC consistently (anchor at noon UTC, mutate via setUTCDate, format
-  // via toISOString) so that local-zone DST transitions can't push the cursor
-  // off by a day or skip a date during traversal.
+  // KV fallback: walk dates from today's slate back to sinceDate.
+  // Anchor on slateDateString() (ET 3AM rollover) instead of UTC today so
+  // we don't skip a slate during the late-night ET window when UTC has
+  // already rolled but ET hasn't. Anchor cursor at noon UTC and mutate via
+  // setUTCDate so DST transitions in any local zone can't shift the cursor
+  // off by a day during traversal.
   const rows: SettledPickRow[] = []
   const since = new Date(`${args.sinceDate}T00:00:00Z`)
-  const todayStr = new Date().toISOString().slice(0, 10)
+  const todayStr = slateDateString()
   const cursor = new Date(`${todayStr}T12:00:00Z`)
 
   while (cursor.getTime() >= since.getTime()) {

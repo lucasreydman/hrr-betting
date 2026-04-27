@@ -327,7 +327,8 @@ function MathPanel({ pick, localTime }: { pick: Pick; localTime: ReturnType<type
 
       <PanelSection title="Score">
         <p className="font-mono text-[11px] text-ink-muted">
-          score = edge × confidence × 100
+          score = edge × confidence
+          <span className="ml-1 text-ink-muted/70">(displayed ×100 for readability)</span>
         </p>
         <KV label="= Score">
           <span className={isTracked ? 'font-semibold text-tracked' : 'text-ink'}>
