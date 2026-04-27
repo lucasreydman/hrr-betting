@@ -141,6 +141,64 @@ interface SimCachePayload {
 }
 
 // ---------------------------------------------------------------------------
+// Self-warming: fire internal HTTPS requests to /api/sim/[gameId] for any
+// games whose sim cache is missing. The GitHub Actions cron is supposed to
+// keep these warmed every 5 min during slate hours, but the free tier
+// throttles scheduled workflows heavily — sometimes firing only once an
+// hour. So we let the *act of viewing the page* warm any missing sims as
+// a fallback, with a tight budget so it doesn't slow the picks endpoint
+// past Vercel Hobby's 10 s function limit.
+// ---------------------------------------------------------------------------
+
+/** How long rankPicks will wait for in-flight sim warm-ups before returning. */
+const SIM_WARM_BUDGET_MS = 6_000
+
+/** Resolve the deployment's own base URL for self-fetches. */
+function selfBaseUrl(): string {
+  // Vercel auto-injects VERCEL_URL with the deployment-specific host
+  // (e.g. "hrr-betting.vercel.app" or a preview URL).
+  const vercelUrl = process.env.VERCEL_URL
+  if (vercelUrl) return `https://${vercelUrl}`
+  const port = process.env.PORT ?? '3000'
+  return `http://localhost:${port}`
+}
+
+/**
+ * Fire-and-budget: kick off internal HTTPS calls to /api/sim/[gameId] for
+ * each `gameId`, race the bundle against a deadline, return after either
+ * (a) all warm-ups finish, or (b) the budget elapses — whichever is first.
+ *
+ * Each warm-up runs as its *own* Vercel function invocation, with its own
+ * full function-time budget (10 s on Hobby). So even when this race resolves
+ * on the timeout, the in-flight warm-ups keep going on Vercel's side and
+ * the sim cache populates for the next /api/picks poll. Internally-fired
+ * fetches that beat the timeout also leave their results in the sim cache,
+ * which we re-read after the race.
+ *
+ * Errors are swallowed silently — one bad sim shouldn't block the others
+ * or fail the picks request.
+ */
+async function warmMissingSims(gameIds: number[], date: string): Promise<void> {
+  if (gameIds.length === 0) return
+  const cronSecret = process.env.CRON_SECRET ?? ''
+  const base = selfBaseUrl()
+
+  const fired = gameIds.map(id => {
+    const url = `${base}/api/sim/${id}?date=${encodeURIComponent(date)}`
+    return fetch(url, {
+      headers: cronSecret ? { 'x-cron-secret': cronSecret } : {},
+      // Don't blow up the calling request on per-sim errors.
+      cache: 'no-store',
+    }).catch(() => undefined)
+  })
+
+  await Promise.race([
+    Promise.allSettled(fired),
+    new Promise(resolve => setTimeout(resolve, SIM_WARM_BUDGET_MS)),
+  ])
+}
+
+// ---------------------------------------------------------------------------
 // classifyTier
 // ---------------------------------------------------------------------------
 
@@ -176,6 +234,33 @@ export async function rankPicks(date: string): Promise<PicksResponse> {
   const rung1Picks: Pick[] = []
   const rung2Picks: Pick[] = []
   const rung3Picks: Pick[] = []
+
+  // ---------------------------------------------------------------------
+  // Pre-pass: identify games whose sim isn't in the cache yet, warm them
+  // in parallel with a 6 s budget, then continue. This is the safety net
+  // for unreliable cron firing — even if GitHub Actions hasn't fired its
+  // 5-min schedule for an hour, the act of someone viewing /api/picks
+  // triggers warming. The fetchLineup / fetchProbablePitchers calls below
+  // run again inside the main loop, but both go through kv-cached paths
+  // so the duplication is just an extra ~30 ms of cache reads per game.
+  // ---------------------------------------------------------------------
+  const live = games.filter(g => g.status !== 'postponed' && g.status !== 'final')
+  const preChecks = await Promise.all(live.map(async game => {
+    const [homeLineup, awayLineup, probables] = await Promise.all([
+      fetchLineup(game.gameId, game.homeTeam.teamId, 'home', date),
+      fetchLineup(game.gameId, game.awayTeam.teamId, 'away', date),
+      fetchProbablePitchers(game.gameId),
+    ])
+    const lH = lineupHash(homeLineup) + ':' + lineupHash(awayLineup)
+    const probableH = `${probables.home || 0}:${probables.away || 0}`
+    const cacheKey = `sim:${game.gameId}:${lH}:${probableH}`
+    const cached = await kvGet<SimCachePayload>(cacheKey)
+    return { gameId: game.gameId, hit: cached !== null }
+  }))
+  const missingIds = preChecks.filter(p => !p.hit).map(p => p.gameId)
+  if (missingIds.length > 0) {
+    await warmMissingSims(missingIds, date)
+  }
 
   for (const game of games) {
     // Skip terminal game states — no point building picks
