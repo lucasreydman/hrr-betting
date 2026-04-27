@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from 'react'
 import type { PicksResponse } from '@/lib/ranker'
 import { BoardSection } from './BoardSection'
 import { StatusBanner } from './StatusBanner'
+import { SimWarmingProgress } from './SimWarmingProgress'
 
 /** "Sat, Apr 27" style label — friendlier than ISO at-a-glance. */
 function prettyDate(date: string): string {
@@ -92,6 +93,9 @@ export function ClientShell({ initialPicks }: { initialPicks: PicksResponse }) {
       </header>
 
       <StatusBanner refreshedAt={picks.refreshedAt} meta={picks.meta} totalTracked={totalTracked} />
+
+      {/* Auto-hides when 100% warmed; prominent when there are missing sims. */}
+      <SimWarmingProgress meta={picks.meta} refreshedAt={picks.refreshedAt} />
 
       {error && (
         <div
