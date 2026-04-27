@@ -37,13 +37,41 @@ jobs:
         id: list
         run: |
           set -e
-          # Manual dispatch can override the date (to warm tomorrow's slate, etc.)
-          DATE="${{ github.event.inputs.date }}"
-          if [ -z "$DATE" ]; then
-            DATE=$(date -u +%Y-%m-%d)
+          # Manual dispatch can override the date (to warm a specific date).
+          # Otherwise we warm BOTH today and tomorrow each run, so users navigating
+          # to either date in the UI always have warm sim caches available.
+          MANUAL_DATE="${{ github.event.inputs.date }}"
+          if [ -n "$MANUAL_DATE" ]; then
+            echo "dates=$MANUAL_DATE" >> "$GITHUB_OUTPUT"
+            echo "Using manual date: $MANUAL_DATE"
+          else
+            TODAY=$(date -u +%Y-%m-%d)
+            TOMORROW=$(date -u -d "tomorrow" +%Y-%m-%d 2>/dev/null || date -u -v+1d +%Y-%m-%d)
+            echo "dates=$TODAY $TOMORROW" >> "$GITHUB_OUTPUT"
+            echo "Using dates: $TODAY $TOMORROW"
           fi
-          echo "date=$DATE" >> "$GITHUB_OUTPUT"
-          echo "Using date: $DATE"
+
+      - name: Build game list across all dates
+        id: games
+        run: |
+          set -e
+          DATES="${{ steps.list.outputs.dates }}"
+          ALL_PAIRS=""
+          for DATE in $DATES; do
+            RESPONSE=$(curl --silent --show-error --fail \
+              -H "x-cron-secret: ${{ secrets.CRON_SECRET }}" \
+              "${{ secrets.VERCEL_DEPLOY_URL }}/api/sim?date=$DATE")
+            echo "$DATE response:"
+            echo "$RESPONSE" | jq .
+
+            # Build space-separated "date|gameId" pairs for eligible games
+            PAIRS=$(echo "$RESPONSE" | jq -r --arg d "$DATE" '.summary[] | select(.status == "eligible") | "\($d)|\(.gameId)"' | tr '\n' ' ')
+            ALL_PAIRS="$ALL_PAIRS $PAIRS"
+          done
+          # Trim leading whitespace
+          ALL_PAIRS=$(echo "$ALL_PAIRS" | xargs)
+          echo "pairs=$ALL_PAIRS" >> "$GITHUB_OUTPUT"
+          echo "Total eligible game-date pairs: $(echo "$ALL_PAIRS" | wc -w)"
 
           RESPONSE=$(curl --silent --show-error --fail \
             -H "x-cron-secret: ${{ secrets.CRON_SECRET }}" \
@@ -58,23 +86,24 @@ jobs:
           echo "Found $(echo "$GAME_IDS" | wc -w) eligible games"
 
       - name: Warm per-game sims in parallel
-        if: steps.list.outputs.game_ids != ''
+        if: steps.games.outputs.pairs != ''
         run: |
           set -e
-          DATE="${{ steps.list.outputs.date }}"
-          GAME_IDS="${{ steps.list.outputs.game_ids }}"
+          PAIRS="${{ steps.games.outputs.pairs }}"
 
-          # Fire one curl per game in the background; each Vercel function
-          # invocation gets its own 10s budget. Per-endpoint cache check skips
-          # work if hashes are unchanged (returns ~100ms with fromCache=true).
-          for gameId in $GAME_IDS; do
+          # Fire one curl per (date, gameId) pair in parallel; each Vercel
+          # function invocation gets its own 10s budget. Per-endpoint cache
+          # check skips work if hashes are unchanged.
+          for pair in $PAIRS; do
+            DATE="${pair%|*}"
+            gameId="${pair#*|}"
             (
-              echo "→ Kicking sim for game $gameId"
+              echo "→ Kicking sim for game $gameId on $DATE"
               curl --silent --show-error --max-time 15 \
                 -H "x-cron-secret: ${{ secrets.CRON_SECRET }}" \
                 "${{ secrets.VERCEL_DEPLOY_URL }}/api/sim/$gameId?date=$DATE" \
                 -o /dev/null \
-                -w "← Game $gameId: HTTP %{http_code} in %{time_total}s\n"
+                -w "← Game $gameId ($DATE): HTTP %{http_code} in %{time_total}s\n"
             ) &
           done
           wait
