@@ -1,29 +1,62 @@
 /**
  * Shared date utilities for the HRR betting app.
  *
- * Slate dates are Pacific Time (most MLB scheduling, and the cron description in
- * .github/workflows/cron.yml). UTC is the wrong reference for the slate
- * boundary because late-night Pacific games (e.g. 10 PM PT) cross into the next
- * UTC day mid-slate, so a UTC "today" call between 00:00 UTC and 08:00 UTC
- * during the back half of the slate would miss in-progress games.
+ * The "slate date" is the boundary the user, the cron, and the picks history
+ * all agree on. We use the standard DFS / sportsbook convention:
  *
- * The helpers here use `Intl.DateTimeFormat` with the IANA `America/Los_Angeles`
- * zone, which handles PDT/PST automatically (no fixed -7/-8 offset hacks).
+ *     ET (America/New_York), rolls over at 3 AM ET.
+ *
+ * That means a 10 PM PT game starting on April 26 — which finishes at ~2 AM ET
+ * on April 27 — still belongs to the April 26 slate. Locking, settling, and
+ * the user's "today's board" all use this same date. The 3 AM rollover is
+ * implemented by subtracting 3 hours from "now" (in ET) before taking the
+ * calendar date, so the cutover is timezone-correct across DST transitions.
+ *
+ * `pacificDateString` is kept for any caller that genuinely wants the Pacific
+ * calendar date (it's not used in the live slate path anymore).
  */
 const PACIFIC_TZ = 'America/Los_Angeles'
+const EASTERN_TZ = 'America/New_York'
 
 /**
  * Returns YYYY-MM-DD for the current Pacific calendar date.
  * Uses `America/Los_Angeles`, so PST/PDT switchovers are handled correctly.
+ *
+ * Not used for the slate boundary — see `slateDateString` for that.
  */
 export function pacificDateString(now: Date = new Date()): string {
-  // en-CA gives YYYY-MM-DD format directly (avoids parsing a localized string).
   return new Intl.DateTimeFormat('en-CA', {
     timeZone: PACIFIC_TZ,
     year:  'numeric',
     month: '2-digit',
     day:   '2-digit',
   }).format(now)
+}
+
+/**
+ * Returns YYYY-MM-DD for the current MLB slate.
+ *
+ * Convention: Eastern Time, rolls over at 3 AM ET.
+ *  - 11 PM ET on Apr 26 → "2026-04-26"
+ *  - 1 AM ET  on Apr 27 → "2026-04-26"  (still part of Apr 26 slate)
+ *  - 3 AM ET  on Apr 27 → "2026-04-27"  (new slate)
+ *
+ * Implementation: take the ET wall-clock time, subtract 3 hours, then take
+ * the ET calendar date. Subtracting 3 hours moves "1 AM ET" into the
+ * previous calendar day's 22:00, so the calendar date is correctly the
+ * previous day. At 3 AM ET, the shifted time is exactly midnight of the
+ * current ET day, so the date stays on the new slate. `Intl.DateTimeFormat`
+ * with `America/New_York` handles EDT/EST and DST automatically — no fixed
+ * −5/−4 offset hacks.
+ */
+export function slateDateString(now: Date = new Date()): string {
+  const shifted = new Date(now.getTime() - 3 * 60 * 60 * 1000)
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: EASTERN_TZ,
+    year:  'numeric',
+    month: '2-digit',
+    day:   '2-digit',
+  }).format(shifted)
 }
 
 /**

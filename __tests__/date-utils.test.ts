@@ -1,4 +1,4 @@
-import { pacificDateString, shiftIsoDate, isValidIsoDate } from '@/lib/date-utils'
+import { pacificDateString, shiftIsoDate, isValidIsoDate, slateDateString } from '@/lib/date-utils'
 
 describe('pacificDateString', () => {
   test('returns YYYY-MM-DD format', () => {
@@ -22,6 +22,76 @@ describe('pacificDateString', () => {
     // 2026-01-15 07:00 UTC = 2026-01-14 23:00 PST (UTC-8)
     const winterEvening = new Date('2026-01-15T07:00:00Z')
     expect(pacificDateString(winterEvening)).toBe('2026-01-14')
+  })
+})
+
+describe('slateDateString — ET 3AM rollover', () => {
+  // Reference: 2026-04-27 is past DST start, so ET = UTC-4 (EDT).
+  // 11 PM ET Apr 26 = 03:00 UTC Apr 27.
+  // 12 AM ET Apr 27 = 04:00 UTC Apr 27.
+  // 1  AM ET Apr 27 = 05:00 UTC Apr 27.
+  // 3  AM ET Apr 27 = 07:00 UTC Apr 27 (rollover boundary).
+  // 4  AM ET Apr 27 = 08:00 UTC Apr 27.
+
+  test('11 PM ET on the slate day → that slate', () => {
+    const t = new Date('2026-04-27T03:00:00Z')  // 11 PM EDT Apr 26
+    expect(slateDateString(t)).toBe('2026-04-26')
+  })
+
+  test('exactly midnight ET → still previous slate (within the 3am window)', () => {
+    const t = new Date('2026-04-27T04:00:00Z')  // 00:00 EDT Apr 27
+    expect(slateDateString(t)).toBe('2026-04-26')
+  })
+
+  test('1 AM ET → still previous slate', () => {
+    const t = new Date('2026-04-27T05:00:00Z')  // 01:00 EDT Apr 27
+    expect(slateDateString(t)).toBe('2026-04-26')
+  })
+
+  test('2:59 AM ET → still previous slate', () => {
+    const t = new Date('2026-04-27T06:59:00Z')  // 02:59 EDT Apr 27
+    expect(slateDateString(t)).toBe('2026-04-26')
+  })
+
+  test('3:00 AM ET → rollover to new slate', () => {
+    const t = new Date('2026-04-27T07:00:00Z')  // 03:00 EDT Apr 27
+    expect(slateDateString(t)).toBe('2026-04-27')
+  })
+
+  test('4 AM ET → new slate', () => {
+    const t = new Date('2026-04-27T08:00:00Z')  // 04:00 EDT Apr 27
+    expect(slateDateString(t)).toBe('2026-04-27')
+  })
+
+  test('mid-afternoon ET → current slate', () => {
+    const t = new Date('2026-04-27T18:00:00Z')  // 14:00 EDT Apr 27
+    expect(slateDateString(t)).toBe('2026-04-27')
+  })
+
+  test('handles EST (winter): 3 AM EST on Jan 15 → rollover', () => {
+    // 2026-01-15 = winter, ET is UTC-5 (EST).
+    // 3 AM EST Jan 15 = 08:00 UTC Jan 15.
+    const t = new Date('2026-01-15T08:00:00Z')
+    expect(slateDateString(t)).toBe('2026-01-15')
+  })
+
+  test('handles EST (winter): 1 AM EST on Jan 15 → previous slate', () => {
+    // 1 AM EST Jan 15 = 06:00 UTC Jan 15.
+    const t = new Date('2026-01-15T06:00:00Z')
+    expect(slateDateString(t)).toBe('2026-01-14')
+  })
+
+  test('returns YYYY-MM-DD format', () => {
+    expect(slateDateString()).toMatch(/^\d{4}-\d{2}-\d{2}$/)
+  })
+
+  test('cron firing at 10 UTC = 6 AM ET → slate is current ET date (settle path)', () => {
+    // /api/settle cron runs at 10 UTC. We want to make sure that maps to the
+    // ET calendar date for the day that's just ended.
+    const t = new Date('2026-04-28T10:00:00Z')  // 06:00 EDT Apr 28
+    expect(slateDateString(t)).toBe('2026-04-28')
+    // shiftIsoDate(slateDateString(t), -1) is what /api/settle uses for "yesterday"
+    expect(shiftIsoDate(slateDateString(t), -1)).toBe('2026-04-27')
   })
 })
 

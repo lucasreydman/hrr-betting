@@ -1,20 +1,9 @@
 'use client'
 
-import { useEffect, useState, useCallback, useTransition } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import type { PicksResponse } from '@/lib/ranker'
 import { BoardSection } from './BoardSection'
 import { StatusBanner } from './StatusBanner'
-import { pacificDateString, shiftIsoDate } from '@/lib/date-utils'
-
-const todayPacificDateString = () => pacificDateString()
-const shiftDate = shiftIsoDate
-
-function relativeLabel(date: string, today: string): string {
-  if (date === today) return "Today's slate"
-  if (date === shiftDate(today, 1)) return "Tomorrow's slate"
-  if (date === shiftDate(today, -1)) return "Yesterday's slate"
-  return 'Slate'
-}
 
 /** "Sat, Apr 27" style label — friendlier than ISO at-a-glance. */
 function prettyDate(date: string): string {
@@ -28,20 +17,24 @@ function prettyDate(date: string): string {
   })
 }
 
+/** How often to re-fetch /api/picks while the tab is visible. The server-side
+ *  picks cache is also 60 s, so within-window polls are cheap (cache hits) and
+ *  the user sees fresh data within ≤1 min of the cron warming a new sim. */
+const POLL_INTERVAL_MS = 60_000
+
 export function ClientShell({ initialPicks }: { initialPicks: PicksResponse }) {
   const [picks, setPicks] = useState<PicksResponse>(initialPicks)
-  const [date, setDate] = useState<string>(initialPicks.date)
   const [error, setError] = useState<string | null>(null)
-  const [isPending, startTransition] = useTransition()
+  // The slate date is fixed for the lifetime of the page — we don't navigate
+  // between dates; the server picks today's slate (ET 3 AM rollover) on each
+  // request via slateDateString().
+  const date = initialPicks.date
 
-  const today = todayPacificDateString()
-  const tomorrow = shiftDate(today, 1)
-  const atForwardLimit = date >= tomorrow  // Can't navigate past tomorrow — sims/lineups not useful that far out
-
-  const fetchForDate = useCallback(async (targetDate: string, opts: { nocache?: boolean } = {}) => {
+  const refetch = useCallback(async () => {
     try {
-      const url = `/api/picks?date=${targetDate}${opts.nocache ? '&nocache=1' : ''}`
-      const res = await fetch(url)
+      // No ?date param — server uses slateDateString() so the slate rolls
+      // over correctly without us hard-coding "today" on the client.
+      const res = await fetch('/api/picks')
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       const data: PicksResponse = await res.json()
       setPicks(data)
@@ -51,90 +44,50 @@ export function ClientShell({ initialPicks }: { initialPicks: PicksResponse }) {
     }
   }, [])
 
-  // Auto-refresh every 5 min for the current date
+  // Periodic poll while the tab is visible. Pausing while hidden saves
+  // bandwidth + battery on phones; the visibility-change listener below
+  // catches up immediately when the user returns.
   useEffect(() => {
-    const id = setInterval(() => fetchForDate(date), 5 * 60 * 1000)
+    const tick = () => {
+      if (document.visibilityState === 'visible') refetch()
+    }
+    const id = setInterval(tick, POLL_INTERVAL_MS)
     return () => clearInterval(id)
-  }, [date, fetchForDate])
+  }, [refetch])
 
-  const navigateToDate = (newDate: string) => {
-    startTransition(() => {
-      setDate(newDate)
-      void fetchForDate(newDate)
-    })
-  }
+  // Refetch immediately when the tab regains focus or the network reconnects
+  // — covers the "I left this tab open overnight" and "I just came back from
+  // a meeting" cases where the user expects current data without waiting up
+  // to a full poll interval.
+  useEffect(() => {
+    const onVis = () => {
+      if (document.visibilityState === 'visible') refetch()
+    }
+    document.addEventListener('visibilitychange', onVis)
+    window.addEventListener('online', refetch)
+    return () => {
+      document.removeEventListener('visibilitychange', onVis)
+      window.removeEventListener('online', refetch)
+    }
+  }, [refetch])
 
-  const totalTracked = picks.rung1.filter(p => p.tier === 'tracked').length +
-                       picks.rung2.filter(p => p.tier === 'tracked').length +
-                       picks.rung3.filter(p => p.tier === 'tracked').length
-
-  // Shared button base — consistent height, focus ring, disabled state.
-  const navBtn =
-    'inline-flex h-10 min-w-10 items-center justify-center rounded-md border border-border ' +
-    'bg-card/40 px-3 text-sm font-mono text-ink transition-colors ' +
-    'hover:bg-card hover:border-border-strong ' +
-    'disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-card/40 disabled:hover:border-border'
+  const totalTracked =
+    picks.rung1.filter(p => p.tier === 'tracked').length +
+    picks.rung2.filter(p => p.tier === 'tracked').length +
+    picks.rung3.filter(p => p.tier === 'tracked').length
 
   return (
     <main className="mx-auto max-w-5xl space-y-6 px-3 py-6 sm:px-6 sm:py-8">
-      <header className="space-y-4">
-        <div>
-          {/* `text-2xl` on phones so a 30 px headline doesn't dominate a 320 px screen. */}
-          <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">Today&apos;s board</h1>
-          <p className="mt-1 text-sm text-ink-muted">
-            Hits + Runs + RBIs prop picks ranked by matchup edge × confidence.
-          </p>
-        </div>
-
-        <div
-          className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-card/30 p-2"
-          role="group"
-          aria-label="Slate date navigation"
-        >
-          <button
-            type="button"
-            onClick={() => navigateToDate(shiftDate(date, -1))}
-            disabled={isPending}
-            className={navBtn}
-            aria-label="Previous day"
-          >
-            <span aria-hidden="true">←</span>
-          </button>
-
-          {/* The center column truncates so a long pretty-date label can't push the
-              forward arrow off the row. Pretty + ISO are stacked on phones to keep
-              the row tall enough to read both. */}
-          <div className="flex min-w-0 flex-1 flex-col items-center justify-center px-2 text-center">
-            <span className="text-[11px] font-medium uppercase tracking-wider text-ink-muted">
-              {relativeLabel(date, today)}
-            </span>
-            <span className="flex max-w-full flex-wrap items-baseline justify-center gap-x-2 truncate font-mono text-sm text-ink sm:text-base">
-              <span className="truncate">{prettyDate(date)}</span>
-              <span className="truncate text-ink-muted">{date}</span>
-            </span>
-          </div>
-
-          <button
-            type="button"
-            onClick={() => navigateToDate(shiftDate(date, 1))}
-            disabled={isPending || atForwardLimit}
-            className={navBtn}
-            aria-label="Next day"
-            title={atForwardLimit ? 'Forward preview is capped at +1 day — lineups and starters too uncertain further out' : 'Next day'}
-          >
-            <span aria-hidden="true">→</span>
-          </button>
-
-          {date !== today && (
-            <button
-              type="button"
-              onClick={() => navigateToDate(today)}
-              disabled={isPending}
-              className={navBtn + ' px-4'}
-            >
-              Today
-            </button>
-          )}
+      <header className="space-y-2">
+        <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">Today&apos;s board</h1>
+        <p className="text-sm text-ink-muted">
+          Hits + Runs + RBIs prop picks ranked by matchup edge × confidence.
+          Slate updates automatically every minute.
+        </p>
+        <div className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 font-mono text-sm">
+          <span className="text-ink">{prettyDate(date)}</span>
+          <span className="text-ink-muted">{date}</span>
+          <span className="text-[11px] uppercase tracking-wider text-ink-muted">slate</span>
         </div>
       </header>
 
@@ -147,16 +100,11 @@ export function ClientShell({ initialPicks }: { initialPicks: PicksResponse }) {
         >
           <span className="font-medium">Couldn&apos;t refresh picks.</span>{' '}
           <span className="text-miss/80">{error}</span>
+          <span className="ml-2 text-miss/70">Will retry automatically.</span>
         </div>
       )}
 
-      <div
-        className={
-          'space-y-6 transition-opacity ' +
-          (isPending ? 'opacity-60' : 'opacity-100')
-        }
-        aria-busy={isPending}
-      >
+      <div className="space-y-6">
         <BoardSection rung={1} picks={picks.rung1} />
         <BoardSection rung={2} picks={picks.rung2} />
         <BoardSection rung={3} picks={picks.rung3} />

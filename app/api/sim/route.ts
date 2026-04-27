@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { fetchSchedule } from '@/lib/mlb-api'
 import { verifyCronRequest } from '@/lib/cron-auth'
-import { pacificDateString, isValidIsoDate } from '@/lib/date-utils'
+import { slateDateString, isValidIsoDate } from '@/lib/date-utils'
 
 export const maxDuration = 10
 
@@ -33,7 +33,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   if (dateParam !== null && !isValidIsoDate(dateParam)) {
     return NextResponse.json({ error: 'invalid date — expected YYYY-MM-DD' }, { status: 400 })
   }
-  const date = dateParam ?? pacificDateString()
+  const date = dateParam ?? slateDateString()
   const games = await fetchSchedule(date)
 
   const summary: SimGameSummary[] = games.map(g => {

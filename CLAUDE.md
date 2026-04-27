@@ -56,7 +56,9 @@ for tests/dev.
 - `lib/p-typical.ts` — player-specific typical-game distribution. Target uses stabilised season rates; opponents stay league-avg.
 - `lib/tracker.ts` — lock snapshot + settlement (writes to Supabase, KV fallback).
 - `lib/cron-auth.ts` — `x-cron-secret` header check for cron-triggered routes.
-- `lib/date-utils.ts` — `pacificDateString()` (IANA tz), `shiftIsoDate`, `isValidIsoDate`. Use these everywhere a slate date is needed.
+- `lib/date-utils.ts` — `slateDateString()` (ET 3 AM rollover, **the slate helper**), `pacificDateString()` (kept for any caller that genuinely wants PT), `shiftIsoDate`, `isValidIsoDate`. Use `slateDateString` everywhere a slate boundary is needed.
+- `lib/weather-factors.ts` — temp + wind multipliers fed into the per-PA model. Domes/failures short-circuit to neutral 1.00. Constants are calibration targets.
+- `lib/park-factors.ts` — 2025 FanGraphs Guts! data, per-outcome × per-handedness. Resolved per-batter inside `buildBatterContext`.
 - `app/api/sim/[gameId]/route.ts` — orchestrator that materialises sim contexts and runs the Monte Carlo.
 - `supabase/migrations/20260426000000_initial_schema.sql` — schema.
 
@@ -98,13 +100,14 @@ wrap values, this normalises both.
 
 ## Coding conventions
 
-- **Math files have NO I/O.** Pure functions, deterministic, unit-testable. (`per-pa`, `edge`, `confidence`, `baserunner`, `rates`, `stabilization`, `bullpen` weights.)
-- **Data adapters cache through `lib/kv.ts`.** Cache keys live in the function that owns them (e.g. `hrr:lineup:{gameId}:{teamId}:{side}`); never share keys across modules.
-- **Date handling: always Pacific for slates.** UTC is a footgun — late-night PT games cross midnight UTC mid-slate. Use `lib/date-utils.ts` helpers for any user-facing slate boundary.
+- **Math files have NO I/O.** Pure functions, deterministic, unit-testable. (`per-pa`, `edge`, `confidence`, `baserunner`, `rates`, `stabilization`, `bullpen` weights, `weather-factors`, `park-factors`.)
+- **Data adapters cache through `lib/kv.ts`.** Cache keys live in the function that owns them. **Bump the key prefix** (e.g. `hrr:lineup:` → `hrr:lineup:v2:`) when changing the *shape* of cached values so existing rows are forcibly re-fetched instead of serving stale data for the TTL window. Optionally pair with a one-shot SQL migration in `supabase/migrations/` to free orphaned rows.
+- **Slate boundary: ET, 3 AM rollover.** Use `slateDateString()` for *anything* slate-related — `/api/picks` default date, `/api/lock`, `/api/settle` (which then `shiftIsoDate(slateDateString(), -1)` for "yesterday's slate"), `/api/sim`, `/api/sim/[gameId]`, `app/page.tsx`, the cron's `SLATE=$(TZ='America/New_York' date -d '3 hours ago' +%Y-%m-%d)` step. **Never** hardcode UTC `today`.
 - **API input validation: strict.** All `?date=` params go through `isValidIsoDate`; all IDs must be positive integers.
 - **Cron routes 401 on bad secret, 400 on bad input.** Never silently accept malformed input.
 - **Picks history is idempotent.** `locked_picks` / `settled_picks` upserts use `onConflict: 'date,game_id,player_id,rung'`. Re-runs are safe.
 - **Tracked tier floors are placeholders.** `EDGE_FLOORS`, `PROB_FLOORS`, `CONFIDENCE_FLOOR_TRACKED` in `lib/constants.ts` need ≥ 30 days of settled history before they can be tuned. Don't tune from gut feel.
+- **Auto-refresh:** `/api/picks` server cache is **60 s**; the client polls every 60 s while the tab is visible and instant-refetches on `visibilitychange` + `online`. Don't push these intervals lower without raising the cron cadence — faster polls won't surface new data, just burn cache.
 
 ## Testing expectations
 
@@ -115,8 +118,8 @@ wrap values, this normalises both.
 
 ## Cron schedule (UTC)
 
-- `*/5 17-23 * * *` and `*/5 0-6 * * *` — sim warm + lock check (every 5 min during slate hours).
-- `0 10 * * *` — settle (3 AM Pacific / 2 AM PST).
+- `*/5 17-23 * * *` and `*/5 0-7 * * *` — sim warm + lock check (every 5 min during slate hours, covering 1 PM ET first pitch through the 3 AM ET rollover).
+- `0 10 * * *` — settle (6 AM ET, well past the 3 AM ET rollover so `slateDateString() − 1` correctly identifies yesterday's slate).
 - 5–15 min jitter on GitHub Actions free tier; fine for eventually-consistent refresh.
 
 ## Known limitations / follow-ups
@@ -128,7 +131,8 @@ These are intentional v1 simplifications, not bugs. Calibration target: post ≥
 - **No L30/L15 batter rolling blend** in `buildBatterContext` — season stats only.
 - **Pitcher TTO splits** use league-average multipliers; pitcher-specific TTO requires Savant pitch-level data.
 - **Opener detection** is hardcoded to `'starter'` in the sim route; needs Savant pitch-by-pitch data.
-- **Park factors** are HR-only (1.00 for non-HR outcomes); per-handedness park factors deferred.
+- **Switch hitters** get the L/R-average park factor; a finer model would weight by the pitcher's hand for that PA.
+- **Weather constants** (TEMP_HR_PER_10F, WIND_HR_PER_MPH, the clamps) are calibration targets — magnitudes grounded in published research (Alan Nathan, Kovalchik), exact values to be tuned against settled history.
 - **`/api/admin/bvp`** is gated on the same `CRON_SECRET` as cron routes — fine for a personal-scope project; split if surface widens.
 
 ## Spec & plan

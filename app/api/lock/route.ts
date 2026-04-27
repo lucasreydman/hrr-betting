@@ -3,17 +3,19 @@ import { fetchSchedule } from '@/lib/mlb-api'
 import { fetchLineup } from '@/lib/lineup'
 import { shouldLock, snapshotLockedPicks } from '@/lib/tracker'
 import { verifyCronRequest } from '@/lib/cron-auth'
-import { pacificDateString, isValidIsoDate } from '@/lib/date-utils'
+import { slateDateString, isValidIsoDate } from '@/lib/date-utils'
 
 export const maxDuration = 10
 
 /**
  * Cron endpoint: every 5 min during slate hours.
- * For today's slate (Pacific), check if lock trigger fires. If yes, snapshot Tracked picks.
+ * For today's slate (ET, 3 AM rollover), check if lock trigger fires. If yes,
+ * snapshot Tracked picks.
  *
- * Slate boundary is Pacific, NOT UTC: late-night PT games cross midnight UTC
- * mid-slate, so a UTC "today" call after 00:00 UTC during the back half of the
- * slate would point at tomorrow's MLB date and miss in-progress lock windows.
+ * Slate boundary is Eastern with 3 AM rollover (the standard DFS / sportsbook
+ * convention) — late-night Pacific games that finish past midnight ET still
+ * belong to the same slate, so the cron correctly locks them in their
+ * lock-window even when the calendar UTC date has rolled over.
  *
  * Optional ?date=YYYY-MM-DD override for manual replays. Auth: requires
  * `x-cron-secret` header matching CRON_SECRET env var.
@@ -27,7 +29,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   if (dateParam !== null && !isValidIsoDate(dateParam)) {
     return NextResponse.json({ error: 'invalid date — expected YYYY-MM-DD' }, { status: 400 })
   }
-  const date = dateParam ?? pacificDateString()
+  const date = dateParam ?? slateDateString()
   const now = Date.now()
 
   const games = await fetchSchedule(date)

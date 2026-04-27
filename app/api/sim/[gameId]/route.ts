@@ -29,7 +29,7 @@ import { fetchWeather, weatherHash, getOutfieldFacingDegrees } from '@/lib/weath
 import { computeWeatherFactors } from '@/lib/weather-factors'
 import { buildBatterContext } from './build-context'
 import { verifyCronRequest } from '@/lib/cron-auth'
-import { pacificDateString, isValidIsoDate } from '@/lib/date-utils'
+import { slateDateString, isValidIsoDate } from '@/lib/date-utils'
 import type { Handedness } from '@/lib/types'
 
 // ---------------------------------------------------------------------------
@@ -101,7 +101,7 @@ export async function GET(req: NextRequest, ctx: RouteContext): Promise<NextResp
   if (dateParam !== null && !isValidIsoDate(dateParam)) {
     return NextResponse.json({ error: 'invalid date — expected YYYY-MM-DD' }, { status: 400 })
   }
-  const date = dateParam ?? pacificDateString()
+  const date = dateParam ?? slateDateString()
 
   // --- Locate game in schedule ---
   const games = await fetchSchedule(date)

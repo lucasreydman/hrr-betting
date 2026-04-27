@@ -27,7 +27,7 @@ For each player on the day's slate, the model:
 
 ## Pages
 
-- **`/`** — today's slate, three boards (1+, 2+, 3+), ranked by SCORE. Date navigator (←, today, →) capped at +1 day.
+- **`/`** — today's slate (ET, 3 AM rollover), three boards (1+, 2+, 3+), ranked by SCORE. Auto-refreshes every 60 s while the tab is visible, plus instant refresh on tab focus / network reconnect. No date navigator — past slates live on /history.
 - **`/history`** — rolling 30-day Tracked record, per-rung calibration table, daily activity bar chart, recent settled picks.
 - **`/methodology`** — full math, every factor, all sources cited.
 
@@ -39,10 +39,10 @@ All routes live under `app/api/`. `picks` and `history` are public reads; the re
 
 | Route | Auth | Purpose |
 | --- | --- | --- |
-| `GET /api/picks?date=YYYY-MM-DD` | public | Ranked picks for the slate (5-min cache). |
+| `GET /api/picks?date=YYYY-MM-DD` | public | Ranked picks for the slate. 60 s server-side cache; client polls every 60 s and on visibility-change. Default date = today's slate (ET 3 AM rollover). |
 | `GET /api/history` | public | 30-day calibration + recent settled picks. |
 | `GET /api/sim?date=YYYY-MM-DD` | cron | Lists eligible game IDs to fan out. |
-| `GET /api/sim/[gameId]?date=YYYY-MM-DD` | cron | Runs the per-game Monte Carlo (~500 ms / game) and caches it. |
+| `GET /api/sim/[gameId]?date=YYYY-MM-DD` | cron | Runs the per-game Monte Carlo (~500 ms / game) and caches it (24 h TTL, keyed on lineup × probable pitcher × weather hashes). |
 | `GET /api/lock` | cron | Snapshots tracked picks into `locked_picks` when any game is in its lock window. |
 | `GET /api/settle` | cron | Pulls boxscores for yesterday's `locked_picks` and writes outcomes to `settled_picks`. |
 | `GET /api/admin/bvp?b=X&p=Y` | cron | Diagnostic: shows the cached + fresh BvP record for a (batter, pitcher) pair. |
@@ -59,7 +59,8 @@ All `?date=` params are validated as strict `YYYY-MM-DD` (no malformed strings o
   - `locked_picks` / `settled_picks` — durable history with `UNIQUE(date, game_id, player_id, rung)` for idempotent upserts.
   - All three tables have RLS enabled with no policies → service-role-only access.
   - In-memory `Map` fallback when env vars are unset, so dev and tests run hermetically.
-- **Cron**: GitHub Actions (`.github/workflows/cron.yml`) — sim/lock every 5 min during slate hours, settle once daily at 10 UTC. Free on public repos (~50 min/month vs 2,000 min/month quota).
+- **Slate boundary**: ET, rolls over at 3 AM ET — the standard DFS / sportsbook convention. A 10 PM PT game starting on April 26 (which finishes ~2 AM ET on April 27) still belongs to the April 26 slate. See `lib/date-utils.ts:slateDateString()`.
+- **Cron**: GitHub Actions (`.github/workflows/cron.yml`) — sim/lock every 5 min during slate hours (17–07 UTC, covering 1 PM ET first pitch through the 3 AM ET rollover); settle once daily at 10 UTC (6 AM ET). Free on public repos (~50 min/month vs 2,000 min/month quota).
 - **CI**: GitHub Actions (`.github/workflows/ci.yml`) — lint, typecheck, test, build on every push and PR.
 - **Hosting**: Vercel Hobby (free); 1,000-iter sim runs in ~500 ms, well under the 10 s function budget.
 - **External APIs (no auth)**: MLB Stats, Baseball Savant CSV, Open-Meteo.
@@ -145,6 +146,7 @@ npm run build
 - **Live-network tests** are intentionally gated; CI does not exercise external services.
 - **Cron timing** has 5–15 min jitter on the GitHub Actions free tier — fine for an eventually-consistent refresh, not for hard real-time triggers.
 - **Sim iterations are 1,000 per game** in `app/api/sim/[gameId]/route.ts` to fit the 10 s Vercel Hobby function budget. Bumping past ~3,000 risks timing out on cold starts.
+- **Auto-refresh propagation.** Worst-case time from a fresh sim landing in cache to the user seeing it ≈ 60 s server-cache + 60 s client-poll = 2 min. The actual sim is re-run only when the inputs change (lineup hash, probable-pitcher hash, weather-bucket hash) — polling more aggressively wouldn't surface new data faster.
 
 ---
 
