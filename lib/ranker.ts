@@ -165,9 +165,12 @@ export async function rankPicks(date: string): Promise<PicksResponse> {
       return {
         lineup,
         opponent,
+        // Pass sentinel `1` when probable starter is TBD (common in early season /
+        // far-from-game-time). The sim already uses league-avg fallback rates for
+        // unknown pitchers, and pitcherStartCount=0 below already penalizes confidence.
         sidePassesGates: passesHardGates({
           gameStatus: game.status,
-          probableStarterId: opposingStarterId > 0 ? opposingStarterId : null,
+          probableStarterId: opposingStarterId > 0 ? opposingStarterId : 1,
           lineupStatus: lineup.status,
           expectedPA: 4,
         }),
