@@ -73,6 +73,9 @@ export function lockedRowToPick(row: LockedPickRow): Pick & { rung: Rung } {
   return {
     player: { playerId: row.player_id, fullName: row.player_name, team: row.player_team, bats: row.player_bats },
     opponent: { teamId: row.opponent_team_id, abbrev: row.opponent_abbrev },
+    // Locked picks predate the opposingPitcher schema; fill with sentinel so the
+    // type matches. Future schema migration can persist the real pitcher metadata.
+    opposingPitcher: { id: 0, name: 'unknown', status: 'confirmed' },
     gameId: row.game_id, rung: row.rung,
     lineupSlot: row.lineup_slot, lineupStatus: row.lineup_status,
     pMatchup: row.p_matchup, pTypical: row.p_typical,

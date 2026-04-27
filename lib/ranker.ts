@@ -16,7 +16,7 @@ import { kvGet } from './kv'
 import { computeEdge, computeScore } from './edge'
 import { computeConfidence, passesHardGates } from './confidence'
 import { getPTypical } from './p-typical'
-import { fetchSchedule, fetchProbablePitchers, fetchPitcherRecentStarts, fetchBvP } from './mlb-api'
+import { fetchSchedule, fetchProbablePitchers, fetchPitcherRecentStarts, fetchBvP, fetchPeople } from './mlb-api'
 import { fetchLineup, lineupHash } from './lineup'
 import {
   EDGE_FLOORS,
@@ -33,6 +33,12 @@ import type { Rung } from './types'
 export interface Pick {
   player: { playerId: number; fullName: string; team: string; bats: 'R' | 'L' | 'S' }
   opponent: { teamId: number; abbrev: string }
+  /** The probable / confirmed starter this batter is facing, or TBD when unannounced. */
+  opposingPitcher: {
+    id: number  // 0 when TBD
+    name: string  // "TBD" when id is 0
+    status: 'tbd' | 'probable' | 'confirmed'
+  }
   gameId: number
   lineupSlot: number
   lineupStatus: 'confirmed' | 'partial' | 'estimated'
@@ -138,12 +144,16 @@ export async function rankPicks(date: string): Promise<PicksResponse> {
     const firstPitchMs = new Date(game.gameDate).getTime()
     const timeToFirstPitchMin = Math.max(0, Math.round((firstPitchMs - Date.now()) / 60000))
 
-    // Fetch each probable pitcher's recent-starts count for the confidence factor.
-    // Cached 6h via fetchPitcherRecentStarts; cheap on repeat calls.
-    const [homePitcherStarts, awayPitcherStarts] = await Promise.all([
+    // Fetch each probable pitcher's recent-starts count + name in parallel.
+    // fetchPeople caches per-ID 24h so name lookups are cheap on repeat calls.
+    const pitcherIds = [probables.home, probables.away].filter(id => id > 0)
+    const [homePitcherStarts, awayPitcherStarts, pitcherPeople] = await Promise.all([
       probables.home > 0 ? fetchPitcherRecentStarts(probables.home, 10).catch(() => []) : Promise.resolve([]),
       probables.away > 0 ? fetchPitcherRecentStarts(probables.away, 10).catch(() => []) : Promise.resolve([]),
+      pitcherIds.length > 0 ? fetchPeople(pitcherIds) : Promise.resolve(new Map()),
     ])
+    const pitcherNames = new Map<number, string>()
+    for (const [id, ref] of pitcherPeople) pitcherNames.set(id, ref.fullName)
 
     // Hard gates evaluated per-side below (lineupStatus is per-side).
     // Game-level conditions (gameStatus, probableStarterId, expectedPA) are
@@ -215,6 +225,15 @@ export async function rankPicks(date: string): Promise<PicksResponse> {
       // (Other inputs are per-side, so they're shared across batters on a side.)
       const onHome = lineup === homeLineup
       const opposingStarterStartCount = onHome ? awayPitcherStarts.length : homePitcherStarts.length
+      const opposingStarterId = onHome ? probables.away : probables.home
+      // game.status was already filtered to exclude 'postponed' and 'final' at the
+      // top of the per-game loop, so reaching here means 'scheduled' or 'in_progress'.
+      const opposingPitcherStatus: 'tbd' | 'probable' | 'confirmed' =
+        opposingStarterId <= 0
+          ? 'tbd'
+          : game.status === 'in_progress'
+            ? 'confirmed'
+            : 'probable'
       const confidence = computeConfidence({
         lineupStatus: lineup.status,
         bvpAB: bvp?.ab ?? 0,
@@ -243,6 +262,11 @@ export async function rankPicks(date: string): Promise<PicksResponse> {
             bats: player.bats,
           },
           opponent: { teamId: opponent.teamId, abbrev: opponent.abbrev },
+          opposingPitcher: {
+            id: opposingStarterId > 0 ? opposingStarterId : 0,
+            name: opposingStarterId > 0 ? (pitcherNames.get(opposingStarterId) ?? `P ${opposingStarterId}`) : 'TBD',
+            status: opposingPitcherStatus,
+          },
           gameId: game.gameId,
           lineupSlot: entry.slot,
           lineupStatus: lineup.status,

@@ -21,6 +21,9 @@ function rowToSettledPick(row: SettledPickRow): SettledPick {
       bats: row.player_bats,
     },
     opponent: { teamId: row.opponent_team_id, abbrev: row.opponent_abbrev },
+    // Settled history doesn't carry the opposing-pitcher metadata; use 'confirmed'
+    // since the game is settled. Future schema migration can add these columns.
+    opposingPitcher: { id: 0, name: 'unknown', status: 'confirmed' },
     gameId: row.game_id,
     rung: row.rung,
     lineupSlot: row.lineup_slot,

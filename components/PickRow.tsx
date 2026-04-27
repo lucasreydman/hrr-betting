@@ -11,10 +11,16 @@ export function PickRow({ pick }: { pick: Pick }) {
       </div>
       <div className="col-span-3">
         <div className="font-medium">{pick.player.fullName}</div>
-        <div className="text-xs text-ink-muted">
+        <div className="text-xs text-ink-muted leading-tight">
           {pick.player.team} vs {pick.opponent.abbrev} · slot {pick.lineupSlot}
           {pick.lineupStatus === 'estimated' && <span className="ml-1 text-amber-500">(est)</span>}
           {pick.lineupStatus === 'partial' && <span className="ml-1 text-amber-500">(partial)</span>}
+        </div>
+        <div className="text-xs text-ink-muted leading-tight">
+          P: {pick.opposingPitcher.name}
+          {pick.opposingPitcher.status === 'tbd' && <span className="ml-1 text-amber-500">TBD</span>}
+          {pick.opposingPitcher.status === 'probable' && <span className="ml-1 text-ink-muted">(probable)</span>}
+          {pick.opposingPitcher.status === 'confirmed' && <span className="ml-1 text-hit">(confirmed)</span>}
         </div>
       </div>
       <div className="col-span-2 text-right font-mono text-sm">
