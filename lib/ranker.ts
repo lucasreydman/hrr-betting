@@ -149,70 +149,79 @@ export async function rankPicks(date: string): Promise<PicksResponse> {
       { lineup: awayLineup, opponent: game.homeTeam },
     ] as const
 
-    for (const { lineup, opponent } of sides) {
-      // Hard gate: game-level check already done; re-check with actual lineupStatus
-      const sidePassesGates = gamePassesGates && passesHardGates({
+    // Parallelize across both sides + all 18 batters per game.
+    // Each call to getPTypical hits its own cache; cold misses run a sim
+    // internally. Without parallelism this is 18 × 30ms (cache hit) or
+    // 18 × ~1s (cache miss) sequential — multiplied by 15 games it times out.
+    const sideJobs = sides.map(({ lineup, opponent }) => ({
+      lineup,
+      opponent,
+      sidePassesGates: gamePassesGates && passesHardGates({
         gameStatus: game.status,
         probableStarterId: 1,
         lineupStatus: lineup.status,
         expectedPA: 4,
-      })
-
-      // Compute confidence once per lineup side (same inputs for all players on this side)
-      const confidence = computeConfidence({
+      }),
+      confidence: computeConfidence({
         lineupStatus: lineup.status,
-        bvpAB: 0,               // v1: no BvP layer
-        pitcherStartCount: 10,  // v1: assume mature pitcher
-        weatherStable: true,    // v1: no weather integration here
-        isOpener: false,        // v1: assume starter
+        bvpAB: 0,
+        pitcherStartCount: 10,
+        weatherStable: true,
+        isOpener: false,
         timeToFirstPitchMin: 60,
-      })
+      }),
+    }))
 
-      for (const entry of lineup.entries) {
-        const player = entry.player
-        // Look up this player's distribution in the sim cache
-        // Sim cache keys are string player IDs (see /api/sim/[gameId]/route.ts line 193)
-        const dist = sim.batterHRR[String(player.playerId)]
-        if (!dist) continue
+    // Resolve all P_typical lookups across both sides in parallel
+    const playerJobs = sideJobs.flatMap(({ lineup, opponent, sidePassesGates, confidence }) =>
+      lineup.entries.map(entry => ({ entry, lineup, opponent, sidePassesGates, confidence }))
+    )
 
-        // Get P_typical for this player (cached 24h — fast on repeat calls)
-        const pTypicalResult = await getPTypical({ playerId: player.playerId, date })
+    const pTypicalResults = await Promise.all(
+      playerJobs.map(({ entry }) => getPTypical({ playerId: entry.player.playerId, date }))
+    )
 
-        for (const rung of [1, 2, 3] as Rung[]) {
-          const pMatchup = dist.atLeast[rung] ?? 0
-          const pTyp = pTypicalResult.atLeast[rung] ?? 0
-          const edge = computeEdge({ pMatchup, pTypical: pTyp })
-          const score = computeScore({ edge, confidence })
+    for (let i = 0; i < playerJobs.length; i++) {
+      const { entry, lineup, opponent, sidePassesGates, confidence } = playerJobs[i]
+      const pTypicalResult = pTypicalResults[i]
 
-          // Hard gate: skip if side doesn't pass
-          if (!sidePassesGates) continue
+      const player = entry.player
+      const dist = sim.batterHRR[String(player.playerId)]
+      if (!dist) continue
 
-          const tier = classifyTier({ rung, edge, pMatchup, confidence, score })
-          if (tier === null) continue
+      for (const rung of [1, 2, 3] as Rung[]) {
+        const pMatchup = dist.atLeast[rung] ?? 0
+        const pTyp = pTypicalResult.atLeast[rung] ?? 0
+        const edge = computeEdge({ pMatchup, pTypical: pTyp })
+        const score = computeScore({ edge, confidence })
 
-          const pick: Pick = {
-            player: {
-              playerId: player.playerId,
-              fullName: player.fullName,
-              team: player.team,
-              bats: player.bats,
-            },
-            opponent: { teamId: opponent.teamId, abbrev: opponent.abbrev },
-            gameId: game.gameId,
-            lineupSlot: entry.slot,
-            lineupStatus: lineup.status,
-            pMatchup,
-            pTypical: pTyp,
-            edge,
-            confidence,
-            score,
-            tier,
-          }
+        if (!sidePassesGates) continue
 
-          if (rung === 1) rung1Picks.push(pick)
-          else if (rung === 2) rung2Picks.push(pick)
-          else rung3Picks.push(pick)
+        const tier = classifyTier({ rung, edge, pMatchup, confidence, score })
+        if (tier === null) continue
+
+        const pick: Pick = {
+          player: {
+            playerId: player.playerId,
+            fullName: player.fullName,
+            team: player.team,
+            bats: player.bats,
+          },
+          opponent: { teamId: opponent.teamId, abbrev: opponent.abbrev },
+          gameId: game.gameId,
+          lineupSlot: entry.slot,
+          lineupStatus: lineup.status,
+          pMatchup,
+          pTypical: pTyp,
+          edge,
+          confidence,
+          score,
+          tier,
         }
+
+        if (rung === 1) rung1Picks.push(pick)
+        else if (rung === 2) rung2Picks.push(pick)
+        else rung3Picks.push(pick)
       }
     }
   }

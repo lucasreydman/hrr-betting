@@ -89,8 +89,12 @@ export async function getPTypical(args: {
 }): Promise<PTypicalResult> {
   const date = args.date ?? new Date().toISOString().slice(0, 10)
   const season = args.season ?? new Date().getFullYear()
-  const iterations = args.iterationsPerGame ?? 1500
-  const maxGames = args.maxGames ?? 30
+  // v1 launch defaults: 500 iter × 10 sampled games = 5000 sample HRR draws.
+  // Standard error on a 0.5 prob with N=5000 is ~0.7 percentage points — plenty
+  // for a denominator that gets cached for 24h. Higher numbers were causing
+  // /api/picks to time out on cold cache. Tune up post-calibration.
+  const iterations = args.iterationsPerGame ?? 500
+  const maxGames = args.maxGames ?? 10
   const cacheKey = `p-typical:${args.playerId}:${date}`
 
   // --- Cache hit ---
