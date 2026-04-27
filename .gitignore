@@ -45,3 +45,5 @@ coverage/
 # Graphify cache + local files
 graphify-out/
 .graphify_*
+
+.vercel

@@ -20,21 +20,23 @@ denominator. Tracked picks (high-conviction tier) auto-settle from boxscore.
 ## Stack
 
 - **Runtime**: Next.js 16 App Router · React 19 · Tailwind v4 · TypeScript · Jest
-- **Persistence**: Vercel KV (hot caches) + Supabase Postgres (locked/settled picks)
+- **Persistence**: Supabase Postgres (everything — `cache` table for hot caches, `locked_picks`/`settled_picks` for history)
 - **Cron**: GitHub Actions (free on public repos)
 - **Hosting**: Vercel **Hobby** (free tier — no Pro upgrade needed; sim runs in <10s)
 - **APIs**: MLB Stats, Baseball Savant CSV, Open-Meteo (all free, no auth)
 
 ## Storage model
 
-| What | Where | Why |
+| What | Table | Why |
 |---|---|---|
-| Sim results, P_typical, weather, Savant CSVs | Vercel KV | Hot cache, exact-key blob lookups, sub-5ms reads |
-| Locked + settled picks | Supabase Postgres | History queries (rolling 30-day, recalibration) want SQL |
-| Pitcher TTO splits, bullpen tiers | Vercel KV | Computed once, cached 7d |
+| Sim results, P_typical, weather, Savant CSVs, TTO, bullpen | `cache` | Hot key-value cache with TTL — replaces Vercel KV / Upstash |
+| Locked + settled picks | `locked_picks` / `settled_picks` | History queries (rolling 30-day, recalibration) want SQL |
 
-Use `lib/db.ts` (`getSupabase()` returns null in dev when env vars missing — KV
-fallback path activates automatically).
+All three live in Supabase. `lib/db.ts` exposes `getSupabase()` (returns null in
+dev when env vars missing). `lib/kv.ts` keeps the historical `kvGet/kvSet/kvDel`
+API for backward compatibility — under the hood it now reads/writes the
+`cache` table via the Supabase client, with an in-memory Map fallback for
+tests/local dev.
 
 ## Critical files
 

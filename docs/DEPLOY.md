@@ -4,8 +4,7 @@ Manual checklist for taking the codebase from "v0.1.0-rc2 on `main`" to "live at
 
 **Stack at deploy time:**
 - **Vercel Hobby** (free) — hosts the Next.js app, no `maxDuration` overrides needed
-- **Vercel KV** — hot caches (sim results, P_typical, weather, Savant CSVs)
-- **Supabase free tier** — persistent picks history (locked_picks, settled_picks)
+- **Supabase free tier** — everything: picks history (`locked_picks`, `settled_picks`) AND hot caches (`cache` table replaces Vercel KV / Upstash)
 - **GitHub Actions cron** (free on public repos) — sim prewarm, lock checks, daily settle
 
 ---
@@ -23,25 +22,16 @@ When prompted: "Set up and deploy?" → **Yes** → "Create new project?" → **
 
 (Or import via dashboard at vercel.com/new → Git Repository → `lucasreydman/hrr-betting`.)
 
-### 1b. Provision Vercel KV
-
-Project dashboard → **Storage** tab → **Create Database** → **KV** → attach to `hrr-betting`. Vercel auto-injects:
-- `KV_REST_API_URL`
-- `KV_REST_API_TOKEN`
-- `KV_REST_API_READ_ONLY_TOKEN`
-
-Verify in Project Settings → Environment Variables.
-
-### 1c. Domain alias
+### 1b. Domain alias
 
 Settings → **Domains** → confirm `hrr-betting.vercel.app` is listed (Vercel reserves it because the project name matches).
 
-### 1d. **Stay on Hobby** — do NOT upgrade to Pro
+### 1c. **Stay on Hobby** — do NOT upgrade to Pro
 
 Hobby is intentionally fine for this app:
 - `maxDuration` defaults to 10s. The 10k-iter Monte Carlo for one game completes in ~500ms locally, well under that.
 - Vercel cron is disabled — we use GitHub Actions instead (see step 4).
-- Vercel KV on Hobby has generous free limits (3k requests/day, 256MB storage).
+- No Vercel storage product required — everything lives in Supabase (free tier covers our scale comfortably).
 
 ---
 
@@ -61,15 +51,19 @@ npx supabase login                                    # browser OAuth — approv
 npx supabase link --project-ref hzfzuemmhjnnlptoyqlg  # paste DB password when prompted
 ```
 
-### 2c. Apply the migration
+### 2c. Apply the migrations
 
 ```bash
 npx supabase db push
 ```
 
-This applies `supabase/migrations/20260426000000_initial_schema.sql` to your remote project, creating `locked_picks` and `settled_picks` tables with proper indexes and RLS enabled. ~5 sec.
+This applies all files in `supabase/migrations/` to your remote project:
+- `20260426000000_initial_schema.sql` — creates `locked_picks` + `settled_picks` (picks history)
+- `20260427000000_cache_table.sql` — creates `cache` (hot key-value cache, replaces Vercel KV / Upstash)
 
-To verify in the Supabase dashboard: Tables tab → you should see both tables; click each to confirm RLS is on with no policies (locked to service-role-only access).
+All three tables have RLS enabled with no policies (service-role-only access). ~5 sec.
+
+To verify: Supabase dashboard → Tables tab → you should see all three tables.
 
 ### 2d. Get the service role key for Vercel
 
@@ -198,3 +192,5 @@ These are all noted in the spec (`docs/superpowers/specs/2026-04-26-hrr-betting-
 **`npx supabase db push` fails with auth error**: re-run `npx supabase login` (the CLI's auth token may have expired) and `npx supabase link` again.
 
 **Sim is timing out**: drop `SIM_ITERATIONS` in `app/api/sim/[gameId]/route.ts` from 1000 to 500. If still timing out, the build context fan-out is the bottleneck — profile via local `npm run dev` first.
+
+**Cache misses are slow**: each Supabase cache read is ~30-50ms (vs Redis's 5ms). The `/api/picks` endpoint has a 5-min cache layer that masks this — most requests hit the cache. If you find cache reads on the hot path are bottlenecking, switching back to Upstash Redis is a 30-min refactor (revert lib/kv.ts and add Upstash credentials).
