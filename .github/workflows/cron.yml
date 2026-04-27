@@ -23,18 +23,27 @@ on:
         default: 'sim'
         type: choice
         options: [sim, lock, settle]
+      date:
+        description: 'Date to warm sims for (YYYY-MM-DD, default = today UTC). Use this to preview tomorrow.'
+        required: false
+        default: ''
 
 jobs:
   sim:
     if: github.event_name == 'schedule' && github.event.schedule != '0 10 * * *' || (github.event_name == 'workflow_dispatch' && github.event.inputs.job == 'sim')
     runs-on: ubuntu-latest
     steps:
-      - name: Get today's eligible game IDs
+      - name: Get eligible game IDs
         id: list
         run: |
           set -e
-          DATE=$(date -u +%Y-%m-%d)
+          # Manual dispatch can override the date (to warm tomorrow's slate, etc.)
+          DATE="${{ github.event.inputs.date }}"
+          if [ -z "$DATE" ]; then
+            DATE=$(date -u +%Y-%m-%d)
+          fi
           echo "date=$DATE" >> "$GITHUB_OUTPUT"
+          echo "Using date: $DATE"
 
           RESPONSE=$(curl --silent --show-error --fail \
             -H "x-cron-secret: ${{ secrets.CRON_SECRET }}" \
