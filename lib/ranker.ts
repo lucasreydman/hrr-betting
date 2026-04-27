@@ -19,6 +19,8 @@ import { getPTypical } from './p-typical'
 import { fetchSchedule, fetchProbablePitchers, fetchPitcherRecentStarts, fetchBvP, fetchPeople } from './mlb-api'
 import { fetchLineup, lineupHash } from './lineup'
 import { getHrParkFactorForBatter, getParkVenueName } from './park-factors'
+import { fetchWeather, getOutfieldFacingDegrees } from './weather-api'
+import { computeWeatherFactors } from './weather-factors'
 import {
   EDGE_FLOORS,
   PROB_FLOORS,
@@ -39,6 +41,24 @@ export interface LineupSlotSummary {
   fullName: string
 }
 
+/** Observed conditions + the HR multiplier they produced for the sim. */
+export interface PickWeather {
+  tempF: number
+  windSpeedMph: number
+  windFromDegrees: number
+  /** Compass bearing the outfield faces (home → CF axis). */
+  outfieldFacingDegrees: number
+  /**
+   * Signed wind component along home → CF axis, mph.
+   * + = blowing OUT (helps HR), − = blowing IN (suppresses HR).
+   */
+  windOutMph: number
+  /** HR multiplier applied to the per-PA model after temp + wind compose. */
+  hrMult: number
+  controlled: boolean
+  failure: boolean
+}
+
 /** The math inputs that determine `confidence` × `edge` for a single pick. */
 export interface PickInputs {
   /** MLB venue ID for the game (lookup key for park factors). */
@@ -46,6 +66,8 @@ export interface PickInputs {
   venueName: string
   /** HR park factor applied inside the per-PA model (1.00 = neutral). */
   parkHrFactor: number
+  /** Observed weather + the HR multiplier the sim used. */
+  weather: PickWeather
   /**
    * Career batter-vs-pitcher line vs *this* opposing starter. `null` when the
    * starter is TBD or the matchup has never been recorded. Drives the BvP
@@ -191,6 +213,25 @@ export async function rankPicks(date: string): Promise<PicksResponse> {
     // park factors are per-handedness).
     const venueName = getParkVenueName(game.venueId)
 
+    // Per-game weather: fetched once, reused across all 18 picks. The fetch
+    // is internally cached so this is cheap on warm slates.
+    const outfieldFacingDeg = getOutfieldFacingDegrees(game.venueId)
+    const weatherData = await fetchWeather(game.venueId, game.gameDate)
+    const weatherResult = computeWeatherFactors({
+      weather: weatherData,
+      outfieldFacingDegrees: outfieldFacingDeg,
+    })
+    const pickWeather = {
+      tempF: weatherData.tempF,
+      windSpeedMph: weatherData.windSpeedMph,
+      windFromDegrees: weatherData.windFromDegrees,
+      outfieldFacingDegrees: outfieldFacingDeg,
+      windOutMph: weatherResult.outComponentMph,
+      hrMult: weatherResult.hrMult,
+      controlled: weatherData.controlled,
+      failure: weatherData.failure,
+    }
+
     // Pre-compute lineup summaries (one per side) so we can attach the same
     // 9-entry array to every batter on a side without rebuilding it 9 times.
     const homeLineupSummary: LineupSlotSummary[] = homeLineup.entries.map(e => ({
@@ -302,6 +343,7 @@ export async function rankPicks(date: string): Promise<PicksResponse> {
         // the per-handedness asymmetry (e.g. Yankee Stadium boosts LHB more
         // than RHB).
         parkHrFactor: getHrParkFactorForBatter(game.venueId, player.bats),
+        weather: pickWeather,
         bvp,
         pitcherStartCount: opposingStarterStartCount,
         timeToFirstPitchMin,

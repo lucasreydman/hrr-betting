@@ -102,13 +102,14 @@ function KV({ label, children }: { label: React.ReactNode; children: React.React
   )
 }
 
-function ParkFactor({ factor }: { factor: number }) {
+/** A multiplicative factor (×1.07 ↑ / ×0.93 ↓ / ×1.00). Coloured by direction. */
+function FactorCell({ factor }: { factor: number }) {
   if (factor > 1.005) return <span className="text-tracked">×{factor.toFixed(2)} ↑</span>
   if (factor < 0.995) return <span className="text-accent">×{factor.toFixed(2)} ↓</span>
   return <span className="text-ink-muted">×{factor.toFixed(2)}</span>
 }
 
-/** Confidence multiplier formatted with a small caption explaining where it lands. */
+/** Confidence multiplier — neutral if 1.00, warn-amber otherwise. */
 function MultCell({ value, ideal = 1.0 }: { value: number; ideal?: number }) {
   const isIdeal = Math.abs(value - ideal) < 0.001
   return (
@@ -116,6 +117,23 @@ function MultCell({ value, ideal = 1.0 }: { value: number; ideal?: number }) {
       ×{value.toFixed(2)}
     </span>
   )
+}
+
+/** 16-point compass label for a "wind FROM" bearing. */
+function compassPoint(deg: number): string {
+  const points = ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE',
+                  'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW']
+  const normalized = ((deg % 360) + 360) % 360
+  const idx = Math.round(normalized / 22.5) % 16
+  return points[idx]
+}
+
+/** Plain-language summary of the wind component along the home → CF axis. */
+function windDirectionLabel(outMph: number): { text: string; tone: 'in' | 'out' | 'cross' } {
+  const abs = Math.abs(outMph)
+  if (abs < 1) return { text: 'crosswind', tone: 'cross' }
+  if (outMph > 0) return { text: `+${outMph.toFixed(1)} mph out`, tone: 'out' }
+  return { text: `${outMph.toFixed(1)} mph in`, tone: 'in' }
 }
 
 function MathPanel({ pick, localTime }: { pick: Pick; localTime: ReturnType<typeof useLocalTime> }) {
@@ -130,158 +148,185 @@ function MathPanel({ pick, localTime }: { pick: Pick; localTime: ReturnType<type
   const denomFloored = pick.pTypical < edgeFloor
 
   return (
-    <div className="space-y-5 px-4 py-4 sm:grid sm:grid-cols-2 sm:gap-x-8 sm:space-y-0 sm:px-5">
-      {/* ── First column: game / matchup context ─────────────────────────── */}
-      <div className="space-y-5">
-        <PanelSection title="Matchup">
-          <KV label="First pitch">
-            {localTime ? (
-              <time dateTime={pick.gameDate}>{localTime.full}</time>
-            ) : pick.gameDate ? (
-              // Server / first paint: show the raw ISO so the row never appears
-              // empty before the client localiser swaps in.
-              <span className="text-ink-muted">{pick.gameDate.replace('T', ' ').replace('Z', ' UTC')}</span>
-            ) : (
-              <span className="text-ink-muted">—</span>
-            )}
-          </KV>
-          {inputs && (
+    <div className="space-y-6 px-4 py-5 sm:grid sm:grid-cols-2 sm:gap-x-8 sm:gap-y-6 sm:space-y-0 sm:px-5">
+      {/* ── Left column: game / context inputs ─────────────────────────── */}
+      <PanelSection title="Matchup">
+        <KV label="First pitch">
+          {localTime ? (
+            <time dateTime={pick.gameDate}>{localTime.full}</time>
+          ) : pick.gameDate ? (
+            // Server / first paint: show the raw ISO so the row never appears
+            // empty before the client localiser swaps in.
+            <span className="text-ink-muted">{pick.gameDate.replace('T', ' ').replace('Z', ' UTC')}</span>
+          ) : (
+            <span className="text-ink-muted">—</span>
+          )}
+        </KV>
+        {inputs && (
+          <>
+            <KV label="Park">
+              <span className="text-ink">{inputs.venueName}</span>
+            </KV>
+            <KV label={<>Park HR <span className="text-ink-muted/70">({pick.player.bats})</span></>}>
+              <FactorCell factor={inputs.parkHrFactor} />
+            </KV>
+          </>
+        )}
+      </PanelSection>
+
+      {inputs && (
+        <PanelSection title="Weather">
+          {inputs.weather.controlled ? (
+            <p className="text-xs text-ink-muted">Roof closed — neutral 1.00 across all outcomes.</p>
+          ) : inputs.weather.failure ? (
+            <p className="text-xs text-ink-muted">Forecast unavailable — weather defaulted to neutral.</p>
+          ) : (
             <>
-              <KV label="Park">
-                <span className="text-ink">{inputs.venueName}</span>
+              <KV label="Temperature">
+                {inputs.weather.tempF}°F
               </KV>
-              <KV label="HR park factor">
-                <ParkFactor factor={inputs.parkHrFactor} />
+              <KV label="Wind">
+                {inputs.weather.windSpeedMph} mph from {compassPoint(inputs.weather.windFromDegrees)}
+              </KV>
+              <KV label="Out toward CF">
+                {(() => {
+                  const w = windDirectionLabel(inputs.weather.windOutMph)
+                  const cls =
+                    w.tone === 'out' ? 'text-tracked' :
+                    w.tone === 'in' ? 'text-accent' : 'text-ink-muted'
+                  return <span className={cls}>{w.text}</span>
+                })()}
+              </KV>
+              <KV label="Weather HR">
+                <FactorCell factor={inputs.weather.hrMult} />
               </KV>
             </>
           )}
         </PanelSection>
+      )}
 
-        <PanelSection title={`Lineup (slot ${pick.lineupSlot})`}>
-          {inputs?.lineup && inputs.lineup.length > 0 ? (
-            <ol className="space-y-0.5 font-mono text-xs">
-              {inputs.lineup.map(b => {
-                const here = b.playerId === pick.player.playerId
-                return (
-                  <li
-                    key={`${b.slot}-${b.playerId}`}
-                    className={
-                      'flex items-baseline gap-2 ' +
-                      (here ? 'text-ink' : 'text-ink-muted')
-                    }
-                  >
-                    <span className="w-4 shrink-0 text-right tabular-nums">{b.slot}.</span>
-                    <span className="min-w-0 truncate">
-                      {b.fullName}
-                    </span>
-                    {here && (
-                      <span className="ml-auto text-[10px] uppercase tracking-wider text-tracked">this pick</span>
-                    )}
-                  </li>
-                )
-              })}
-            </ol>
+      <PanelSection title={`Lineup · slot ${pick.lineupSlot} · ${pick.lineupStatus}`}>
+        {inputs?.lineup && inputs.lineup.length > 0 ? (
+          <ol className="space-y-0.5 font-mono text-xs">
+            {inputs.lineup.map(b => {
+              const here = b.playerId === pick.player.playerId
+              return (
+                <li
+                  key={`${b.slot}-${b.playerId}`}
+                  className={
+                    'flex items-baseline gap-2 ' +
+                    (here ? 'text-ink' : 'text-ink-muted')
+                  }
+                >
+                  <span className="w-4 shrink-0 text-right tabular-nums">{b.slot}.</span>
+                  <span className="min-w-0 truncate">
+                    {b.fullName}
+                  </span>
+                  {here && (
+                    <span className="ml-auto text-[10px] uppercase tracking-wider text-tracked">this pick</span>
+                  )}
+                </li>
+              )
+            })}
+          </ol>
+        ) : (
+          <p className="text-xs text-ink-muted">Lineup not surfaced.</p>
+        )}
+      </PanelSection>
+
+      {inputs && (
+        <PanelSection title="Career vs this pitcher (BvP)">
+          {inputs.bvp && inputs.bvp.ab > 0 ? (
+            <>
+              <KV label="At-bats">{inputs.bvp.ab}</KV>
+              <KV label="Hits / HR">
+                {inputs.bvp.hits} / {inputs.bvp.HR}
+              </KV>
+              <KV label="BB / K">
+                {inputs.bvp.BB} / {inputs.bvp.K}
+              </KV>
+              <KV label="Avg">
+                {(inputs.bvp.hits / inputs.bvp.ab).toFixed(3)}
+              </KV>
+            </>
           ) : (
-            <p className="text-xs text-ink-muted">Lineup not surfaced.</p>
+            <p className="text-xs text-ink-muted">
+              {pick.opposingPitcher.status === 'tbd'
+                ? 'Opposing starter is TBD — no BvP record yet.'
+                : 'No prior plate appearances vs this pitcher.'}
+            </p>
           )}
-          <p className="text-[11px] text-ink-muted">
-            Lineup-status: <span className="text-ink-subtle">{pick.lineupStatus}</span>
-            {' · surrounding bats feed P (matchup) via the Monte Carlo sim.'}
+        </PanelSection>
+      )}
+
+      {/* ── Right column: math producing the score ────────────────────── */}
+      <PanelSection title="Edge">
+        <p className="font-mono text-[11px] text-ink-muted">
+          edge = max(P_matchup, 1%) ÷ max(P_typical, 1%) − 1
+        </p>
+        <KV label={<>P matchup <span className="text-ink-muted/70">— this game</span></>}>
+          {pct(pick.pMatchup, 2)}
+          {numerFloored && <span className="ml-1 text-warn">→ floor {pct(edgeFloor, 0)}</span>}
+        </KV>
+        <KV label={<>P typical <span className="text-ink-muted/70">— player baseline</span></>}>
+          {pct(pick.pTypical, 2)}
+          {denomFloored && <span className="ml-1 text-warn">→ floor {pct(edgeFloor, 0)}</span>}
+        </KV>
+        <KV label="= Edge">
+          <span className={pick.edge >= 0 ? 'text-accent' : 'text-ink-muted'}>
+            {signedPct(pick.edge)}
+          </span>
+          <span className="ml-2 text-[11px] text-ink-muted">
+            ({pct(numer, 1)} ÷ {pct(denom, 1)} − 1)
+          </span>
+        </KV>
+      </PanelSection>
+
+      {inputs && (
+        <PanelSection title="Confidence">
+          <p className="font-mono text-[11px] text-ink-muted">
+            confidence = product of 6 factors
           </p>
-        </PanelSection>
-
-        {inputs && (
-          <PanelSection title="Career vs this pitcher (BvP)">
-            {inputs.bvp && inputs.bvp.ab > 0 ? (
-              <>
-                <KV label="At-bats">{inputs.bvp.ab}</KV>
-                <KV label="Hits / HR">
-                  {inputs.bvp.hits} / {inputs.bvp.HR}
-                </KV>
-                <KV label="BB / K">
-                  {inputs.bvp.BB} / {inputs.bvp.K}
-                </KV>
-                <KV label="Avg">
-                  {inputs.bvp.ab > 0 ? (inputs.bvp.hits / inputs.bvp.ab).toFixed(3) : '—'}
-                </KV>
-              </>
-            ) : (
-              <p className="text-xs text-ink-muted">
-                {pick.opposingPitcher.status === 'tbd'
-                  ? 'Opposing starter is TBD — no BvP record yet.'
-                  : 'No prior plate appearances vs this pitcher.'}
-              </p>
-            )}
-          </PanelSection>
-        )}
-      </div>
-
-      {/* ── Second column: the actual math producing the score ────────────── */}
-      <div className="mt-5 space-y-5 sm:mt-0">
-        <PanelSection title="Edge = P (matchup) ÷ P (typical) − 1">
-          <KV label={<>P (matchup)<span className="ml-1 text-ink-muted/70">— this game</span></>}>
-            {pct(pick.pMatchup, 2)}
-            {numerFloored && <span className="ml-1 text-warn">→ floor {pct(edgeFloor, 0)}</span>}
+          <KV label={<>Lineup <span className="text-ink-muted/70">({pick.lineupStatus})</span></>}>
+            <MultCell value={inputs.confidenceFactors.lineup} />
           </KV>
-          <KV label={<>P (typical)<span className="ml-1 text-ink-muted/70">— player baseline</span></>}>
-            {pct(pick.pTypical, 2)}
-            {denomFloored && <span className="ml-1 text-warn">→ floor {pct(edgeFloor, 0)}</span>}
+          <KV label={<>BvP <span className="text-ink-muted/70">({inputs.bvp?.ab ?? 0} AB)</span></>}>
+            <MultCell value={inputs.confidenceFactors.bvp} />
           </KV>
-          <KV label="Edge">
-            <span className={pick.edge >= 0 ? 'text-accent' : 'text-ink-muted'}>
-              {signedPct(pick.edge)}
-            </span>
-            <span className="ml-2 text-[11px] text-ink-muted">
-              ({pct(numer, 1)} ÷ {pct(denom, 1)} − 1)
-            </span>
+          <KV label={<>Pitcher sample <span className="text-ink-muted/70">({inputs.pitcherStartCount} starts)</span></>}>
+            <MultCell value={inputs.confidenceFactors.pitcherStart} />
+          </KV>
+          <KV label="Weather stable">
+            <MultCell value={inputs.confidenceFactors.weather} />
+          </KV>
+          <KV label={<>Time to pitch <span className="text-ink-muted/70">({inputs.timeToFirstPitchMin} min)</span></>}>
+            <MultCell value={inputs.confidenceFactors.time} />
+          </KV>
+          <KV label="Opener">
+            <MultCell value={inputs.confidenceFactors.opener} />
+          </KV>
+          <KV label="= Confidence">
+            <span className="text-ink">{pct(pick.confidence, 0)}</span>
           </KV>
         </PanelSection>
+      )}
 
-        {inputs && (
-          <PanelSection title="Confidence (product of factors)">
-            <KV label={<>Lineup <span className="text-ink-muted/70">({pick.lineupStatus})</span></>}>
-              <MultCell value={inputs.confidenceFactors.lineup} />
-            </KV>
-            <KV label={<>BvP sample <span className="text-ink-muted/70">({inputs.bvp?.ab ?? 0} AB)</span></>}>
-              <MultCell value={inputs.confidenceFactors.bvp} />
-            </KV>
-            <KV label={<>Pitcher starts <span className="text-ink-muted/70">({inputs.pitcherStartCount})</span></>}>
-              <MultCell value={inputs.confidenceFactors.pitcherStart} />
-            </KV>
-            <KV label="Weather stable">
-              <MultCell value={inputs.confidenceFactors.weather} />
-            </KV>
-            <KV label={<>Time to first pitch <span className="text-ink-muted/70">({inputs.timeToFirstPitchMin} min)</span></>}>
-              <MultCell value={inputs.confidenceFactors.time} />
-            </KV>
-            <KV label="Opener">
-              <MultCell value={inputs.confidenceFactors.opener} />
-            </KV>
-            <KV label="Confidence">
-              <span className="text-ink">= {pct(pick.confidence, 0)}</span>
-            </KV>
-          </PanelSection>
-        )}
-
-        <PanelSection title="Score = Edge × Confidence">
-          <KV label="Edge">
-            <span className={pick.edge >= 0 ? 'text-accent' : 'text-ink-muted'}>
-              {signedPct(pick.edge)}
-            </span>
-          </KV>
-          <KV label="× Confidence">
-            {pct(pick.confidence, 0)}
-          </KV>
-          <KV label="= Score">
-            <span className={isTracked ? 'font-semibold text-tracked' : 'text-ink'}>
-              {(pick.score * 100).toFixed(1)}
-            </span>
-            <span className="ml-2 text-[11px] uppercase tracking-wider text-ink-muted">
-              ({isTracked ? '🔥 Tracked' : 'Watching'})
-            </span>
-          </KV>
-        </PanelSection>
-      </div>
+      <PanelSection title="Score">
+        <p className="font-mono text-[11px] text-ink-muted">
+          score = edge × confidence × 100
+        </p>
+        <KV label="= Score">
+          <span className={isTracked ? 'font-semibold text-tracked' : 'text-ink'}>
+            {(pick.score * 100).toFixed(1)}
+          </span>
+          <span className="ml-2 text-[11px] uppercase tracking-wider text-ink-muted">
+            ({isTracked ? '🔥 Tracked' : 'Watching'})
+          </span>
+        </KV>
+        <p className="text-[11px] text-ink-muted">
+          {signedPct(pick.edge)} × {pct(pick.confidence, 0)} × 100 = {(pick.score * 100).toFixed(1)}
+        </p>
+      </PanelSection>
     </div>
   )
 }

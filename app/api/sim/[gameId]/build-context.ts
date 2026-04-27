@@ -10,9 +10,11 @@
  *
  * V1 simplifications (documented):
  *   - No L30/L15 blend — season stats only (game log fetch is expensive per-player)
- *   - Weather factors all 1.0 (neutral); only park factors applied
  *   - BvP layer skipped; season handedness splits used as baseline
  *   - Pitcher outcomeRates derived from their K%/BB%/HR9 season stats (no per-split outcomeRates on PitcherStats)
+ *
+ * Park factors and weather factors are now real per-PA multipliers — see
+ * lib/park-factors.ts and lib/weather-factors.ts.
  */
 
 import { fetchBatterSeasonStats, fetchPitcherSeasonStats } from '@/lib/mlb-api'
@@ -28,14 +30,6 @@ import { LEAGUE_AVG_RATES } from '@/lib/constants'
 import type { BatterSimContext } from '@/lib/sim'
 import type { Outcome, OutcomeRates, Handedness, PlayerRef, PitcherStats } from '@/lib/types'
 
-// ---------------------------------------------------------------------------
-// Weather factor shape
-// ---------------------------------------------------------------------------
-
-/** Neutral weather factors — v1 simplification: all 1.0 */
-export function neutralWeatherFactors(): Record<Outcome, number> {
-  return { '1B': 1, '2B': 1, '3B': 1, HR: 1, BB: 1, K: 1, OUT: 1 }
-}
 
 // ---------------------------------------------------------------------------
 // pitcherStatsToOutcomeRates

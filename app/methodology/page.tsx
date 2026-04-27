@@ -162,13 +162,50 @@ SCORE = EDGE × confidence`}
         </p>
       </Section>
 
+      <Section heading="Weather">
+        <p>
+          Open-Meteo gives us temperature, wind speed, and wind direction at each
+          stadium for the closest hour to first pitch. Each stadium also has a
+          stored <Code>outfieldFacingDegrees</Code> bearing — the compass direction
+          the outfield faces. From those four numbers the model computes per-outcome
+          multipliers, which feed into the per-PA distribution alongside park and TTO.
+        </p>
+        <CodeBlock>
+{`tempHrMult     = 1 + 0.015 × (tempF − 70) / 10                  // ~1.5% per 10°F
+outMph         = −cos(windFromDeg − outfieldFacingDeg) × wind    // signed: + out, − in
+windHrEffect   = clamp(0.02 × outMph, −0.25, +0.25)              // ±2%/mph, ±25% cap
+HR             = clamp(tempHrMult × (1 + windHrEffect), 0.65, 1.40)
+2B             = 1 + 0.005 × (tempF − 70) / 10                   // small carry on liners
+3B             = 1 + 0.010 × (tempF − 70) / 10                   // slight carry
+1B / BB / K    = 1.00`}
+        </CodeBlock>
+        <p>
+          Domes and retractable-roof games (Tropicana, Rogers Centre, Chase, Globe Life,
+          Minute Maid, loanDepot, American Family) short-circuit to neutral 1.00
+          across the board via the stadium&apos;s <Code>weatherControlled</Code> flag.
+          Failed forecasts (rare) also default to neutral so weather can never penalise
+          a pick when the data is missing.
+        </p>
+        <p className="text-sm text-ink-muted">
+          Concrete examples (HR multiplier shown):
+          <br />
+          • 70°F, calm → 1.00. 50°F, calm → 0.97. 90°F, calm → 1.03.
+          <br />
+          • 70°F + 10 mph wind straight out → 1.20. Straight in → 0.80.
+          <br />
+          • 90°F + 15 mph wind out (Wrigley summer) → 1.34, capped at 1.40 max.
+          <br />
+          Magnitudes grounded in Alan Nathan&apos;s fly-ball-distance research and
+          published wind-effect papers; constants are calibration targets.
+        </p>
+      </Section>
+
       <Section heading="Other factors">
         <ul className="ml-5 list-disc space-y-1.5 text-sm marker:text-ink-muted">
           <li><strong className="text-ink">TTO penalty</strong>: pitcher gets worse each time through the order. League-avg multipliers per outcome.</li>
           <li><strong className="text-ink">Bullpen leverage tier</strong>: high-leverage (closer/setup) vs rest, weighted by PA index.</li>
-          <li><strong className="text-ink">Weather</strong>: fetched per-game (temp + wind speed + wind direction). Wired through the sim cache key but applied as neutral 1.00 multipliers in v1 — calibration target.</li>
           <li><strong className="text-ink">Handedness splits</strong>: vsR / vsL for both batter rates and park factors (above).</li>
-          <li><strong className="text-ink">Lineup status</strong>: confirmed lineups score full confidence; estimated lineups (from recent starts) reduce confidence.</li>
+          <li><strong className="text-ink">Lineup status</strong>: confirmed lineups score full confidence; estimated lineups (built from recent starts via mode-slot assignment) reduce confidence.</li>
         </ul>
       </Section>
 

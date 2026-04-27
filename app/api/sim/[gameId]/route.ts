@@ -25,8 +25,9 @@ import {
   fetchPeople,
 } from '@/lib/mlb-api'
 import { fetchLineup, lineupHash } from '@/lib/lineup'
-import { fetchWeather, weatherHash } from '@/lib/weather-api'
-import { buildBatterContext, neutralWeatherFactors } from './build-context'
+import { fetchWeather, weatherHash, getOutfieldFacingDegrees } from '@/lib/weather-api'
+import { computeWeatherFactors } from '@/lib/weather-factors'
+import { buildBatterContext } from './build-context'
 import { verifyCronRequest } from '@/lib/cron-auth'
 import { pacificDateString, isValidIsoDate } from '@/lib/date-utils'
 import type { Handedness } from '@/lib/types'
@@ -169,10 +170,17 @@ export async function GET(req: NextRequest, ctx: RouteContext): Promise<NextResp
     return ref?.throws ?? 'R'
   }
 
-  // V1: neutral weather factors (see module-level jsdoc).
-  // Park factors are now resolved per-batter inside buildBatterContext using
-  // FanGraphs Guts! per-handedness columns — see lib/park-factors.ts.
-  const weatherFactors = neutralWeatherFactors()
+  // Apply real weather factors. The temperature term and the wind component
+  // along the home → CF axis are projected onto the per-PA outcome
+  // distribution (HR primarily; small 2B / 3B carry effect). Domes and
+  // failed fetches return neutral 1.00 across the board so weather never
+  // makes a pick worse when the data is missing or non-applicable.
+  // Park factors are still resolved per-batter inside buildBatterContext
+  // using FanGraphs Guts! per-handedness columns — see lib/park-factors.ts.
+  const { factors: weatherFactors } = computeWeatherFactors({
+    weather,
+    outfieldFacingDegrees: getOutfieldFacingDegrees(game.venueId),
+  })
   // Capture into a local so the nested `lineup.entries.map(...)` arrow below
   // doesn't trip TS's narrowing (it loses the post-`if (!game)` narrowing
   // across closure boundaries).

@@ -609,36 +609,75 @@ async function buildEstimatedLineupForTeam(
     })
   }
 
-  // Sort by: most recent starts DESC, then median slot ASC
+  // Rank candidates by recent appearance count (most starts first), then by
+  // their *most-frequent* slot (mode) ascending so leadoff types come before
+  // bottom-of-order types when counts tie.
   const candidates = [...positions.entries()]
     .sort(([aId, aSlots], [bId, bSlots]) => {
       if (bSlots.length !== aSlots.length) return bSlots.length - aSlots.length
-      const aMedian = medianOf(aSlots) ?? 9
-      const bMedian = medianOf(bSlots) ?? 9
-      if (aMedian !== bMedian) return aMedian - bMedian
+      const aMode = modeSlot(aSlots)
+      const bMode = modeSlot(bSlots)
+      if (aMode !== bMode) return aMode - bMode
       return aId - bId
     })
     .slice(0, 9)
 
-  const entries: LineupEntry[] = candidates.map(([id, slots], i) => ({
-    slot:   (medianOf(slots) ?? i + 1),
-    player: stubPlayerRef(id),
-  }))
+  // Greedy slot assignment with collision handling. Each candidate prefers
+  // their mode-slot (the integer they batted in most often). If that slot is
+  // already taken by a higher-ranked candidate, pick the closest *unused*
+  // slot 1-9. This guarantees:
+  //   1. Slots are always integers in [1,9] — never 4.5 or other fractions.
+  //   2. No two players share a slot.
+  //   3. The most-confident player gets first pick at their preferred slot.
+  const usedSlots = new Set<number>()
+  const entries: LineupEntry[] = []
+  for (const [id, slots] of candidates) {
+    let preferred = modeSlot(slots)
+    if (usedSlots.has(preferred)) {
+      // Find the closest unused integer slot 1-9. Ties prefer the lower slot.
+      let bestSlot = -1
+      let bestDist = Infinity
+      for (let s = 1; s <= 9; s++) {
+        if (usedSlots.has(s)) continue
+        const d = Math.abs(s - preferred)
+        if (d < bestDist || (d === bestDist && bestSlot === -1)) {
+          bestSlot = s
+          bestDist = d
+        }
+      }
+      if (bestSlot === -1) continue  // shouldn't happen with 9 candidates
+      preferred = bestSlot
+    }
+    usedSlots.add(preferred)
+    entries.push({ slot: preferred, player: stubPlayerRef(id) })
+  }
 
-  // Re-sort by slot to get a consistent order
+  // Re-sort by slot for a consistent batting order
   entries.sort((a, b) => a.slot - b.slot)
 
   return { status: 'estimated', entries }
 }
 
-/** Return the median of an array of numbers, or null for empty array. */
-function medianOf(arr: number[]): number | null {
-  if (arr.length === 0) return null
-  const sorted = [...arr].sort((a, b) => a - b)
-  const mid = Math.floor(sorted.length / 2)
-  return sorted.length % 2 === 0
-    ? (sorted[mid - 1] + sorted[mid]) / 2
-    : sorted[mid]
+/**
+ * Return the most-frequent slot (mode) for a list of historical slot
+ * appearances. Ties are broken by the *lower* slot — a player split between
+ * slot 4 and slot 5 with equal frequency is more likely to leadoff that pair.
+ *
+ * Returns 9 (bottom of order) for an empty list as a safe default.
+ */
+function modeSlot(slots: number[]): number {
+  if (slots.length === 0) return 9
+  const counts = new Map<number, number>()
+  for (const s of slots) counts.set(s, (counts.get(s) ?? 0) + 1)
+  let bestSlot = slots[0]
+  let bestCount = 0
+  for (const [slot, count] of counts) {
+    if (count > bestCount || (count === bestCount && slot < bestSlot)) {
+      bestSlot = slot
+      bestCount = count
+    }
+  }
+  return bestSlot
 }
 
 // ---------------------------------------------------------------------------
