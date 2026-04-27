@@ -16,7 +16,7 @@ import { kvGet } from './kv'
 import { computeEdge, computeScore } from './edge'
 import { computeConfidence, passesHardGates } from './confidence'
 import { getPTypical } from './p-typical'
-import { fetchSchedule } from './mlb-api'
+import { fetchSchedule, fetchProbablePitchers, fetchPitcherRecentStarts } from './mlb-api'
 import { fetchLineup, lineupHash } from './lineup'
 import {
   EDGE_FLOORS,
@@ -116,10 +116,11 @@ export async function rankPicks(date: string): Promise<PicksResponse> {
     // Skip terminal game states — no point building picks
     if (game.status === 'postponed' || game.status === 'final') continue
 
-    // Fetch lineups
-    const [homeLineup, awayLineup] = await Promise.all([
+    // Fetch lineups + probable pitchers in parallel
+    const [homeLineup, awayLineup, probables] = await Promise.all([
       fetchLineup(game.gameId, game.homeTeam.teamId, 'home', date),
       fetchLineup(game.gameId, game.awayTeam.teamId, 'away', date),
+      fetchProbablePitchers(game.gameId),
     ])
 
     // Build the combined lineup hash used as the sim cache key
@@ -133,37 +134,53 @@ export async function rankPicks(date: string): Promise<PicksResponse> {
     }
     gamesWithSim++
 
+    // Compute time to first pitch (in minutes from now). Used as a confidence input.
+    const firstPitchMs = new Date(game.gameDate).getTime()
+    const timeToFirstPitchMin = Math.max(0, Math.round((firstPitchMs - Date.now()) / 60000))
+
+    // Fetch each probable pitcher's recent-starts count for the confidence factor.
+    // Cached 6h via fetchPitcherRecentStarts; cheap on repeat calls.
+    const [homePitcherStarts, awayPitcherStarts] = await Promise.all([
+      probables.home > 0 ? fetchPitcherRecentStarts(probables.home, 10).catch(() => []) : Promise.resolve([]),
+      probables.away > 0 ? fetchPitcherRecentStarts(probables.away, 10).catch(() => []) : Promise.resolve([]),
+    ])
+
     // Hard gates evaluated per-side below (lineupStatus is per-side).
     // Game-level conditions (gameStatus, probableStarterId, expectedPA) are
     // checked inside the per-side call.
 
     const sides = [
-      { lineup: homeLineup, opponent: game.awayTeam },
-      { lineup: awayLineup, opponent: game.homeTeam },
+      { lineup: homeLineup, opponent: game.awayTeam, isHome: true },
+      { lineup: awayLineup, opponent: game.homeTeam, isHome: false },
     ] as const
 
     // Parallelize across both sides + all 18 batters per game.
     // Each call to getPTypical hits its own cache; cold misses run a sim
     // internally. Without parallelism this is 18 × 30ms (cache hit) or
     // 18 × ~1s (cache miss) sequential — multiplied by 15 games it times out.
-    const sideJobs = sides.map(({ lineup, opponent }) => ({
-      lineup,
-      opponent,
-      sidePassesGates: passesHardGates({
-        gameStatus: game.status,
-        probableStarterId: 1,  // v1 sentinel — non-null means "known"
-        lineupStatus: lineup.status,
-        expectedPA: 4,
-      }),
-      confidence: computeConfidence({
-        lineupStatus: lineup.status,
-        bvpAB: 0,
-        pitcherStartCount: 10,
-        weatherStable: true,
-        isOpener: false,
-        timeToFirstPitchMin: 60,
-      }),
-    }))
+    const sideJobs = sides.map(({ lineup, opponent, isHome }) => {
+      // The opposing starter is whoever the BATTERS face — home batters face the away starter.
+      const opposingStarterId = isHome ? probables.away : probables.home
+      const opposingStarterStartCount = isHome ? awayPitcherStarts.length : homePitcherStarts.length
+      return {
+        lineup,
+        opponent,
+        sidePassesGates: passesHardGates({
+          gameStatus: game.status,
+          probableStarterId: opposingStarterId > 0 ? opposingStarterId : null,
+          lineupStatus: lineup.status,
+          expectedPA: 4,
+        }),
+        confidence: computeConfidence({
+          lineupStatus: lineup.status,
+          bvpAB: 0,                                   // v1: no BvP layer wired in
+          pitcherStartCount: opposingStarterStartCount,
+          weatherStable: true,                        // v1: no weather-volatility detection
+          isOpener: false,                            // v1: no opener detection
+          timeToFirstPitchMin,
+        }),
+      }
+    })
 
     // Resolve all P_typical lookups across both sides in parallel
     const playerJobs = sideJobs.flatMap(({ lineup, opponent, sidePassesGates, confidence }) =>
