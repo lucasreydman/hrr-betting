@@ -41,6 +41,13 @@ export interface Pick {
     status: 'tbd' | 'probable' | 'confirmed'
   }
   gameId: number
+  /**
+   * ISO timestamp of first pitch (e.g. "2026-04-27T23:05:00Z"). Optional
+   * because settled-history rows hydrated from the DB don't carry it (no
+   * game_date column on locked_picks/settled_picks). Live picks always
+   * have it; UI components must handle the missing case.
+   */
+  gameDate?: string
   lineupSlot: number
   lineupStatus: 'confirmed' | 'partial' | 'estimated'
   pMatchup: number
@@ -260,6 +267,7 @@ export async function rankPicks(date: string): Promise<PicksResponse> {
             status: opposingPitcherStatus,
           },
           gameId: game.gameId,
+          gameDate: game.gameDate,
           lineupSlot: entry.slot,
           lineupStatus: lineup.status,
           pMatchup,
