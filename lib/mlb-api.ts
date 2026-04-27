@@ -361,6 +361,83 @@ function stubPlayerRef(id: number, fullName?: string, teamAbbrev?: string): Play
 }
 
 /**
+ * Batch-fetch people info (name, team, bats) for a list of player IDs.
+ * Hits MLB Stats `/people?personIds=...&hydrate=currentTeam` (one call for up to ~100 IDs).
+ * Returns a Map keyed by playerId. Per-ID 24h KV cache; only un-cached IDs hit the network.
+ */
+export async function fetchPeople(playerIds: number[]): Promise<Map<number, PlayerRef>> {
+  const result = new Map<number, PlayerRef>()
+  if (playerIds.length === 0) return result
+
+  const uniqueIds = Array.from(new Set(playerIds.filter(id => id > 0)))
+  const uncached: number[] = []
+
+  // Cache check (per-ID so this works across games on the same slate)
+  for (const id of uniqueIds) {
+    const cached = await kvGet<PlayerRef>(`hrr:person:${id}`)
+    if (cached) {
+      result.set(id, cached)
+    } else {
+      uncached.push(id)
+    }
+  }
+
+  if (uncached.length === 0) return result
+
+  // Single request for all uncached IDs
+  const url = `${MLB_BASE}/people?personIds=${uncached.join(',')}&hydrate=currentTeam`
+  const res = await fetch(url, { cache: 'no-store' })
+  if (!res.ok) return result  // graceful degradation — leave stubs in place
+
+  interface RawPerson {
+    id: number
+    fullName?: string
+    batSide?: { code?: string }
+    currentTeam?: { id?: number; name?: string; abbreviation?: string }
+  }
+  const data = (await res.json()) as { people?: RawPerson[] }
+  const people = data.people ?? []
+
+  for (const p of people) {
+    if (!p.id) continue
+    const bats: Handedness = p.batSide?.code === 'L' ? 'L' : p.batSide?.code === 'S' ? 'S' : 'R'
+    const team = p.currentTeam?.abbreviation ?? p.currentTeam?.name?.slice(0, 3).toUpperCase() ?? '???'
+    const ref: PlayerRef = {
+      playerId: p.id,
+      fullName: p.fullName ?? `Player ${p.id}`,
+      team,
+      bats,
+    }
+    result.set(p.id, ref)
+    await kvSet(`hrr:person:${p.id}`, ref, TTL_24H)
+  }
+
+  return result
+}
+
+/**
+ * Enrich a Lineup's entries with real fullName/team/bats by batch-fetching
+ * the MLB people endpoint. Mutates the entries in-place and returns the lineup.
+ */
+async function enrichLineup(lineup: Lineup, teamAbbrevFallback: string): Promise<Lineup> {
+  const ids = lineup.entries.map(e => e.player.playerId)
+  const people = await fetchPeople(ids)
+  for (const entry of lineup.entries) {
+    const real = people.get(entry.player.playerId)
+    if (real) {
+      // Prefer real data; keep teamAbbrevFallback if currentTeam was '???'
+      entry.player = {
+        ...entry.player,
+        fullName: real.fullName,
+        team:     real.team !== '???' ? real.team : teamAbbrevFallback,
+        bats:     real.bats,
+      }
+    }
+  }
+  return lineup
+}
+
+/**
  * Build a Lineup from a confirmed ordered list of player IDs (e.g. from boxscore.batters).
  * Slots are 1-indexed.
  */
@@ -404,6 +481,8 @@ export async function fetchLineup(
   const cached = await kvGet<Lineup>(cacheKey)
   if (cached) return cached
 
+  let teamAbbrevForCache = '???'
+
   // --- Tier 1: live boxscore batters ---
   const boxUrl = `${MLB_BASE}/game/${gameId}/boxscore`
   const boxRes = await fetch(boxUrl, { cache: 'no-store' })
@@ -411,12 +490,13 @@ export async function fetchLineup(
     const boxData: RawBoxscoreResponse = await boxRes.json()
     const teamData = boxData.teams?.[side]
     const teamAbbrev = teamData?.team?.abbreviation ?? '???'
+    teamAbbrevForCache = teamAbbrev
     const rawBatters = teamData?.batters ?? []
     const ids = rawBatters
       .map((b: number | { id: number }) => (typeof b === 'number' ? b : b.id))
       .filter(Boolean)
     if (ids.length >= 9) {
-      const lineup = buildConfirmedLineup(ids, teamAbbrev)
+      const lineup = await enrichLineup(buildConfirmedLineup(ids, teamAbbrev), teamAbbrev)
       await kvSet(cacheKey, lineup, TTL_6H)
       return lineup
     }
@@ -436,7 +516,7 @@ export async function fetchLineup(
         slot:   i + 1,
         player: stubPlayerRef(p.id, p.fullName),
       }))
-      const lineup: Lineup = { status: 'confirmed', entries }
+      const lineup = await enrichLineup({ status: 'confirmed', entries }, teamAbbrevForCache)
       await kvSet(cacheKey, lineup, TTL_6H)
       return lineup
     }
@@ -445,7 +525,7 @@ export async function fetchLineup(
         slot:   i + 1,
         player: stubPlayerRef(p.id, p.fullName),
       }))
-      const lineup: Lineup = { status: 'partial', entries }
+      const lineup = await enrichLineup({ status: 'partial', entries }, teamAbbrevForCache)
       await kvSet(cacheKey, lineup, TTL_6H)
       return lineup
     }
@@ -453,7 +533,10 @@ export async function fetchLineup(
 
   // --- Tier 3: estimated from recent batting-order history ---
   const targetDate = date ?? new Date().toISOString().slice(0, 10)
-  const estimated = await buildEstimatedLineupForTeam(teamId, targetDate)
+  const estimated = await enrichLineup(
+    await buildEstimatedLineupForTeam(teamId, targetDate),
+    teamAbbrevForCache,
+  )
   await kvSet(cacheKey, estimated, TTL_6H)
   return estimated
 }
