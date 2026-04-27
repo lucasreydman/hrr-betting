@@ -76,10 +76,11 @@ export function ClientShell({ initialPicks }: { initialPicks: PicksResponse }) {
     'disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-card/40 disabled:hover:border-border'
 
   return (
-    <main className="mx-auto max-w-5xl space-y-6 px-4 py-6 sm:px-6 sm:py-8">
+    <main className="mx-auto max-w-5xl space-y-6 px-3 py-6 sm:px-6 sm:py-8">
       <header className="space-y-4">
         <div>
-          <h1 className="text-3xl font-semibold tracking-tight">Today&apos;s board</h1>
+          {/* `text-2xl` on phones so a 30 px headline doesn't dominate a 320 px screen. */}
+          <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">Today&apos;s board</h1>
           <p className="mt-1 text-sm text-ink-muted">
             Hits + Runs + RBIs prop picks ranked by matchup edge × confidence.
           </p>
@@ -100,13 +101,16 @@ export function ClientShell({ initialPicks }: { initialPicks: PicksResponse }) {
             <span aria-hidden="true">←</span>
           </button>
 
-          <div className="flex flex-1 flex-col items-center justify-center px-2 text-center min-w-0">
-            <span className="text-xs font-medium uppercase tracking-wider text-ink-muted">
+          {/* The center column truncates so a long pretty-date label can't push the
+              forward arrow off the row. Pretty + ISO are stacked on phones to keep
+              the row tall enough to read both. */}
+          <div className="flex min-w-0 flex-1 flex-col items-center justify-center px-2 text-center">
+            <span className="text-[11px] font-medium uppercase tracking-wider text-ink-muted">
               {relativeLabel(date, today)}
             </span>
-            <span className="font-mono text-base text-ink truncate">
-              {prettyDate(date)}
-              <span className="ml-2 text-ink-muted">{date}</span>
+            <span className="flex max-w-full flex-wrap items-baseline justify-center gap-x-2 truncate font-mono text-sm text-ink sm:text-base">
+              <span className="truncate">{prettyDate(date)}</span>
+              <span className="truncate text-ink-muted">{date}</span>
             </span>
           </div>
 

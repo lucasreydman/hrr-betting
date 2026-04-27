@@ -20,14 +20,18 @@ export function BoardSection({ rung, picks }: { rung: 1 | 2 | 3; picks: Pick[] }
       aria-labelledby={`board-rung-${rung}`}
       className="overflow-hidden rounded-lg border border-border bg-card/20"
     >
-      <header className="flex flex-wrap items-baseline justify-between gap-2 border-b border-border bg-card/50 px-4 py-3">
-        <div className="space-y-0.5">
-          <h2 id={`board-rung-${rung}`} className="text-xl font-semibold tracking-tight">
+      <header className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 border-b border-border bg-card/50 px-3 py-3 sm:px-4">
+        {/* Hint text wraps below the title on narrow viewports so a 3-rung
+            section header never overflows. */}
+        <div className="min-w-0 space-y-0.5">
+          <h2 id={`board-rung-${rung}`} className="text-lg font-semibold tracking-tight sm:text-xl">
             {rung}+ HRR
           </h2>
           <p className="text-xs text-ink-muted">{RUNG_HINTS[rung]}</p>
         </div>
-        <div className="font-mono text-sm">
+        {/* Counts wrap in their own group on a tight header; `gap-x-3` between
+            tracked + watching replaces the previous `ml-3` (which couldn't wrap). */}
+        <div className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 font-mono text-xs sm:text-sm">
           {trackedCount > 0 ? (
             <span className="text-tracked">
               <span aria-hidden="true">🔥</span> {trackedCount} tracked
@@ -36,7 +40,7 @@ export function BoardSection({ rung, picks }: { rung: 1 | 2 | 3; picks: Pick[] }
             <span className="text-ink-muted">no tracked picks</span>
           )}
           {watching.length > 0 && (
-            <span className="ml-3 text-ink-muted">{watching.length} watching</span>
+            <span className="text-ink-muted">{watching.length} watching</span>
           )}
         </div>
       </header>

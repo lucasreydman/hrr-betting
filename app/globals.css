@@ -1,5 +1,18 @@
 @import "tailwindcss";
 
+/* --------------------------------------------------------------------------
+   Viewport defaults — anchor the page sizing to the *dynamic* viewport
+   (`100dvh`) so iOS Safari's collapsing URL bar doesn't clip / over-extend
+   the page. `min-h-dvh` is also applied on <body> in layout.tsx; this rule
+   covers the html element and the document fallback for older browsers.
+   -------------------------------------------------------------------------- */
+
+html {
+  /* Stop iOS from auto-zooming text on landscape rotation. */
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
 @theme {
   /* ---------- Surfaces ---------- */
   --color-bg: #0a0a0c;
@@ -36,11 +49,25 @@ html, body {
 }
 
 /* Keep some breathing room at the bottom of every page so the footer doesn't
-   sit flush against the viewport edge on long scrolls. */
-body { padding-bottom: 2rem; }
+   sit flush against the viewport edge on long scrolls. The `env()` term adds
+   the home-indicator inset on iPhone so content isn't hidden by the indicator. */
+body {
+  padding-bottom: calc(2rem + env(safe-area-inset-bottom, 0px));
+  /* Belt-and-suspenders: prevent any nested element from forcing horizontal
+     scroll on the document. `overflow-x: clip` (vs `hidden`) does NOT create
+     a new scroll container, which means `position: sticky` on the NavBar
+     keeps working correctly. Older browsers that don't recognise `clip`
+     fall back to `visible`, but our min-w-0 / break-words / overflow-x-auto
+     wrappers already prevent layout-driven horizontal overflow. */
+  overflow-x: clip;
+}
 
-/* Ensure long words (e.g. player names with tags) don't overflow narrow cards. */
+/* Ensure long words (e.g. player names with tags, long pitcher names) don't
+   overflow narrow cards. Applied to display text only — code blocks scroll. */
 h1, h2, h3 { overflow-wrap: anywhere; }
+
+/* Images, video, canvas, svg should never overflow their container. */
+img, video, canvas, svg { max-width: 100%; height: auto; }
 
 /* --------------------------------------------------------------------------
    Focus visibility
@@ -79,7 +106,7 @@ button:focus-visible,
 
 .skip-link {
   position: absolute;
-  left: 0.5rem;
+  left: max(0.5rem, env(safe-area-inset-left, 0px));
   top: -3rem;
   z-index: 50;
   padding: 0.5rem 0.75rem;
@@ -90,4 +117,5 @@ button:focus-visible,
   font-size: 0.875rem;
   transition: top 120ms ease;
 }
-.skip-link:focus-visible { top: 0.5rem; }
+/* When focused, drop down to inside the safe area on notched devices. */
+.skip-link:focus-visible { top: max(0.5rem, env(safe-area-inset-top, 0px)); }

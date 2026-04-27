@@ -132,7 +132,9 @@ export default async function HistoryPage() {
         ) : (
           <div className="overflow-hidden rounded-lg border border-border bg-card/20">
             <div className="overflow-x-auto">
-              <table className="w-full text-sm font-mono">
+              {/* min-w keeps the 6 columns readable on narrow viewports inside
+                  the horizontal-scroll wrapper. */}
+              <table className="w-full min-w-[640px] text-sm font-mono">
                 <thead>
                   <tr className="border-b border-border bg-card/50 text-xs uppercase tracking-wider text-ink-muted">
                     <th scope="col" className="px-3 py-2 text-left">Date</th>

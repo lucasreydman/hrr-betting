@@ -17,25 +17,30 @@ export default function Methodology() {
         <p>
           HRR = Hits + Runs scored + RBIs, summed over the player&apos;s full game. Three rungs: 1+, 2+, 3+ HRR.
         </p>
+        {/* Outer overflow-hidden clips the rounded corners; inner overflow-x-auto
+            lets the table scroll horizontally on narrow viewports rather than
+            clipping the rightmost columns. */}
         <div className="overflow-hidden rounded-lg border border-border bg-card/30">
-          <table className="w-full text-sm font-mono">
-            <thead>
-              <tr className="border-b border-border bg-card/50 text-xs uppercase tracking-wider text-ink-muted">
-                <th scope="col" className="px-3 py-2 text-left">Outcome</th>
-                <th scope="col" className="px-3 py-2 text-right">H</th>
-                <th scope="col" className="px-3 py-2 text-right">R</th>
-                <th scope="col" className="px-3 py-2 text-right">RBI</th>
-                <th scope="col" className="px-3 py-2 text-right">HRR</th>
-              </tr>
-            </thead>
-            <tbody>
-              <Row label="Solo HR" h={1} r={1} rbi={1} hrr={3} />
-              <Row label="Walk + score" h={0} r={1} rbi={0} hrr={1} />
-              <Row label="Sac fly" h={0} r={0} rbi={1} hrr={1} />
-              <Row label="Grand slam" h={1} r={1} rbi={4} hrr={6} />
-              <Row label="Reach on error + score" h={0} r={1} rbi={0} hrr={1} />
-            </tbody>
-          </table>
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[420px] text-sm font-mono">
+              <thead>
+                <tr className="border-b border-border bg-card/50 text-xs uppercase tracking-wider text-ink-muted">
+                  <th scope="col" className="px-3 py-2 text-left">Outcome</th>
+                  <th scope="col" className="px-3 py-2 text-right">H</th>
+                  <th scope="col" className="px-3 py-2 text-right">R</th>
+                  <th scope="col" className="px-3 py-2 text-right">RBI</th>
+                  <th scope="col" className="px-3 py-2 text-right">HRR</th>
+                </tr>
+              </thead>
+              <tbody>
+                <Row label="Solo HR" h={1} r={1} rbi={1} hrr={3} />
+                <Row label="Walk + score" h={0} r={1} rbi={0} hrr={1} />
+                <Row label="Sac fly" h={0} r={0} rbi={1} hrr={1} />
+                <Row label="Grand slam" h={1} r={1} rbi={4} hrr={6} />
+                <Row label="Reach on error + score" h={0} r={1} rbi={0} hrr={1} />
+              </tbody>
+            </table>
+          </div>
         </div>
       </Section>
 

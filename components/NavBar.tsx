@@ -22,25 +22,43 @@ export function NavBar() {
   const pathname = usePathname()
 
   return (
-    <header className="sticky top-0 z-30 border-b border-border bg-bg/85 backdrop-blur supports-[backdrop-filter]:bg-bg/70">
+    // pt-[env(safe-area-inset-top)] keeps interactive content out of the iOS
+    // notch / dynamic island area while letting the bg/border extend full-width
+    // behind it (we use viewport-fit=cover in app/layout.tsx). On non-notched
+    // devices env() returns 0 so this is a no-op.
+    <header
+      className="sticky top-0 z-30 border-b border-border bg-bg/85 backdrop-blur supports-[backdrop-filter]:bg-bg/70"
+      style={{ paddingTop: 'env(safe-area-inset-top, 0px)' }}
+    >
       <nav
         aria-label="Primary"
-        className="mx-auto flex max-w-5xl items-center justify-between gap-4 px-4 py-3 sm:px-6"
+        // Tighter gaps + horizontal padding on the smallest viewports (≈320 px)
+        // so brand + 3 nav links fit without wrapping. The brand's hidden
+        // tagline at sm reclaims the space on tablet+.
+        // Horizontal env() insets handle iPhone landscape where the notch eats
+        // a few pixels of horizontal space.
+        className="mx-auto flex max-w-5xl items-center justify-between gap-2 px-3 py-3 sm:gap-4 sm:px-6"
+        style={{
+          paddingLeft: 'max(0.75rem, env(safe-area-inset-left, 0px))',
+          paddingRight: 'max(0.75rem, env(safe-area-inset-right, 0px))',
+        }}
       >
         <Link
           href="/"
-          className="flex items-center gap-2 rounded text-base font-semibold tracking-tight text-ink hover:text-accent"
+          // min-w-0 + truncate on the inner span so an unexpectedly long
+          // brand string can't push the nav off-screen.
+          className="flex min-w-0 items-center gap-2 rounded text-base font-semibold tracking-tight text-ink hover:text-accent"
           aria-label="HRR Betting — home"
         >
-          <span aria-hidden="true" className="text-tracked">●</span>
-          <span>HRR</span>
+          <span aria-hidden="true" className="shrink-0 text-tracked">●</span>
+          <span className="truncate">HRR</span>
           <span className="hidden text-ink-muted sm:inline" aria-hidden="true">·</span>
-          <span className="hidden text-sm font-normal text-ink-muted sm:inline">
+          <span className="hidden truncate text-sm font-normal text-ink-muted sm:inline">
             Hits + Runs + RBIs
           </span>
         </Link>
 
-        <ul className="flex items-center gap-1 text-sm">
+        <ul className="flex shrink-0 items-center gap-0.5 text-sm sm:gap-1">
           {LINKS.map(link => {
             const active =
               link.href === '/'
@@ -51,8 +69,11 @@ export function NavBar() {
                 <Link
                   href={link.href}
                   aria-current={active ? 'page' : undefined}
+                  // h-10 (40px) instead of h-9 to clear the recommended touch
+                  // target. Reduced horizontal padding on mobile so all three
+                  // links fit on a 320px viewport alongside the brand.
                   className={
-                    'inline-flex h-9 items-center rounded-md px-3 transition-colors ' +
+                    'inline-flex h-10 items-center rounded-md px-2.5 text-[13px] transition-colors sm:px-3 sm:text-sm ' +
                     (active
                       ? 'bg-card text-ink'
                       : 'text-ink-muted hover:bg-card/60 hover:text-ink')

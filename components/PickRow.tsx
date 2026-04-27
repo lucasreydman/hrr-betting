@@ -86,13 +86,20 @@ export function PickRow({ pick }: { pick: Pick }) {
         {isTracked && <span className="text-tracked">🔥</span>}
       </div>
 
-      {/* Player + meta */}
-      <div className="col-span-12 sm:col-span-4">
-        <div className="flex items-center gap-2">
+      {/* Player + meta — `min-w-0` so flex/grid children can actually shrink
+          and `break-words` so a long surname doesn't break out of the card on
+          a 320 px viewport. */}
+      <div className="col-span-12 min-w-0 sm:col-span-4">
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
           <span className="sm:hidden" aria-hidden="true">
             {isTracked ? <span className="text-tracked">🔥</span> : null}
           </span>
-          <span className={isTracked ? 'font-semibold text-ink' : 'font-medium text-ink'}>
+          <span
+            className={
+              'min-w-0 break-words ' +
+              (isTracked ? 'font-semibold text-ink' : 'font-medium text-ink')
+            }
+          >
             {pick.player.fullName}
           </span>
           {isTracked && (
@@ -107,28 +114,29 @@ export function PickRow({ pick }: { pick: Pick }) {
           <span>slot {pick.lineupSlot}</span>
           <LineupBadge status={pick.lineupStatus} />
         </div>
-        <div className="mt-0.5 text-xs leading-tight text-ink-muted">
+        <div className="mt-0.5 break-words text-xs leading-tight text-ink-muted">
           <span className="text-ink-muted/80">P:</span> {pick.opposingPitcher.name}
           <PitcherBadge status={pick.opposingPitcher.status} />
         </div>
       </div>
 
-      {/* Stats grid — mobile shows compact 4-column row of metrics; desktop slots into the table */}
-      <div className="col-span-12 grid grid-cols-4 gap-2 text-right font-mono text-sm sm:col-span-7 sm:grid-cols-7 sm:items-center sm:gap-3">
+      {/* Stats grid — mobile shows compact 4-column row of metrics; desktop slots into the table.
+          `min-w-0` lets the cells shrink instead of forcing the row to overflow. */}
+      <div className="col-span-12 grid min-w-0 grid-cols-4 gap-2 text-right font-mono text-sm sm:col-span-7 sm:grid-cols-7 sm:items-center sm:gap-3">
         {/* Prob */}
-        <div className="sm:col-span-2">
-          <div className={isTracked ? 'font-semibold text-ink' : 'text-ink'}>
+        <div className="min-w-0 sm:col-span-2">
+          <div className={'tabular-nums ' + (isTracked ? 'font-semibold text-ink' : 'text-ink')}>
             {pct(pick.pMatchup, 1)}
           </div>
-          <div className="text-[11px] text-ink-muted">vs {pct(pick.pTypical, 1)}</div>
+          <div className="text-[11px] tabular-nums text-ink-muted">vs {pct(pick.pTypical, 1)}</div>
           <div className="text-[10px] uppercase tracking-wider text-ink-muted/80 sm:hidden">
             prob
           </div>
         </div>
 
         {/* Edge */}
-        <div className="sm:col-span-2">
-          <div className={pick.edge >= 0 ? 'text-accent' : 'text-ink-muted'}>
+        <div className="min-w-0 sm:col-span-2">
+          <div className={'tabular-nums ' + (pick.edge >= 0 ? 'text-accent' : 'text-ink-muted')}>
             {signedPct(pick.edge)}
           </div>
           <div className="text-[10px] uppercase tracking-wider text-ink-muted/80">edge</div>
@@ -136,22 +144,24 @@ export function PickRow({ pick }: { pick: Pick }) {
 
         {/* Confidence — native tooltip explains the multiplier breakdown */}
         <div
-          className="sm:col-span-1 cursor-help"
+          className="min-w-0 cursor-help sm:col-span-1"
           title={confidenceSummary(pick)}
         >
-          <div className={isTracked ? 'font-semibold text-hit' : 'text-ink'}>
+          <div className={'tabular-nums ' + (isTracked ? 'font-semibold text-hit' : 'text-ink')}>
             {pct(pick.confidence, 0)}
           </div>
           <div className="text-[10px] uppercase tracking-wider text-ink-muted/80">conf</div>
         </div>
 
-        {/* Score */}
-        <div className="sm:col-span-2">
+        {/* Score — keep readable on a 320 px viewport: scale up at sm, but stay
+            tight on the smallest screens where 4 metric cells share ~280 px. */}
+        <div className="min-w-0 sm:col-span-2">
           <div
             className={
-              isTracked
-                ? 'text-xl font-semibold text-tracked'
-                : 'text-lg font-semibold text-ink'
+              'tabular-nums ' +
+              (isTracked
+                ? 'text-base font-semibold text-tracked sm:text-xl'
+                : 'text-base font-semibold text-ink sm:text-lg')
             }
           >
             {(pick.score * 100).toFixed(1)}

@@ -19,7 +19,10 @@ const LABEL_TONE: Record<CalibrationLabel, string> = {
 export function CalibrationTable({ perRung }: { perRung: HistoryResponse['rolling30Day']['perRung'] }) {
   return (
     <div className="overflow-x-auto">
-      <table className="w-full text-sm font-mono">
+      {/* min-w keeps every column readable inside the scroll container — without
+          it, a 320 px viewport crushes "underconfident" / "overconfident" labels
+          into 3-line wrapping. */}
+      <table className="w-full min-w-[520px] text-sm font-mono">
         <thead>
           <tr className="border-b border-border bg-card/50 text-xs uppercase tracking-wider text-ink-muted">
             <th scope="col" className="px-3 py-2 text-left">Rung</th>
