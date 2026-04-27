@@ -190,17 +190,39 @@ export async function rankPicks(date: string): Promise<PicksResponse> {
       lineup.entries.map(entry => ({ entry, lineup, opponent, sidePassesGates, confidence }))
     )
 
-    const pTypicalResults = await Promise.all(
-      playerJobs.map(({ entry }) => getPTypical({ playerId: entry.player.playerId, date }))
-    )
+    // P_typical + per-batter BvP (the latter is what gives confidence its real
+    // per-pick variation — without it, every batter on a side has the same conf).
+    const [pTypicalResults, bvpResults] = await Promise.all([
+      Promise.all(playerJobs.map(({ entry }) => getPTypical({ playerId: entry.player.playerId, date }))),
+      Promise.all(playerJobs.map(({ entry, lineup }) => {
+        const onHome = lineup === homeLineup
+        const opposingStarterId = onHome ? probables.away : probables.home
+        if (opposingStarterId <= 0) return Promise.resolve(null)  // unknown starter → no BvP
+        return fetchBvP(entry.player.playerId, opposingStarterId).catch(() => null)
+      })),
+    ])
 
     for (let i = 0; i < playerJobs.length; i++) {
-      const { entry, lineup, opponent, sidePassesGates, confidence } = playerJobs[i]
+      const { entry, lineup, opponent, sidePassesGates } = playerJobs[i]
       const pTypicalResult = pTypicalResults[i]
+      const bvp = bvpResults[i]
 
       const player = entry.player
       const dist = sim.batterHRR[String(player.playerId)]
       if (!dist) continue
+
+      // Recompute confidence per-batter to incorporate this batter's BvP sample.
+      // (Other inputs are per-side, so they're shared across batters on a side.)
+      const onHome = lineup === homeLineup
+      const opposingStarterStartCount = onHome ? awayPitcherStarts.length : homePitcherStarts.length
+      const confidence = computeConfidence({
+        lineupStatus: lineup.status,
+        bvpAB: bvp?.ab ?? 0,
+        pitcherStartCount: opposingStarterStartCount,
+        weatherStable: true,
+        isOpener: false,
+        timeToFirstPitchMin,
+      })
 
       for (const rung of [1, 2, 3] as Rung[]) {
         const pMatchup = dist.atLeast[rung] ?? 0
