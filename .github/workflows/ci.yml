@@ -29,7 +29,10 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          # Match Next.js 16's supported runtime (>=20). Bumped to 22 LTS so
+          # native TS-config support is available — keeps the door open to
+          # using a TS-authored jest.config.ts again without needing ts-node.
+          node-version: '22'
           cache: 'npm'
 
       - name: Install dependencies
