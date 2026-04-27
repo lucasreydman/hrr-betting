@@ -1,19 +1,24 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { kvGet, kvSet } from '@/lib/kv'
+import { kvGet, kvSet, kvDel } from '@/lib/kv'
 import { rankPicks } from '@/lib/ranker'
 import type { PicksResponse } from '@/lib/ranker'
 
 export const revalidate = 60
 
 export async function GET(req: NextRequest): Promise<NextResponse> {
-  const date =
-    new URL(req.url).searchParams.get('date') ??
-    new Date().toISOString().slice(0, 10)
+  const url = new URL(req.url)
+  const date = url.searchParams.get('date') ?? new Date().toISOString().slice(0, 10)
+  const nocache = url.searchParams.get('nocache') === '1'
 
   const cacheKey = `picks:current:${date}`
-  const cached = await kvGet<PicksResponse>(cacheKey)
-  if (cached) {
-    return NextResponse.json({ ...cached, meta: { ...cached.meta, fromCache: true } })
+
+  if (nocache) {
+    await kvDel(cacheKey)
+  } else {
+    const cached = await kvGet<PicksResponse>(cacheKey)
+    if (cached) {
+      return NextResponse.json({ ...cached, meta: { ...cached.meta, fromCache: true } })
+    }
   }
 
   const ranked = await rankPicks(date)
