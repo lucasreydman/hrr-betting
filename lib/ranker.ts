@@ -133,16 +133,9 @@ export async function rankPicks(date: string): Promise<PicksResponse> {
     }
     gamesWithSim++
 
-    // Evaluate hard gates once per game (game-level conditions don't change per rung)
-    const gamePassesGates = passesHardGates({
-      gameStatus: game.status,
-      probableStarterId: 1,  // v1 sentinel — non-null means "known"
-      lineupStatus: null,    // lineupStatus is checked per-side below
-      expectedPA: 4,
-    })
-    // Note: passesHardGates checks lineupStatus != null, so we re-call per-side with actual status
-    // The game-level call above only pre-checks gameStatus/probableStarterId/expectedPA.
-    // We override lineupStatus below with the actual side's status.
+    // Hard gates evaluated per-side below (lineupStatus is per-side).
+    // Game-level conditions (gameStatus, probableStarterId, expectedPA) are
+    // checked inside the per-side call.
 
     const sides = [
       { lineup: homeLineup, opponent: game.awayTeam },
@@ -156,9 +149,9 @@ export async function rankPicks(date: string): Promise<PicksResponse> {
     const sideJobs = sides.map(({ lineup, opponent }) => ({
       lineup,
       opponent,
-      sidePassesGates: gamePassesGates && passesHardGates({
+      sidePassesGates: passesHardGates({
         gameStatus: game.status,
-        probableStarterId: 1,
+        probableStarterId: 1,  // v1 sentinel — non-null means "known"
         lineupStatus: lineup.status,
         expectedPA: 4,
       }),
