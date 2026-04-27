@@ -28,40 +28,53 @@ export interface ConfidenceInputs {
   timeToFirstPitchMin: number  // time until first pitch (min); closer = more confident
 }
 
+/** Per-factor breakdown of the confidence multiplier. Product of all six = `confidence`. */
+export interface ConfidenceFactors {
+  lineup: number       // 1.00 / 0.85 / 0.70 by lineup status
+  bvp: number          // 0.90–1.00 ramp from 0 to 20 BvP at-bats
+  pitcherStart: number // 0.90–1.00 ramp from 3 to 10 recent starts
+  weather: number      // 1.00 stable / 0.90 volatile
+  time: number         // 1.00 within 90 min / 0.95 at 4+ hrs out
+  opener: number       // 1.00 normal / 0.90 opener
+}
+
+/**
+ * Compute the per-factor breakdown of the confidence multiplier. Used by the
+ * UI to explain *why* a pick has the confidence it does — e.g. "estimated
+ * lineup × 0.70, pitcher 4-start sample × 0.91". `computeConfidence` returns
+ * just the product; this returns the components.
+ */
+export function computeConfidenceBreakdown(args: ConfidenceInputs): {
+  factors: ConfidenceFactors
+  product: number
+} {
+  const lineup =
+    args.lineupStatus === 'confirmed' ? 1.00 :
+    args.lineupStatus === 'partial' ? 0.85 : 0.70
+  const bvp = Math.min(1.0, 0.90 + (args.bvpAB / 20) * 0.10)
+  const pitcherStart =
+    args.pitcherStartCount >= 10 ? 1.0 :
+    args.pitcherStartCount <= 3 ? 0.90 :
+    0.90 + ((args.pitcherStartCount - 3) / 7) * 0.10
+  const weather = args.weatherStable ? 1.0 : 0.90
+  const time =
+    args.timeToFirstPitchMin <= 90 ? 1.0 :
+    args.timeToFirstPitchMin >= 240 ? 0.95 :
+    1.0 - ((args.timeToFirstPitchMin - 90) / 150) * 0.05
+  const opener = args.isOpener ? 0.90 : 1.0
+
+  const factors: ConfidenceFactors = { lineup, bvp, pitcherStart, weather, time, opener }
+  const product = lineup * bvp * pitcherStart * weather * time * opener
+  return { factors, product }
+}
+
 /**
  * Graded confidence multiplier in [0.55, 1.00] (typical range).
  * Each input contributes a multiplier; the product is the final confidence.
+ *
+ * Implementation delegates to `computeConfidenceBreakdown` so there's a
+ * single source of truth for the per-factor math.
  */
 export function computeConfidence(args: ConfidenceInputs): number {
-  let mult = 1.0
-
-  // Lineup confirmation
-  if (args.lineupStatus === 'confirmed') mult *= 1.00
-  else if (args.lineupStatus === 'partial') mult *= 0.85
-  else if (args.lineupStatus === 'estimated') mult *= 0.70
-
-  // BvP sample size: 0 → 0.90, 20+ → 1.0, linear in between
-  const bvpFactor = Math.min(1.0, 0.90 + (args.bvpAB / 20) * 0.10)
-  mult *= bvpFactor
-
-  // Pitcher recent-start sample: 3 → 0.90, 10+ → 1.0
-  const startFactor = args.pitcherStartCount >= 10 ? 1.0
-    : args.pitcherStartCount <= 3 ? 0.90
-    : 0.90 + ((args.pitcherStartCount - 3) / 7) * 0.10
-  mult *= startFactor
-
-  // Weather forecast volatility
-  mult *= args.weatherStable ? 1.0 : 0.90
-
-  // Time-to-first-pitch freshness (we trust lineups closer to game time more)
-  // ≤90 min → 1.0, 240+ min (4+ hrs) → 0.95
-  const timeFactor = args.timeToFirstPitchMin <= 90 ? 1.0
-    : args.timeToFirstPitchMin >= 240 ? 0.95
-    : 1.0 - ((args.timeToFirstPitchMin - 90) / 150) * 0.05
-  mult *= timeFactor
-
-  // Opener: reduce by 0.90× because bullpen-after-opener is hard to predict
-  if (args.isOpener) mult *= 0.90
-
-  return mult
+  return computeConfidenceBreakdown(args).product
 }

@@ -14,10 +14,11 @@
 
 import { kvGet } from './kv'
 import { computeEdge, computeScore } from './edge'
-import { computeConfidence, passesHardGates } from './confidence'
+import { computeConfidenceBreakdown, passesHardGates, type ConfidenceFactors } from './confidence'
 import { getPTypical } from './p-typical'
 import { fetchSchedule, fetchProbablePitchers, fetchPitcherRecentStarts, fetchBvP, fetchPeople } from './mlb-api'
 import { fetchLineup, lineupHash } from './lineup'
+import { getParkFactors } from './park-factors'
 import {
   EDGE_FLOORS,
   PROB_FLOORS,
@@ -25,11 +26,41 @@ import {
   DISPLAY_FLOOR_SCORE,
 } from './constants'
 import type { BatterHRRDist } from './sim'
-import type { Rung } from './types'
+import type { Rung, BvPRecord } from './types'
 
 // ---------------------------------------------------------------------------
 // Public types
 // ---------------------------------------------------------------------------
+
+/** A single batter's slot + identity, used to surface the surrounding lineup. */
+export interface LineupSlotSummary {
+  slot: number
+  playerId: number
+  fullName: string
+}
+
+/** The math inputs that determine `confidence` × `edge` for a single pick. */
+export interface PickInputs {
+  /** MLB venue ID for the game (lookup key for park factors). */
+  venueId: number
+  venueName: string
+  /** HR park factor applied inside the per-PA model (1.00 = neutral). */
+  parkHrFactor: number
+  /**
+   * Career batter-vs-pitcher line vs *this* opposing starter. `null` when the
+   * starter is TBD or the matchup has never been recorded. Drives the BvP
+   * confidence factor (0.90–1.00 ramp on `ab`).
+   */
+  bvp: BvPRecord | null
+  /** Number of the starter's recent starts available for the IP CDF. */
+  pitcherStartCount: number
+  /** Minutes from now until first pitch. Drives the time-to-pitch confidence factor. */
+  timeToFirstPitchMin: number
+  /** The 9-batter lineup the player is part of (slot + name only). */
+  lineup: LineupSlotSummary[]
+  /** Per-factor breakdown of the confidence multiplier. Product = `confidence`. */
+  confidenceFactors: ConfidenceFactors
+}
 
 export interface Pick {
   player: { playerId: number; fullName: string; team: string; bats: 'R' | 'L' | 'S' }
@@ -56,6 +87,12 @@ export interface Pick {
   confidence: number
   score: number
   tier: 'tracked' | 'watching'
+  /**
+   * The math inputs that produced confidence × edge, surfaced for the UI's
+   * "show me the math" panel. Optional because settled-history rows from the
+   * DB don't have these columns.
+   */
+  inputs?: PickInputs
 }
 
 export interface PicksResponse {
@@ -149,6 +186,19 @@ export async function rankPicks(date: string): Promise<PicksResponse> {
     const firstPitchMs = new Date(game.gameDate).getTime()
     const timeToFirstPitchMin = Math.max(0, Math.round((firstPitchMs - Date.now()) / 60000))
 
+    // Park factor for this venue (sync lookup, no I/O). Surfaced on each pick
+    // so the UI can show the actual HR multiplier feeding the per-PA model.
+    const parkFactors = getParkFactors(game.venueId)
+
+    // Pre-compute lineup summaries (one per side) so we can attach the same
+    // 9-entry array to every batter on a side without rebuilding it 9 times.
+    const homeLineupSummary: LineupSlotSummary[] = homeLineup.entries.map(e => ({
+      slot: e.slot, playerId: e.player.playerId, fullName: e.player.fullName,
+    }))
+    const awayLineupSummary: LineupSlotSummary[] = awayLineup.entries.map(e => ({
+      slot: e.slot, playerId: e.player.playerId, fullName: e.player.fullName,
+    }))
+
     // Fetch each probable pitcher's recent-starts count + name in parallel.
     // fetchPeople caches per-ID 24h so name lookups are cheap on repeat calls.
     const pitcherIds = [probables.home, probables.away].filter(id => id > 0)
@@ -233,7 +283,7 @@ export async function rankPicks(date: string): Promise<PicksResponse> {
           : game.status === 'in_progress'
             ? 'confirmed'
             : 'probable'
-      const confidence = computeConfidence({
+      const { factors: confidenceFactors, product: confidence } = computeConfidenceBreakdown({
         lineupStatus: lineup.status,
         bvpAB: bvp?.ab ?? 0,
         pitcherStartCount: opposingStarterStartCount,
@@ -241,6 +291,17 @@ export async function rankPicks(date: string): Promise<PicksResponse> {
         isOpener: false,
         timeToFirstPitchMin,
       })
+
+      const inputs: PickInputs = {
+        venueId: game.venueId,
+        venueName: game.venueName,
+        parkHrFactor: parkFactors.factors.hr,
+        bvp,
+        pitcherStartCount: opposingStarterStartCount,
+        timeToFirstPitchMin,
+        lineup: onHome ? homeLineupSummary : awayLineupSummary,
+        confidenceFactors,
+      }
 
       for (const rung of [1, 2, 3] as Rung[]) {
         const pMatchup = dist.atLeast[rung] ?? 0
@@ -276,6 +337,7 @@ export async function rankPicks(date: string): Promise<PicksResponse> {
           confidence,
           score,
           tier,
+          inputs,
         }
 
         if (rung === 1) rung1Picks.push(pick)
