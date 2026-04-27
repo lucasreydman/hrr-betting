@@ -47,8 +47,20 @@ export const maxDuration = 10
 type SimMeta = {
   lineupHash: string
   weatherHash: string
+  /**
+   * Hash of the home + away probable pitcher IDs at sim time. Used to detect
+   * "pitcher just got announced" scenarios where the lineup hash hasn't changed
+   * but the sim's pitcher inputs are now stale.
+   * Format: "{homeId}:{awayId}"; '0' for TBD.
+   */
+  probableHash: string
   simAt: number
   iterations: number
+}
+
+/** Pure hash helper — keep deterministic so cache validity checks match across calls. */
+function buildProbableHash(home: number, away: number): string {
+  return `${home || 0}:${away || 0}`
 }
 
 type SimEnvelope = {
@@ -94,24 +106,33 @@ export async function GET(req: NextRequest, ctx: RouteContext): Promise<NextResp
     return NextResponse.json({ error: `game ${gameId} not found on ${date}` }, { status: 404 })
   }
 
-  // --- Build lineup hashes ---
-  const [homeLineup, awayLineup] = await Promise.all([
+  // --- Build lineup + probable + weather hashes in parallel ---
+  const [homeLineup, awayLineup, probables, weather] = await Promise.all([
     fetchLineup(gameId, game.homeTeam.teamId, 'home', date),
     fetchLineup(gameId, game.awayTeam.teamId, 'away', date),
+    fetchProbablePitchers(gameId),
+    fetchWeather(game.venueId, game.gameDate),
   ])
 
   const lineupH = lineupHash(homeLineup) + ':' + lineupHash(awayLineup)
-
-  // --- Build weather hash ---
-  const weather = await fetchWeather(game.venueId, game.gameDate)
+  const probableH = buildProbableHash(probables.home, probables.away)
   const weatherH = weatherHash(weather)
 
   // --- Check cache ---
+  // Cache key includes probableHash so that when MLB announces a probable
+  // pitcher (or changes one), the cache key changes too — forcing a fresh sim.
+  // Without this, sim cache keyed only on lineupHash would happily serve stale
+  // results computed against the OLD pitcher (typically league-avg fallback for TBD).
   const metaKey = `sim-meta:${gameId}`
-  const cacheKey = `sim:${gameId}:${lineupH}`
+  const cacheKey = `sim:${gameId}:${lineupH}:${probableH}`
 
   const meta = await kvGet<SimMeta>(metaKey)
-  if (meta && meta.lineupHash === lineupH && meta.weatherHash === weatherH) {
+  if (
+    meta &&
+    meta.lineupHash === lineupH &&
+    meta.probableHash === probableH &&
+    meta.weatherHash === weatherH
+  ) {
     const cached = await kvGet<{ batterHRR: Record<string, unknown>; iterations: number }>(cacheKey)
     if (cached) {
       const envelope: SimEnvelope = {
@@ -129,8 +150,7 @@ export async function GET(req: NextRequest, ctx: RouteContext): Promise<NextResp
   // Determine season from game date
   const season = parseInt(date.slice(0, 4), 10)
 
-  // Fetch probable pitchers
-  const probables = await fetchProbablePitchers(gameId)
+  // probables already fetched above for the cache key
 
   // Park factors
   const pf = getParkFactors(game.venueId)
@@ -204,10 +224,11 @@ export async function GET(req: NextRequest, ctx: RouteContext): Promise<NextResp
   const payload = { batterHRR: batterHRRObj, iterations: simResult.iterations }
 
   const newMeta: SimMeta = {
-    lineupHash:  lineupH,
-    weatherHash: weatherH,
-    simAt:       Date.now(),
-    iterations:  SIM_ITERATIONS,
+    lineupHash:   lineupH,
+    weatherHash:  weatherH,
+    probableHash: probableH,
+    simAt:        Date.now(),
+    iterations:   SIM_ITERATIONS,
   }
 
   // Write both cache keys in parallel

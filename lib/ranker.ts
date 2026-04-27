@@ -129,9 +129,14 @@ export async function rankPicks(date: string): Promise<PicksResponse> {
       fetchProbablePitchers(game.gameId),
     ])
 
-    // Build the combined lineup hash used as the sim cache key
+    // Build the combined lineup hash + probable-pitcher hash for the sim cache key.
+    // Including probableHash ensures a pitcher announcement (TBD → known) invalidates
+    // the cache key on the read side too — preventing the case where ranker reports
+    // the new pitcher name while the sim was actually computed against league-avg
+    // pitcher rates from when the slot was TBD.
     const lH = lineupHash(homeLineup) + ':' + lineupHash(awayLineup)
-    const cacheKey = `sim:${game.gameId}:${lH}`
+    const probableH = `${probables.home || 0}:${probables.away || 0}`
+    const cacheKey = `sim:${game.gameId}:${lH}:${probableH}`
 
     const sim = await kvGet<SimCachePayload>(cacheKey)
     if (!sim) {
