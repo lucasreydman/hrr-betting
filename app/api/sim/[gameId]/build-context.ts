@@ -23,37 +23,18 @@ import { computePerPA } from '@/lib/per-pa'
 import { stabilizeRates } from '@/lib/stabilization'
 import { applyHandedness, blendRates } from '@/lib/rates'
 import { getBatterStatcast, getPitcherStatcast } from '@/lib/savant-api'
+import { getParkFactorsForBatter } from '@/lib/park-factors'
 import { LEAGUE_AVG_RATES } from '@/lib/constants'
 import type { BatterSimContext } from '@/lib/sim'
 import type { Outcome, OutcomeRates, Handedness, PlayerRef, PitcherStats } from '@/lib/types'
 
 // ---------------------------------------------------------------------------
-// Park/weather factor shapes
+// Weather factor shape
 // ---------------------------------------------------------------------------
 
 /** Neutral weather factors — v1 simplification: all 1.0 */
 export function neutralWeatherFactors(): Record<Outcome, number> {
   return { '1B': 1, '2B': 1, '3B': 1, HR: 1, BB: 1, K: 1, OUT: 1 }
-}
-
-/** Convert ParkFactors.factors to the per-Outcome map expected by computePerPA */
-export function parkFactorsToOutcomeMap(factors: {
-  hr: number
-  '1b': number
-  '2b': number
-  '3b': number
-  bb: number
-  k: number
-}): Record<Outcome, number> {
-  return {
-    '1B': factors['1b'],
-    '2B': factors['2b'],
-    '3B': factors['3b'],
-    HR:   factors.hr,
-    BB:   factors.bb,
-    K:    factors.k,
-    OUT:  1,
-  }
 }
 
 // ---------------------------------------------------------------------------
@@ -108,7 +89,8 @@ export interface BuildBatterContextArgs {
   lineupSlot: number
   opposingStarter: { id: number; throws: Handedness; type: 'starter' | 'opener' }
   opposingTeamId: number
-  parkFactors: Record<Outcome, number>
+  /** MLB venueId — used to look up *per-batter-handedness* park factors. */
+  venueId: number
   weatherFactors: Record<Outcome, number>
   date: string
   season: number
@@ -120,11 +102,17 @@ export async function buildBatterContext(args: BuildBatterContextArgs): Promise<
     lineupSlot,
     opposingStarter,
     opposingTeamId,
-    parkFactors,
+    venueId,
     weatherFactors,
     date,
     season,
   } = args
+
+  // Park factors are now resolved *per batter* using FanGraphs' per-handedness
+  // columns (1B/2B/3B/HR by L/R). Yankee Stadium's short porch boosts LHB HR
+  // ~3% over RHB; this routes that asymmetry into the per-PA model instead of
+  // applying the same number to both. Switch hitters get the L/R average.
+  const parkFactors = getParkFactorsForBatter(venueId, batter.bats)
 
   // 1. Batter season stats + Statcast
   const seasonStats = await fetchBatterSeasonStats(batter.playerId, season)

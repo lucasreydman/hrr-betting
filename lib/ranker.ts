@@ -18,7 +18,7 @@ import { computeConfidenceBreakdown, passesHardGates, type ConfidenceFactors } f
 import { getPTypical } from './p-typical'
 import { fetchSchedule, fetchProbablePitchers, fetchPitcherRecentStarts, fetchBvP, fetchPeople } from './mlb-api'
 import { fetchLineup, lineupHash } from './lineup'
-import { getParkFactors } from './park-factors'
+import { getHrParkFactorForBatter, getParkVenueName } from './park-factors'
 import {
   EDGE_FLOORS,
   PROB_FLOORS,
@@ -186,9 +186,10 @@ export async function rankPicks(date: string): Promise<PicksResponse> {
     const firstPitchMs = new Date(game.gameDate).getTime()
     const timeToFirstPitchMin = Math.max(0, Math.round((firstPitchMs - Date.now()) / 60000))
 
-    // Park factor for this venue (sync lookup, no I/O). Surfaced on each pick
-    // so the UI can show the actual HR multiplier feeding the per-PA model.
-    const parkFactors = getParkFactors(game.venueId)
+    // Park venue name for surfacing on each pick (the actual per-batter
+    // HR factor is resolved inside the per-pick loop below, since FG's
+    // park factors are per-handedness).
+    const venueName = getParkVenueName(game.venueId)
 
     // Pre-compute lineup summaries (one per side) so we can attach the same
     // 9-entry array to every batter on a side without rebuilding it 9 times.
@@ -294,8 +295,13 @@ export async function rankPicks(date: string): Promise<PicksResponse> {
 
       const inputs: PickInputs = {
         venueId: game.venueId,
-        venueName: game.venueName,
-        parkHrFactor: parkFactors.factors.hr,
+        // Prefer FG's venue name (matches the lookup table) but fall back to
+        // the MLB schedule name if the venue isn't in our park-factors map.
+        venueName: venueName !== 'Unknown park' ? venueName : game.venueName,
+        // The actual HR multiplier the sim used for THIS batter — picks up
+        // the per-handedness asymmetry (e.g. Yankee Stadium boosts LHB more
+        // than RHB).
+        parkHrFactor: getHrParkFactorForBatter(game.venueId, player.bats),
         bvp,
         pitcherStartCount: opposingStarterStartCount,
         timeToFirstPitchMin,

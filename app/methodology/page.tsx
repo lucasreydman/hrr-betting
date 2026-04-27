@@ -129,13 +129,45 @@ SCORE = EDGE × confidence`}
         </p>
       </Section>
 
+      <Section heading="Park factors">
+        <p>
+          Each MLB stadium has a unique signature for which outcomes it suppresses or
+          inflates. We use the <strong className="text-ink">2025 FanGraphs Guts!</strong> tables
+          for every park: the per-handedness columns (<Code>1B/2B/3B/HR by L vs R</Code>) and
+          the handedness-blended <Code>BB</Code> and <Code>K</Code> columns. All values are
+          FanGraphs&apos; halved scale (100 = neutral, applied to a full-season line),
+          stored as direct multipliers in <Code>lib/park-factors.ts</Code>.
+        </p>
+        <p>
+          Per-handedness matters because the same park behaves differently for each side:
+        </p>
+        <ul className="ml-5 list-disc space-y-1 text-sm marker:text-ink-muted">
+          <li>
+            <strong className="text-ink">Yankee Stadium</strong>: HR factor 1.07 for LHB
+            (short porch in right) vs 1.04 for RHB.
+          </li>
+          <li>
+            <strong className="text-ink">Coors Field</strong>: HR 1.05 LHB vs 1.08 RHB; 3B 1.28
+            LHB vs 1.42 RHB (huge LF / CF gaps).
+          </li>
+          <li>
+            <strong className="text-ink">Dodger Stadium</strong>: HR 1.07 LHB vs 1.12 RHB.
+          </li>
+        </ul>
+        <p>
+          The factors are resolved per-batter inside <Code>buildBatterContext</Code>, so when
+          the per-PA model multiplies through park × weather × TTO, each batter sees the
+          number that matches their bats hand. Switch hitters get the L/R average — a v1
+          simplification; a finer model would weight by the pitcher&apos;s handedness for that PA.
+        </p>
+      </Section>
+
       <Section heading="Other factors">
         <ul className="ml-5 list-disc space-y-1.5 text-sm marker:text-ink-muted">
           <li><strong className="text-ink">TTO penalty</strong>: pitcher gets worse each time through the order. League-avg multipliers per outcome.</li>
           <li><strong className="text-ink">Bullpen leverage tier</strong>: high-leverage (closer/setup) vs rest, weighted by PA index.</li>
-          <li><strong className="text-ink">Park factors</strong>: 30 stadiums, per-outcome (HR-specific).</li>
-          <li><strong className="text-ink">Weather</strong>: temp + wind direction affect HR rate.</li>
-          <li><strong className="text-ink">Handedness splits</strong>: vsR / vsL for both batter and pitcher.</li>
+          <li><strong className="text-ink">Weather</strong>: fetched per-game (temp + wind speed + wind direction). Wired through the sim cache key but applied as neutral 1.00 multipliers in v1 — calibration target.</li>
+          <li><strong className="text-ink">Handedness splits</strong>: vsR / vsL for both batter rates and park factors (above).</li>
           <li><strong className="text-ink">Lineup status</strong>: confirmed lineups score full confidence; estimated lineups (from recent starts) reduce confidence.</li>
         </ul>
       </Section>
@@ -157,6 +189,29 @@ SCORE = EDGE × confidence`}
               target="_blank"
               rel="noreferrer"
             >Baseball Savant</a> — Statcast metrics (barrel%, hard-hit%, xwOBA, whiff%)
+          </li>
+          <li>
+            <a
+              className="text-accent hover:underline"
+              href="https://www.fangraphs.com/tools/guts"
+              target="_blank"
+              rel="noreferrer"
+            >FanGraphs Guts!</a> — park factors:
+            {' '}
+            <a
+              className="text-accent hover:underline"
+              href="https://www.fangraphs.com/tools/guts?type=pf"
+              target="_blank"
+              rel="noreferrer"
+            >per-outcome</a>
+            {' (1B/2B/3B/HR/SO/BB) and '}
+            <a
+              className="text-accent hover:underline"
+              href="https://www.fangraphs.com/tools/guts?type=pfh"
+              target="_blank"
+              rel="noreferrer"
+            >per-handedness</a>
+            {' (1B/2B/3B/HR by L vs R), 2025 season'}
           </li>
           <li>
             <a
