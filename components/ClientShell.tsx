@@ -33,6 +33,8 @@ export function ClientShell({ initialPicks }: { initialPicks: PicksResponse }) {
   const [isPending, startTransition] = useTransition()
 
   const today = todayPacificDateString()
+  const tomorrow = shiftDate(today, 1)
+  const atForwardLimit = date >= tomorrow  // Can't navigate past tomorrow — sims/lineups not useful that far out
 
   const fetchForDate = useCallback(async (targetDate: string, opts: { nocache?: boolean } = {}) => {
     try {
@@ -83,9 +85,10 @@ export function ClientShell({ initialPicks }: { initialPicks: PicksResponse }) {
           </div>
           <button
             onClick={() => navigateToDate(shiftDate(date, 1))}
-            disabled={isPending}
-            className="px-3 py-1.5 border border-border rounded text-sm font-mono hover:bg-card/50 disabled:opacity-50"
+            disabled={isPending || atForwardLimit}
+            className="px-3 py-1.5 border border-border rounded text-sm font-mono hover:bg-card/50 disabled:opacity-30 disabled:cursor-not-allowed"
             aria-label="Next day"
+            title={atForwardLimit ? 'Forward preview is capped at +1 day — lineups and starters too uncertain further out' : 'Next day'}
           >
             →
           </button>
