@@ -32,7 +32,9 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   const games = await fetchSchedule(date)
 
   const summary: SimGameSummary[] = games.map(g => {
-    if (g.status === 'postponed' || g.status === 'final') {
+    // Skip games that are no longer pre-game. We don't want to burn compute
+    // on in-progress / final / postponed games — there's no slate left to bet on.
+    if (g.status !== 'scheduled') {
       return { gameId: g.gameId, status: 'skipped', reason: g.status }
     }
     return { gameId: g.gameId, status: 'eligible' }

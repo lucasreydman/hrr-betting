@@ -57,10 +57,7 @@ export const EDGE_FLOORS: Record<Rung, number> = { 1: 0.10, 2: 0.30, 3: 0.60 }
 export const PROB_FLOORS: Record<Rung, number> = { 1: 0.85, 2: 0.55, 3: 0.20 }
 
 // Display floor: a pick is Watching (shown but not tracked) if SCORE >= this.
-// v1 launch: set very low so candidates render on the board even when the model
-// is mis-calibrated (early-season pitcher stats are sparse, biasing P_matchup low).
-// Recalibration target per spec §11 — bump this back up after the model is tuned.
-export const DISPLAY_FLOOR_SCORE = -10
+export const DISPLAY_FLOOR_SCORE = 0.05
 
 // Minimum confidence for a pick to be Tracked.
 export const CONFIDENCE_FLOOR_TRACKED = 0.85
