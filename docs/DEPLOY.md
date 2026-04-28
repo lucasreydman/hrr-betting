@@ -29,7 +29,7 @@ Settings → **Domains** → confirm `hrr-betting.vercel.app` is listed (Vercel 
 ### 1c. **Stay on Hobby** — do NOT upgrade to Pro
 
 Hobby is intentionally fine for this app:
-- `maxDuration` defaults to 10s. The 10k-iter Monte Carlo for one game completes in ~500ms locally, well under that.
+- `maxDuration` defaults to 10s. The request path uses closed-form `probToday` (sub-millisecond), well under that. The offline MC runs in GitHub Actions cron, not in Vercel functions.
 - Vercel cron is disabled — we use GitHub Actions instead (see step 4).
 - No Vercel storage product required — everything lives in Supabase (free tier covers our scale comfortably).
 
@@ -94,10 +94,11 @@ Repo → Settings → Secrets and variables → **Actions** → New repository s
 | `VERCEL_DEPLOY_URL` | `https://hrr-betting.vercel.app` (after first deploy succeeds) |
 | `CRON_SECRET` | same value as the Vercel one above |
 
-The workflow at `.github/workflows/cron.yml` triggers three jobs on these schedules (UTC):
-- `sim` — every 5 min from 17-23 UTC and 0-6 UTC (slate hours)
-- `lock` — same schedule
-- `settle` — once daily at 10 UTC (3 AM Pacific)
+The workflow at `.github/workflows/cron.yml` triggers four jobs on these schedules (UTC):
+- `typical-sim` — Sunday 8 UTC (full population) and Mon-Sat 8 UTC (slate batters): offline MC baseline refresh
+- `slate-refresh` — every 2 min from 17-23 UTC and 0-7 UTC (slate hours): lineup/weather/probable refresh
+- `lock` — every 5 min from 17-23 UTC and 0-7 UTC (slate hours): lock check
+- `settle` — once daily at 10 UTC (6 AM ET)
 
 Note: GitHub Actions cron has 5-15 min jitter on free tier — fine for our use case (eventually-consistent refresh, not exact-time triggers). Total compute usage is ~50 min/month against a 2000 min/month free quota.
 
@@ -113,17 +114,18 @@ git push origin main
 
 Or trigger from the Vercel dashboard. Build should:
 - Compile Next.js
-- Bundle all routes (verify in build output: `/`, `/history`, `/methodology`, `/api/picks`, `/api/sim`, `/api/sim/[gameId]`, `/api/lock`, `/api/settle`, `/api/history`)
+- Bundle all routes (verify in build output: `/`, `/history`, `/methodology`, `/api/picks`, `/api/sim/typical`, `/api/sim/typical-slate-ids`, `/api/refresh`, `/api/lock`, `/api/settle`, `/api/history`)
 - Static-generate `/methodology`
 
 If the build fails, check Vercel logs.
 
 ### Manually fire the first cron
 
-To trigger the first sim warmup without waiting:
-- GitHub → repo → Actions tab → "Cron — sim/lock/settle" → "Run workflow" → choose `sim` → Run.
+To trigger the first offline MC baseline run without waiting:
+- GitHub → repo → Actions tab → "Cron — sim/lock/settle" → "Run workflow" → choose `lock` → Run (this also confirms the secret is wired).
+- Then wait for Sunday 8 UTC for the full-population typical-sim, or push a commit to trigger the workflow manually from the `typical-sim` job.
 
-After ~30 sec the workflow log should show `200 OK` from `/api/sim`. Then visit `https://hrr-betting.vercel.app/` to see the slate populate.
+After the typical-sim job completes, visit `https://hrr-betting.vercel.app/` to see the slate populate.
 
 ---
 
@@ -191,6 +193,6 @@ These are all noted in the spec (`docs/superpowers/specs/2026-04-26-hrr-betting-
 
 **`npx supabase db push` fails with auth error**: re-run `npx supabase login` (the CLI's auth token may have expired) and `npx supabase link` again.
 
-**Sim is timing out**: drop `SIM_ITERATIONS` in `app/api/sim/[gameId]/route.ts` from 1000 to 500. If still timing out, the build context fan-out is the bottleneck — profile via local `npm run dev` first.
+**Offline MC is slow**: the typical-sim cron calls `/api/sim/typical` which runs up to 20k iterations per player. This is a cron-only path; it does not affect request latency. If it exceeds the GitHub Actions timeout, reduce `TYPICAL_ITERATIONS` in `lib/constants.ts` or switch to slate-mode-only runs.
 
 **Cache misses are slow**: each Supabase cache read is ~30-50ms (vs Redis's 5ms). The `/api/picks` endpoint has a 5-min cache layer that masks this — most requests hit the cache. If you find cache reads on the hot path are bottlenecking, switching back to Upstash Redis is a 30-min refactor (revert lib/kv.ts and add Upstash credentials).

@@ -15,19 +15,19 @@ A standalone MLB betting tool that ranks the best **Hits + Runs + RBIs** prop pl
 
 For each player on the day's slate, the model:
 
-1. Estimates the per-PA outcome distribution (1B / 2B / 3B / HR / BB / K / OUT) using a hybrid **log-5** + **Statcast** approach (`lib/per-pa.ts`).
-2. Runs a **lineup-aware Monte Carlo simulation** (1,000 iterations per game) that simulates the entire team's offensive innings — capturing baserunner state, surrounding-hitter quality, walks, and the HR-trifecta correlation that closed-form models miss (`lib/sim.ts`).
-3. Computes `P(HRR ≥ N)` for each rung from the empirical distribution.
-4. Compares to the player's **typical matchup** (a per-batter sim against a synthetic league-average opponent at each slot they've batted in this season, using the player's own stabilised season rates) → **EDGE** = `max(P_matchup, ε) / max(P_typical, ε) − 1`.
+1. **Offline (cron):** Runs a lineup-aware 20k-iter Monte Carlo simulation against a synthetic league-average opponent to compute a stable per-player `probTypical` baseline (`lib/offline-sim/sim.ts`). Refreshed weekly (full population) and nightly (slate batters).
+2. **At request time (closed-form):** Evaluates `probToday = probTypical × pitcherFactor × parkFactor × weatherFactor × handednessFactor × bullpenFactor × paCountFactor` in sub-millisecond time (`lib/prob-today.ts`). No per-request Monte Carlo.
+3. Computes `P(HRR ≥ N)` for each rung from `probToday`.
+4. Compares to `probTypical` → **EDGE** = `max(probToday, ε) / max(probTypical, ε) − 1`.
 5. Multiplies by a **confidence factor** (lineup confirmation, BvP sample, recent-pitcher-start sample, weather stability, time-to-first-pitch, opener flag) → **SCORE = EDGE × confidence**.
-6. Ranks per-rung and tags **🔥 Tracked** picks (must clear all three: confidence ≥ 0.85, per-rung EDGE floor, per-rung probability floor).
+6. Ranks per-rung and tags **Tracked** picks (must clear all three: confidence ≥ 0.85, per-rung EDGE floor, per-rung probability floor).
 7. Auto-settles picks from the boxscore the next morning. Tracks rolling 30-day hit rate + Brier score per rung.
 
 ---
 
 ## Pages
 
-- **`/`** — today's slate (ET, 3 AM rollover), three boards (1+, 2+, 3+), ranked by SCORE. Auto-refreshes every 60 s while the tab is visible, plus instant refresh on tab focus / network reconnect. No date navigator — past slates live on /history.
+- **`/`** — today's slate (ET, 3 AM rollover), three boards (1+, 2+, 3+), ranked by SCORE. Auto-refreshes every 60 s while the tab is visible, plus instant refresh on tab focus / network reconnect. Manual Refresh button forces a cache-bypassed reload. No date navigator — past slates live on /history.
 - **`/history`** — rolling 30-day Tracked record, per-rung calibration table, daily activity bar chart, recent settled picks.
 - **`/methodology`** — full math, every factor, all sources cited.
 
@@ -39,10 +39,11 @@ All routes live under `app/api/`. `picks` and `history` are public reads; the re
 
 | Route | Auth | Purpose |
 | --- | --- | --- |
-| `GET /api/picks?date=YYYY-MM-DD` | public | Ranked picks for the slate. 60 s server-side cache; client polls every 60 s and on visibility-change. Default date = today's slate (ET 3 AM rollover). |
+| `GET /api/picks?date=YYYY-MM-DD` | public | Ranked picks for the slate. 30 s server-side cache; client polls every 60 s and on visibility-change. Default date = today's slate (ET 3 AM rollover). |
 | `GET /api/history` | public | 30-day calibration + recent settled picks. |
-| `GET /api/sim?date=YYYY-MM-DD` | cron | Lists eligible game IDs to fan out. |
-| `GET /api/sim/[gameId]?date=YYYY-MM-DD` | cron | Runs the per-game Monte Carlo (~500 ms / game) and caches it (24 h TTL, keyed on lineup × probable pitcher × weather hashes). |
+| `POST /api/sim/typical` | cron | Runs the offline 20k-iter Monte Carlo for full population or slate batters, storing `probTypical` baselines in cache. |
+| `GET /api/sim/typical-slate-ids` | cron | Returns batter IDs appearing on tomorrow's slate for targeted offline MC. |
+| `POST /api/refresh` | cron | Refreshes lineup, weather, and probable pitcher data for today's slate without re-running the MC. |
 | `GET /api/lock` | cron | Snapshots tracked picks into `locked_picks` when any game is in its lock window. |
 | `GET /api/settle` | cron | Pulls boxscores for yesterday's `locked_picks` and writes outcomes to `settled_picks`. |
 | `GET /api/admin/bvp?b=X&p=Y` | cron | Diagnostic: shows the cached + fresh BvP record for a (batter, pitcher) pair. |
@@ -60,9 +61,9 @@ All `?date=` params are validated as strict `YYYY-MM-DD` (no malformed strings o
   - All three tables have RLS enabled with no policies → service-role-only access.
   - In-memory `Map` fallback when env vars are unset, so dev and tests run hermetically.
 - **Slate boundary**: ET, rolls over at 3 AM ET — the standard DFS / sportsbook convention. A 10 PM PT game starting on April 26 (which finishes ~2 AM ET on April 27) still belongs to the April 26 slate. See `lib/date-utils.ts:slateDateString()`.
-- **Cron**: GitHub Actions (`.github/workflows/cron.yml`) — sim/lock every 5 min during slate hours (17–07 UTC, covering 1 PM ET first pitch through the 3 AM ET rollover); settle once daily at 10 UTC (6 AM ET). Free on public repos (~50 min/month vs 2,000 min/month quota).
+- **Cron**: GitHub Actions (`.github/workflows/cron.yml`) — offline MC weekly/nightly, slate-refresh every 2 min and lock every 5 min during slate hours (17–07 UTC), settle once daily at 10 UTC (6 AM ET). Free on public repos (~50 min/month vs 2,000 min/month quota).
 - **CI**: GitHub Actions (`.github/workflows/ci.yml`) — lint, typecheck, test, build on every push and PR.
-- **Hosting**: Vercel Hobby (free); 1,000-iter sim runs in ~500 ms, well under the 10 s function budget.
+- **Hosting**: Vercel Hobby (free); closed-form `probToday` is sub-millisecond on the request path; offline MC (20k iters) runs in the cron, well outside the 10 s function budget.
 - **External APIs (no auth)**: MLB Stats, Baseball Savant CSV, Open-Meteo.
 - **Test runner**: Jest 30 + ts-jest. ~118 unit tests + ~19 live-network smoke tests gated on `RUN_LIVE_TESTS=1`.
 
@@ -145,8 +146,7 @@ npm run build
 - **Calibration is in-flight.** EDGE / PROB / CONFIDENCE floors in `lib/constants.ts` are placeholders pending ≥ 30 days of settled history. Re-run `npm run recalibrate` post-launch to tune them.
 - **Live-network tests** are intentionally gated; CI does not exercise external services.
 - **Cron timing** has 5–15 min jitter on the GitHub Actions free tier — fine for an eventually-consistent refresh, not for hard real-time triggers.
-- **Sim iterations are 1,000 per game** in `app/api/sim/[gameId]/route.ts` to fit the 10 s Vercel Hobby function budget. Bumping past ~3,000 risks timing out on cold starts.
-- **Auto-refresh propagation.** Worst-case time from a fresh sim landing in cache to the user seeing it ≈ 60 s server-cache + 60 s client-poll = 2 min. The actual sim is re-run only when the inputs change (lineup hash, probable-pitcher hash, weather-bucket hash) — polling more aggressively wouldn't surface new data faster.
+- **Auto-refresh propagation.** Worst-case time from a fresh slate-refresh landing in cache to the user seeing it ≈ 30 s server-cache + 60 s client-poll = 90 s. The slate-refresh cron fires every 2 min; polling more aggressively won't surface new data faster.
 
 ---
 
