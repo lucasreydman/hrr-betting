@@ -2,11 +2,13 @@
 
 import { useEffect, useState } from 'react'
 import type { PicksResponse } from '@/lib/ranker'
+import { RefreshButton } from './RefreshButton'
 
 interface StatusBannerProps {
   refreshedAt: string
   meta: PicksResponse['meta']
   totalTracked: number
+  onRefresh: () => Promise<void>
 }
 
 interface StatChipProps {
@@ -34,27 +36,29 @@ function StatChip({ label, value, tone = 'neutral', ariaLabel }: StatChipProps) 
   )
 }
 
-export function StatusBanner({ refreshedAt, meta, totalTracked }: StatusBannerProps) {
-  // Computing relative time (Date.now()) on first render would cause an SSR/CSR
-  // hydration mismatch — server and client compute it at different instants.
-  // Compute after mount and refresh every 30 s so the label stays accurate.
-  const [minAgo, setMinAgo] = useState<number | null>(null)
+/** "Xs ago" / "Xm ago" label that re-renders every second. */
+function FreshnessLabel({ refreshedAt }: { refreshedAt: string }) {
+  const [secAgo, setSecAgo] = useState<number | null>(null)
+
   useEffect(() => {
     const compute = () => {
       const ms = Date.now() - new Date(refreshedAt).getTime()
-      setMinAgo(Math.max(0, Math.floor(ms / 60_000)))
+      setSecAgo(Math.max(0, Math.floor(ms / 1_000)))
     }
     compute()
-    const id = setInterval(compute, 30_000)
+    const id = setInterval(compute, 1_000)
     return () => clearInterval(id)
   }, [refreshedAt])
 
-  const warming = meta.gamesWithoutSim.length > 0
-  const refreshedLabel =
-    minAgo === null ? '…' : minAgo === 0 ? 'just now' : `${minAgo}m ago`
+  if (secAgo === null) return <span className="font-mono text-sm text-ink">…</span>
+  if (secAgo < 60) return <span className="font-mono text-sm text-ink">{secAgo}s ago</span>
+  const min = Math.floor(secAgo / 60)
+  return <span className="font-mono text-sm text-ink">{min}m ago</span>
+}
 
-  // Slate-progress chip. Shown only once at least one game has tipped off
-  // OR finished — no point cluttering the pre-game UI with "0 final / 0 live".
+export function StatusBanner({ refreshedAt, meta, totalTracked, onRefresh }: StatusBannerProps) {
+  const warming = meta.gamesWithoutSim.length > 0
+
   const states = meta.gameStates
   const showProgress = states && (states.inProgress > 0 || states.final > 0)
   const progressValue = states
@@ -68,42 +72,51 @@ export function StatusBanner({ refreshedAt, meta, totalTracked }: StatusBannerPr
     : ''
 
   return (
-    <div
-      className="flex flex-wrap items-stretch gap-2"
-      aria-label="Slate status"
-    >
-      <StatChip
-        label="Tracked"
-        value={`${totalTracked}`}
-        tone="tracked"
-        ariaLabel={`${totalTracked} tracked picks across all rungs`}
-      />
-      <StatChip
-        label="Sims"
-        value={`${meta.gamesWithSim} / ${meta.gamesTotal}`}
-        tone={warming ? 'warn' : 'neutral'}
-        ariaLabel={`${meta.gamesWithSim} of ${meta.gamesTotal} games simmed`}
-      />
-      {warming && (
+    <div className="space-y-2">
+      <div
+        className="flex flex-wrap items-stretch gap-2"
+        aria-label="Slate status"
+      >
         <StatChip
-          label="Warming"
-          value={`${meta.gamesWithoutSim.length}`}
-          tone="warn"
-          ariaLabel={`${meta.gamesWithoutSim.length} games warming`}
+          label="Tracked"
+          value={`${totalTracked}`}
+          tone="tracked"
+          ariaLabel={`${totalTracked} tracked picks across all rungs`}
         />
-      )}
-      {showProgress && (
         <StatChip
-          label="Slate"
-          value={progressValue}
-          tone={states.inProgress > 0 ? 'tracked' : 'neutral'}
-          ariaLabel={`Slate progress: ${progressValue}`}
+          label="Sims"
+          value={`${meta.gamesWithSim} / ${meta.gamesTotal}`}
+          tone={warming ? 'warn' : 'neutral'}
+          ariaLabel={`${meta.gamesWithSim} of ${meta.gamesTotal} games simmed`}
         />
-      )}
-      <StatChip
-        label="Refreshed"
-        value={refreshedLabel}
-      />
+        {warming && (
+          <StatChip
+            label="Warming"
+            value={`${meta.gamesWithoutSim.length}`}
+            tone="warn"
+            ariaLabel={`${meta.gamesWithoutSim.length} games warming`}
+          />
+        )}
+        {showProgress && (
+          <StatChip
+            label="Slate"
+            value={progressValue}
+            tone={states.inProgress > 0 ? 'tracked' : 'neutral'}
+            ariaLabel={`Slate progress: ${progressValue}`}
+          />
+        )}
+        {/* Freshness chip with live second counter */}
+        <div
+          className="flex items-baseline gap-2 rounded-md border border-border bg-card/40 px-3 py-2"
+          aria-label="Data freshness"
+        >
+          <span className="text-[11px] uppercase tracking-wider text-ink-muted">Updated</span>
+          <FreshnessLabel refreshedAt={refreshedAt} />
+        </div>
+      </div>
+      <div className="flex items-center">
+        <RefreshButton onRefresh={onRefresh} />
+      </div>
     </div>
   )
 }

@@ -92,7 +92,25 @@ export function ClientShell({ initialPicks }: { initialPicks: PicksResponse }) {
         </div>
       </header>
 
-      <StatusBanner refreshedAt={picks.refreshedAt} meta={picks.meta} totalTracked={totalTracked} />
+      <StatusBanner
+        refreshedAt={picks.refreshedAt}
+        meta={picks.meta}
+        totalTracked={totalTracked}
+        onRefresh={async () => {
+          // POST to /api/refresh (Phase 6 will implement the route; until then
+          // the button gracefully shows the 404 error state).
+          const res = await fetch('/api/refresh', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ scope: 'today' }),
+          })
+          if (!res.ok && res.status !== 404) {
+            throw new Error(`HTTP ${res.status}`)
+          }
+          // Always refetch picks after refresh attempt so stale data is cleared.
+          await refetch()
+        }}
+      />
 
       {/* Auto-hides when 100% warmed; prominent when there are missing sims. */}
       <SimWarmingProgress meta={picks.meta} refreshedAt={picks.refreshedAt} />
