@@ -21,6 +21,7 @@ export default async function Home() {
       gamesTotal: 0,
       fromCache: false,
       gameStates: { scheduled: 0, inProgress: 0, final: 0, postponed: 0 },
+      cacheAges: { lineupMaxSec: 0, weatherMaxSec: 0, probableMaxSec: 0, typicalMaxSec: 0 },
     },
   }))
 

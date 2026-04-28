@@ -150,6 +150,17 @@ export interface PicksResponse {
      * games tip off and finish over the course of the day.
      */
     gameStates: { scheduled: number; inProgress: number; final: number; postponed: number }
+    /**
+     * Maximum age (in seconds) of each class of cached input data used to
+     * compute this response. 0 = data freshly fetched or not yet wired.
+     * TODO: wire real values from the data adapters once cache-age headers land.
+     */
+    cacheAges: {
+      lineupMaxSec: number
+      weatherMaxSec: number
+      probableMaxSec: number
+      typicalMaxSec: number
+    }
   }
 }
 
@@ -454,6 +465,8 @@ export async function rankPicks(date: string): Promise<PicksResponse> {
       gamesTotal,
       fromCache: false,
       gameStates,
+      // TODO: wire real cache ages from data adapters once cache-age headers land.
+      cacheAges: { lineupMaxSec: 0, weatherMaxSec: 0, probableMaxSec: 0, typicalMaxSec: 0 },
     },
   }
 }

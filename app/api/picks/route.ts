@@ -4,15 +4,14 @@ import { rankPicks } from '@/lib/ranker'
 import type { PicksResponse } from '@/lib/ranker'
 import { slateDateString, isValidIsoDate } from '@/lib/date-utils'
 
-// Revalidate the route's framework cache every 60 s so client polls within
+// Revalidate the route's framework cache every 30 s so client polls within
 // that window can hit the lightweight server cache below; longer would
-// delay the propagation of a fresh sim cache to the user.
-export const revalidate = 60
+// delay the propagation of a fresh slate-refresh cache to the user.
+export const revalidate = 30
 
-/** Server-side picks cache TTL (seconds). Tuned so a fresh sim cache (warmed
- *  every ~5 min by the cron, or instantly on lineup/probable changes via
- *  hash-based cache key invalidation) is reflected user-side within ≤60 s. */
-const PICKS_CACHE_TTL_S = 60
+/** Server-side picks cache TTL (seconds). Tuned so a fresh slate-refresh
+ *  (every 2 min by the cron) is reflected user-side within ≤30 s. */
+const PICKS_CACHE_TTL_S = 30
 
 export async function GET(req: NextRequest): Promise<NextResponse> {
   const url = new URL(req.url)
