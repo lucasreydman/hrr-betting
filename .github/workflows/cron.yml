@@ -15,6 +15,10 @@ on:
     # Settle: daily at 10:00 UTC (6 AM ET, well past the 3 AM ET rollover).
     - cron: '0 10 * * *'
 
+    # Typical-sim: full population Sunday 4 AM ET, slate-batter Mon-Sat 4 AM ET.
+    - cron: '0 8 * * 0'       # Sunday 4 AM ET — full-population typical
+    - cron: '0 8 * * 1-6'     # Mon-Sat 4 AM ET — slate-batter typical
+
   # Allow manual trigger from GitHub UI (Actions tab → Run workflow)
   workflow_dispatch:
     inputs:
@@ -119,3 +123,41 @@ jobs:
           curl --silent --show-error --fail \
             -H "x-cron-secret: ${{ secrets.CRON_SECRET }}" \
             "${{ secrets.VERCEL_DEPLOY_URL }}/api/settle"
+
+  typical-sim:
+    if: github.event_name == 'schedule' && (github.event.schedule == '0 8 * * 0' || github.event.schedule == '0 8 * * 1-6')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Determine mode
+        id: mode
+        run: |
+          if [ "${{ github.event.schedule }}" = '0 8 * * 0' ]; then
+            echo "mode=full" >> $GITHUB_OUTPUT
+          else
+            echo "mode=slate" >> $GITHUB_OUTPUT
+          fi
+      - name: Compute slate-batter ids (slate mode only)
+        if: steps.mode.outputs.mode == 'slate'
+        id: slate
+        run: |
+          TOMORROW=$(TZ='America/New_York' date -d 'tomorrow' +%Y-%m-%d)
+          IDS=$(curl -fsS -H "x-cron-secret: ${{ secrets.CRON_SECRET }}" \
+            "${{ secrets.APP_BASE_URL }}/api/sim/typical-slate-ids?date=$TOMORROW")
+          echo "ids=$IDS" >> $GITHUB_OUTPUT
+      - name: Trigger full-mode sim
+        if: steps.mode.outputs.mode == 'full'
+        run: |
+          curl -fsS -X POST -H "x-cron-secret: ${{ secrets.CRON_SECRET }}" \
+            -H "content-type: application/json" \
+            -d '{"mode":"full"}' \
+            "${{ secrets.APP_BASE_URL }}/api/sim/typical"
+      - name: Trigger slate-mode per-player calls
+        if: steps.mode.outputs.mode == 'slate'
+        run: |
+          for pid in $(echo '${{ steps.slate.outputs.ids }}' | jq -r '.[]'); do
+            curl -fsS -X POST -H "x-cron-secret: ${{ secrets.CRON_SECRET }}" \
+              -H "content-type: application/json" \
+              -d "{\"mode\":\"player\",\"playerId\":$pid}" \
+              "${{ secrets.APP_BASE_URL }}/api/sim/typical" &
+          done
+          wait

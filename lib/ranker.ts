@@ -386,7 +386,7 @@ export async function rankPicks(date: string): Promise<PicksResponse> {
     // P_typical + per-batter BvP (the latter is what gives confidence its real
     // per-pick variation — without it, every batter on a side has the same conf).
     const [pTypicalResults, bvpResults] = await Promise.all([
-      Promise.all(playerJobs.map(({ entry }) => getPTypical({ playerId: entry.player.playerId, date }))),
+      Promise.all(playerJobs.map(({ entry }) => getPTypical({ playerId: entry.player.playerId }))),
       Promise.all(playerJobs.map(({ entry, lineup }) => {
         const onHome = lineup === homeLineup
         const opposingStarterId = onHome ? probables.away : probables.home
