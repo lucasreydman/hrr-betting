@@ -1,4 +1,4 @@
-import type { Outcome } from './types'
+import type { Outcome } from '../types'
 
 export interface BasesState { b1: number | null; b2: number | null; b3: number | null }
 export const EMPTY_BASES: BasesState = { b1: null, b2: null, b3: null }

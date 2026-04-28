@@ -1,4 +1,4 @@
-import { simGame, simSinglePlayerHRR } from '@/lib/sim'
+import { simGame, simSinglePlayerHRR } from '@/lib/offline-sim/sim'
 import type { OutcomeRates } from '@/lib/types'
 
 const AVG_RATES: OutcomeRates = { '1B': 0.143, '2B': 0.045, '3B': 0.005, HR: 0.030, BB: 0.085, K: 0.225, OUT: 0.467 }

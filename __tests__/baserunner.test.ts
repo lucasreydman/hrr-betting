@@ -1,5 +1,5 @@
 // __tests__/baserunner.test.ts
-import { applyOutcome, EMPTY_BASES, BasesState } from '@/lib/baserunner'
+import { applyOutcome, EMPTY_BASES, BasesState } from '@/lib/offline-sim/baserunner'
 
 describe('applyOutcome', () => {
   test('solo HR with empty bases: 1 R, 1 RBI, 0 outs', () => {

@@ -1,5 +1,5 @@
 import { applyOutcome, EMPTY_BASES, type BasesState } from './baserunner'
-import type { Outcome, OutcomeRates } from './types'
+import type { Outcome, OutcomeRates } from '../types'
 
 // ---------------------------------------------------------------------------
 // Public types

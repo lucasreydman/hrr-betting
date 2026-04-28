@@ -13,11 +13,11 @@
  */
 
 import { kvGet, kvSet } from './kv'
-import { simSinglePlayerHRR } from './sim'
+import { simSinglePlayerHRR } from './offline-sim/sim'
 import { fetchBatterSeasonStats } from './mlb-api'
 import { LEAGUE_AVG_RATES } from './constants'
 import { stabilizeRates } from './stabilization'
-import type { BatterSimContext, BatterHRRDist } from './sim'
+import type { BatterSimContext, BatterHRRDist } from './offline-sim/sim'
 import type { OutcomeRates } from './types'
 
 export interface PTypicalResult {
