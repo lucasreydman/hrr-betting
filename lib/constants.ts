@@ -71,3 +71,53 @@ export const CONFIDENCE_FLOOR_TRACKED = 0.85
 export const LG_BARREL_PCT = 0.075
 export const LG_HARD_HIT_PCT = 0.395
 export const LG_WHIFF_PCT = 0.245
+
+// League-average pitcher rates (recalibration target). 2025 MLB averages.
+export const LG_K_PCT = 0.225 // K / BF
+export const LG_BB_PCT = 0.085 // BB / BF
+export const LG_HR_PCT = 0.030 // HR / BF
+export const LG_HARD_HIT_RATE = 0.395 // hard-hit balls / BIP
+
+// League-average team bullpen ERA (recalibration target).
+export const LG_BULLPEN_ERA = 4.20
+
+// Pitcher stabilization sample sizes (BF, batters faced).
+export const STABILIZATION_BF: Record<string, number> = {
+  k: 70,
+  bb: 170,
+  hr: 170,
+  hardHit: 200,
+}
+
+// Bullpen stabilization sample size (IP).
+export const STABILIZATION_BULLPEN_IP = 150
+
+// Expected PA per game by lineup slot (1-9). Empirical league means.
+export const expectedPAByLineupSlot: Record<number, number> = {
+  1: 4.65,
+  2: 4.55,
+  3: 4.45,
+  4: 4.30,
+  5: 4.20,
+  6: 4.10,
+  7: 4.00,
+  8: 3.90,
+  9: 3.80,
+}
+
+// Average PA across all slots (weighted by frequency).
+export const LG_PA_PER_GAME = 4.20
+
+// Share of PAs faced against bullpen by lineup slot (empirical).
+// Top-of-order sees less bullpen because they bat earlier in the game.
+export const paShareVsBullpenBySlot: Record<number, number> = {
+  1: 0.18,
+  2: 0.20,
+  3: 0.22,
+  4: 0.24,
+  5: 0.26,
+  6: 0.27,
+  7: 0.28,
+  8: 0.29,
+  9: 0.30,
+}
