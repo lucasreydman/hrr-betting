@@ -6,12 +6,6 @@ name: Cron — sim/lock/settle
 
 on:
   schedule:
-    # Sim prewarm + lock check: every 5 min during slate hours (UTC).
-    # ET 3 AM rollover means the slate spans 17:00 UTC (1 PM ET / 10 AM PT)
-    # through 07:00 UTC next day (3 AM ET = rollover boundary).
-    - cron: '*/5 17-23 * * *'
-    - cron: '*/5 0-7 * * *'
-
     # Settle: daily at 10:00 UTC (6 AM ET, well past the 3 AM ET rollover).
     - cron: '0 10 * * *'
 
@@ -23,93 +17,29 @@ on:
     - cron: '*/2 17-23 * * *'   # every 2 min, 1 PM ET → 7 PM ET (UTC)
     - cron: '*/2 0-7 * * *'     # every 2 min, 7 PM ET → 3 AM ET (UTC)
 
+    # Lock check: every 5 min during slate hours (UTC).
+    # ET 3 AM rollover means the slate spans 17:00 UTC (1 PM ET / 10 AM PT)
+    # through 07:00 UTC next day (3 AM ET = rollover boundary).
+    - cron: '*/5 17-23 * * *'
+    - cron: '*/5 0-7 * * *'
+
   # Allow manual trigger from GitHub UI (Actions tab → Run workflow)
   workflow_dispatch:
     inputs:
       job:
         description: 'Which job to run manually'
         required: true
-        default: 'sim'
+        default: 'lock'
         type: choice
-        options: [sim, lock, settle]
+        options: [lock, settle]
       date:
-        description: 'Date to warm sims for (YYYY-MM-DD; default = current ET-3AM slate).'
+        description: 'Date override (YYYY-MM-DD; default = current ET-3AM slate).'
         required: false
         default: ''
 
 jobs:
-  sim:
-    if: github.event_name == 'schedule' && github.event.schedule != '0 10 * * *' || (github.event_name == 'workflow_dispatch' && github.event.inputs.job == 'sim')
-    runs-on: ubuntu-latest
-    steps:
-      - name: Get eligible game IDs
-        id: list
-        run: |
-          set -e
-          # Manual dispatch can override the date (to warm a specific date).
-          # Default: today's slate by ET-3AM convention. We get there by taking
-          # the current ET wall-clock minus 3 hours and reading the date —
-          # that's the same logic as lib/date-utils.ts:slateDateString().
-          # GNU date supports `-d` arithmetic; macOS BSD date does too with
-          # different syntax. Runners are ubuntu-latest so GNU date applies.
-          MANUAL_DATE="${{ github.event.inputs.date }}"
-          if [ -n "$MANUAL_DATE" ]; then
-            echo "dates=$MANUAL_DATE" >> "$GITHUB_OUTPUT"
-            echo "Using manual date: $MANUAL_DATE"
-          else
-            SLATE=$(TZ='America/New_York' date -d '3 hours ago' +%Y-%m-%d)
-            echo "dates=$SLATE" >> "$GITHUB_OUTPUT"
-            echo "Using ET 3AM slate date: $SLATE"
-          fi
-
-      - name: Build game list across all dates
-        id: games
-        run: |
-          set -e
-          DATES="${{ steps.list.outputs.dates }}"
-          ALL_PAIRS=""
-          for DATE in $DATES; do
-            RESPONSE=$(curl --silent --show-error --fail \
-              -H "x-cron-secret: ${{ secrets.CRON_SECRET }}" \
-              "${{ secrets.VERCEL_DEPLOY_URL }}/api/sim?date=$DATE")
-            echo "$DATE response:"
-            echo "$RESPONSE" | jq .
-
-            # Build space-separated "date|gameId" pairs for eligible games
-            PAIRS=$(echo "$RESPONSE" | jq -r --arg d "$DATE" '.summary[] | select(.status == "eligible") | "\($d)|\(.gameId)"' | tr '\n' ' ')
-            ALL_PAIRS="$ALL_PAIRS $PAIRS"
-          done
-          # Trim leading whitespace
-          ALL_PAIRS=$(echo "$ALL_PAIRS" | xargs)
-          echo "pairs=$ALL_PAIRS" >> "$GITHUB_OUTPUT"
-          echo "Total eligible game-date pairs: $(echo "$ALL_PAIRS" | wc -w)"
-
-      - name: Warm per-game sims in parallel
-        if: steps.games.outputs.pairs != ''
-        run: |
-          set -e
-          PAIRS="${{ steps.games.outputs.pairs }}"
-
-          # Fire one curl per (date, gameId) pair in parallel; each Vercel
-          # function invocation gets its own 10s budget. Per-endpoint cache
-          # check skips work if hashes are unchanged.
-          for pair in $PAIRS; do
-            DATE="${pair%|*}"
-            gameId="${pair#*|}"
-            (
-              echo "→ Kicking sim for game $gameId on $DATE"
-              curl --silent --show-error --max-time 15 \
-                -H "x-cron-secret: ${{ secrets.CRON_SECRET }}" \
-                "${{ secrets.VERCEL_DEPLOY_URL }}/api/sim/$gameId?date=$DATE" \
-                -o /dev/null \
-                -w "← Game $gameId ($DATE): HTTP %{http_code} in %{time_total}s\n"
-            ) &
-          done
-          wait
-          echo "All sims complete"
-
   lock:
-    if: github.event_name == 'schedule' && github.event.schedule != '0 10 * * *' || (github.event_name == 'workflow_dispatch' && github.event.inputs.job == 'lock')
+    if: github.event_name == 'schedule' && github.event.schedule != '0 10 * * *' && github.event.schedule != '0 8 * * 0' && github.event.schedule != '0 8 * * 1-6' && github.event.schedule != '*/2 17-23 * * *' && github.event.schedule != '*/2 0-7 * * *' || (github.event_name == 'workflow_dispatch' && github.event.inputs.job == 'lock')
     runs-on: ubuntu-latest
     steps:
       - name: Trigger /api/lock
