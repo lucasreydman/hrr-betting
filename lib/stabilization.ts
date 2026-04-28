@@ -1,6 +1,26 @@
 import { STABILIZATION_PA } from './constants'
 import type { Outcome, OutcomeRates } from './types'
 
+/**
+ * Scalar stabilization helper for use in factor functions.
+ * Blends an observed rate toward a prior using a custom stabilization sample size.
+ *
+ *   weight = sample / (sample + stabilizationN)
+ *   result = weight * observed + (1 - weight) * prior
+ *
+ * Returns `prior` when sample <= 0 (no data).
+ */
+export function stabilizeScalar(
+  observed: number,
+  prior: number,
+  sample: number,
+  stabilizationN: number,
+): number {
+  if (sample <= 0) return prior
+  const w = sample / (sample + stabilizationN)
+  return w * observed + (1 - w) * prior
+}
+
 export interface StabilizeArgs {
   observed: number
   sampleSize: number
