@@ -316,6 +316,49 @@ export function getParkFactorsForBatter(
   }
 }
 
+/** Returns true if park factor data exists for this venue. */
+export function hasParkData(venueId: number): boolean {
+  return venueId in PARK_FACTORS_2025
+}
+
+/**
+ * Hit park factor for a batter at a venue (weighted 1B/2B/3B/HR by hit frequency).
+ * Weights: 1B 60%, 2B 25%, 3B 10%, HR 5% (approximate MLB hit-type distribution).
+ * Unknown venues return 1.
+ */
+export function getHitParkFactorForBatter(
+  venueId: number,
+  bats: 'R' | 'L' | 'S',
+): number {
+  const e = PARK_FACTORS_2025[venueId]
+  if (!e) return 1
+  return (
+    0.60 * forBatter(e['1B'], bats) +
+    0.25 * forBatter(e['2B'], bats) +
+    0.10 * forBatter(e['3B'], bats) +
+    0.05 * forBatter(e.HR, bats)
+  )
+}
+
+/**
+ * Run-scoring park factor for a batter at a venue (proxy via extra-base hits).
+ * XBH move runners and score runs at higher rates; 2B and 3B weighted higher.
+ * Weights: 2B 40%, 3B 40%, HR 20%.
+ * Unknown venues return 1.
+ */
+export function getRunParkFactor(
+  venueId: number,
+  bats: 'R' | 'L' | 'S',
+): number {
+  const e = PARK_FACTORS_2025[venueId]
+  if (!e) return 1
+  return (
+    0.40 * forBatter(e['2B'], bats) +
+    0.40 * forBatter(e['3B'], bats) +
+    0.20 * forBatter(e.HR, bats)
+  )
+}
+
 /** Just the HR park factor for a batter — convenience for surfacing in /api/picks. */
 export function getHrParkFactorForBatter(
   venueId: number,
