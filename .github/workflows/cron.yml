@@ -19,6 +19,10 @@ on:
     - cron: '0 8 * * 0'       # Sunday 4 AM ET — full-population typical
     - cron: '0 8 * * 1-6'     # Mon-Sat 4 AM ET — slate-batter typical
 
+    # Slate-refresh: every 2 min during slate hours to keep picks fresh.
+    - cron: '*/2 17-23 * * *'   # every 2 min, 1 PM ET → 7 PM ET (UTC)
+    - cron: '*/2 0-7 * * *'     # every 2 min, 7 PM ET → 3 AM ET (UTC)
+
   # Allow manual trigger from GitHub UI (Actions tab → Run workflow)
   workflow_dispatch:
     inputs:
@@ -161,3 +165,14 @@ jobs:
               "${{ secrets.APP_BASE_URL }}/api/sim/typical" &
           done
           wait
+
+  slate-refresh:
+    if: github.event_name == 'schedule' && (github.event.schedule == '*/2 17-23 * * *' || github.event.schedule == '*/2 0-7 * * *')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger /api/refresh
+        run: |
+          curl -fsS -X POST -H "x-cron-secret: ${{ secrets.CRON_SECRET }}" \
+            -H "content-type: application/json" \
+            -d '{"scope":"today"}' \
+            "${{ secrets.APP_BASE_URL }}/api/refresh"
