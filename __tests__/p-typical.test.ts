@@ -4,25 +4,36 @@
  * Tests for getPTypical — the player-specific "typical game" denominator.
  *
  * Most tests use unknown player IDs (996–999) which trigger the league-avg
- * fallback path without any network calls. The "plausible distribution"
- * test uses jest.spyOn(global, 'fetch') to mock the three MLB Stats API
- * calls (gameLog, season stats) so the simulation actually runs against
- * synthetic player data — fully hermetic, no RUN_LIVE_TESTS gating.
+ * fallback path without any network calls. The cache-read test seeds the
+ * in-memory KV directly so no sim runs.
  */
 
 import { getPTypical } from '@/lib/p-typical'
 
 // ---------------------------------------------------------------------------
-// Fallback-path tests (unknown player IDs — empty game log, no sim work)
+// Cache-read test (seeds KV directly; no sim work)
+// ---------------------------------------------------------------------------
+
+it('reads from typical:v1:{playerId} cache', async () => {
+  const { kvSet } = await import('@/lib/kv')
+  await kvSet('typical:v1:592450', {
+    playerId: 592450,
+    atLeast: [1.0, 0.72, 0.38, 0.12, 0.04],
+    iterations: 20000,
+    computedAt: Date.now(),
+  }, 60)
+  const result = await getPTypical({ playerId: 592450 })
+  expect(result.atLeast[1]).toBeCloseTo(0.72, 5)
+})
+
+// ---------------------------------------------------------------------------
+// Fallback-path tests (unknown player IDs — empty season stats, no sim work)
 // ---------------------------------------------------------------------------
 
 test('getPTypical returns valid distribution shape for unknown player', async () => {
   const result = await getPTypical({
     playerId: 999,
-    date: '2025-07-04',
     season: 2024,
-    iterationsPerGame: 100,
-    maxGames: 3,
   })
 
   expect(result.atLeast).toHaveLength(5)
@@ -37,13 +48,7 @@ test('getPTypical returns valid distribution shape for unknown player', async ()
 }, 30_000)
 
 test('getPTypical caches results (second call is fast)', async () => {
-  const args = {
-    playerId: 998,
-    date: '2025-07-04',
-    season: 2024,
-    iterationsPerGame: 100,
-    maxGames: 3,
-  }
+  const args = { playerId: 998, season: 2024 }
   await getPTypical(args)
 
   const t1 = Date.now()
@@ -55,24 +60,16 @@ test('getPTypical caches results (second call is fast)', async () => {
 }, 30_000)
 
 test('getPTypical distribution is monotonically non-increasing', async () => {
-  const result = await getPTypical({
-    playerId: 997,
-    date: '2025-07-05',
-    season: 2024,
-  })
+  const result = await getPTypical({ playerId: 997, season: 2024 })
 
   for (let i = 1; i < result.atLeast.length; i++) {
     expect(result.atLeast[i]).toBeLessThanOrEqual(result.atLeast[i - 1])
   }
 }, 30_000)
 
-test('getPTypical fallback has basedOnGames === 0 for unknown player', async () => {
-  const result = await getPTypical({
-    playerId: 996,
-    date: '2025-07-06',
-    season: 2024,
-  })
-  expect(result.basedOnGames).toBe(0)
+test('getPTypical fallback has iterations === 0 for unknown player', async () => {
+  const result = await getPTypical({ playerId: 996, season: 2024 })
+  expect(result.iterations).toBe(0)
 }, 30_000)
 
 // ---------------------------------------------------------------------------
@@ -80,33 +77,9 @@ test('getPTypical fallback has basedOnGames === 0 for unknown player', async () 
 // ---------------------------------------------------------------------------
 
 describe('getPTypical with mocked MLB API responses', () => {
-  /** Set up canned responses for the three MLB Stats API endpoints getPTypical hits. */
   function setupMlbFetchMocks() {
     return jest.spyOn(global, 'fetch').mockImplementation(async (input: RequestInfo | URL) => {
       const url = String(input)
-
-      // hitting gameLog — used by both fetchBatterGameLog and fetchPlayerSlotFrequency
-      if (url.includes('stats=gameLog') && url.includes('group=hitting')) {
-        const splits = Array.from({ length: 30 }, (_, i) => ({
-          date: `2025-04-${String((i % 28) + 1).padStart(2, '0')}`,
-          battingOrder: '300',  // slot 3 every game — keeps the mode-slot stable
-          stat: {
-            plateAppearances: 4,
-            atBats:           3,
-            hits:             1,
-            doubles:          0,
-            triples:          0,
-            homeRuns:         0,
-            baseOnBalls:      1,
-            strikeOuts:       0,
-            hitByPitch:       0,
-          },
-        }))
-        return new Response(JSON.stringify({ stats: [{ splits }] }), {
-          status: 200,
-          headers: { 'Content-Type': 'application/json' },
-        })
-      }
 
       // hitting season stats — used by fetchBatterSeasonStats
       if (url.includes('stats=season') && url.includes('group=hitting')) {
@@ -136,29 +109,23 @@ describe('getPTypical with mocked MLB API responses', () => {
     })
   }
 
-  test('returns a real player-specific distribution when MLB returns full game log + season stats', async () => {
+  test('returns a real player-specific distribution when MLB returns season stats', async () => {
     const fetchSpy = setupMlbFetchMocks()
     try {
       // Use a fresh player ID so the in-memory KV cache from earlier tests doesn't dominate.
-      const result = await getPTypical({
-        playerId: 800001,
-        date: '2026-04-27',
-        season: 2025,
-        iterationsPerGame: 100,
-        maxGames: 5,
-      })
+      const result = await getPTypical({ playerId: 800001, season: 2025 })
       expect(result.atLeast).toHaveLength(5)
       expect(result.atLeast[0]).toBeCloseTo(1.0, 5)
       for (let i = 1; i < result.atLeast.length; i++) {
         expect(result.atLeast[i]).toBeLessThanOrEqual(result.atLeast[i - 1])
       }
-      // basedOnGames should be > 0 because the gameLog mock returned 30 splits.
-      expect(result.basedOnGames).toBeGreaterThan(0)
+      // iterations should be ITERATIONS (20000) since we ran a real sim
+      expect(result.iterations).toBe(20000)
       // The mock player has elite-ish rates (180 H / 600 PA + 25 HR), so atLeast[1]
       // (≥1 HRR) should be solidly above the league-avg fallback 0.65.
       expect(result.atLeast[1]).toBeGreaterThan(0.5)
     } finally {
       fetchSpy.mockRestore()
     }
-  }, 30_000)
+  }, 60_000)
 })
