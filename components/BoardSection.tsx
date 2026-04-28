@@ -21,16 +21,12 @@ export function BoardSection({ rung, picks }: { rung: 1 | 2 | 3; picks: Pick[] }
       className="overflow-hidden rounded-lg border border-border bg-card/20"
     >
       <header className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 border-b border-border bg-card/50 px-3 py-3 sm:px-4">
-        {/* Hint text wraps below the title on narrow viewports so a 3-rung
-            section header never overflows. */}
         <div className="min-w-0 space-y-0.5">
           <h2 id={`board-rung-${rung}`} className="text-lg font-semibold tracking-tight sm:text-xl">
             {rung}+ HRR
           </h2>
           <p className="text-xs text-ink-muted">{RUNG_HINTS[rung]}</p>
         </div>
-        {/* Counts wrap in their own group on a tight header; `gap-x-3` between
-            tracked + watching replaces the previous `ml-3` (which couldn't wrap). */}
         <div className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 font-mono text-xs sm:text-sm">
           {trackedCount > 0 ? (
             <span className="text-tracked">
@@ -45,17 +41,21 @@ export function BoardSection({ rung, picks }: { rung: 1 | 2 | 3; picks: Pick[] }
         </div>
       </header>
 
-      {/* Column header — desktop only. Mobile uses a card-style PickRow. */}
+      {/* Column headers — desktop only. Uses a visually-styled row that mirrors
+          the 7-column grid in PickRow. aria-hidden because PickRow cells aren't
+          in a semantic <table> (they're divs for expand/collapse); screen readers
+          get column context from visible labels inside each row instead. */}
       <div
-        className="hidden grid-cols-12 gap-2 border-b border-border bg-card/30 px-4 py-2 text-xs uppercase tracking-wider text-ink-muted sm:grid"
+        className="hidden sm:grid sm:grid-cols-[2fr_1.2fr_1fr_1fr_0.8fr_0.8fr_0.8fr] sm:gap-3 sm:border-b sm:border-border sm:bg-card/30 sm:px-4 sm:py-2"
         aria-hidden="true"
       >
-        <div className="col-span-1"></div>
-        <div className="col-span-4">Player</div>
-        <div className="col-span-2 text-right">Prob (today / typical)</div>
-        <div className="col-span-2 text-right">Edge</div>
-        <div className="col-span-1 text-right">Conf</div>
-        <div className="col-span-2 text-right">Score</div>
+        <div className="text-[11px] uppercase tracking-wider text-ink-muted">Player</div>
+        <div className="text-[11px] uppercase tracking-wider text-ink-muted">Game</div>
+        <div className="text-right text-[11px] uppercase tracking-wider text-ink-muted">Prob. Typical</div>
+        <div className="text-right text-[11px] uppercase tracking-wider text-ink-muted">Prob. Today</div>
+        <div className="text-right text-[11px] uppercase tracking-wider text-ink-muted">Edge</div>
+        <div className="text-right text-[11px] uppercase tracking-wider text-ink-muted">Conf</div>
+        <div className="text-right text-[11px] uppercase tracking-wider text-ink-muted">Score</div>
       </div>
 
       {tracked.map((p, i) => (

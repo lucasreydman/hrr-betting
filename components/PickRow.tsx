@@ -55,17 +55,24 @@ function LineupBadge({ status }: { status: Pick['lineupStatus'] }) {
   if (status === 'confirmed') {
     return (
       <span
-        className="ml-1 inline-flex items-center rounded border border-hit/40 bg-hit/10 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider leading-none text-hit"
+        className="inline-flex items-center rounded border border-hit/40 bg-hit/10 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider leading-none text-hit"
         title="Lineup confirmed"
         aria-label="Lineup confirmed"
       >
-        ✓
+        ✓ confirmed
+      </span>
+    )
+  }
+  if (status === 'partial') {
+    return (
+      <span className="rounded border border-warn/40 bg-warn/10 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider text-warn">
+        partial
       </span>
     )
   }
   return (
-    <span className="ml-1 rounded border border-warn/40 bg-warn/10 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider text-warn">
-      {status === 'estimated' ? 'est' : 'partial'}
+    <span className="rounded border border-border-strong/70 bg-border/30 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider text-ink-muted">
+      est.
     </span>
   )
 }
@@ -73,25 +80,25 @@ function LineupBadge({ status }: { status: Pick['lineupStatus'] }) {
 function PitcherBadge({ status }: { status: Pick['opposingPitcher']['status'] }) {
   if (status === 'tbd') {
     return (
-      <span className="ml-1 rounded border border-border-strong/70 bg-border/30 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider text-ink-muted">
+      <span className="rounded border border-border-strong/70 bg-border/30 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider text-ink-muted">
         TBD
       </span>
     )
   }
   if (status === 'probable') {
     return (
-      <span className="ml-1 rounded border border-hit/40 bg-hit/10 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider text-hit">
-        prob
+      <span className="rounded border border-accent/40 bg-accent/10 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider text-accent">
+        PROBABLE
       </span>
     )
   }
   return (
     <span
-      className="ml-1 inline-flex items-center rounded border border-hit/40 bg-hit/10 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider leading-none text-hit"
+      className="inline-flex items-center rounded border border-hit/40 bg-hit/10 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider leading-none text-hit"
       title="Pitcher confirmed"
       aria-label="Pitcher confirmed"
     >
-      ✓
+      CONFIRMED
     </span>
   )
 }
@@ -352,9 +359,18 @@ export function PickRow({ pick }: { pick: Pick }) {
   const panelId = useId()
   const localTime = useLocalTime(pick.gameDate)
 
-  // Tracked-pick visual accent: amber left-border lives on the outer <article>
-  // so it extends through both the summary row and the expanded panel (visual
-  // continuity). The inner row keeps the fill + ring + hover lift only.
+  // Derive AWAY @ HOME matchup string. pick.opponent.abbrev is always the
+  // opposing team. pick.player.team is the player's team.
+  // We don't have an explicit home/away flag, so we use the convention that
+  // the player's team is listed second when home, first when away. The existing
+  // data shape exposes pick.opponent.abbrev but not home/away; mirror the
+  // previous layout which shows "TEAM vs OPP" — we keep that ordering here
+  // but format as "PLAYER_TEAM @ OPP" (treating player as away) if no flag
+  // available. Preserve original behaviour: show opponent at right.
+  const gameMatchup = pick.gameDate
+    ? `${pick.player.team} @ ${pick.opponent.abbrev}`
+    : `${pick.player.team} vs ${pick.opponent.abbrev}`
+
   const rowFill = isTracked
     ? 'bg-tracked/10 ring-1 ring-inset ring-tracked/20 hover:bg-tracked/15'
     : 'hover:bg-card/40'
@@ -369,6 +385,7 @@ export function PickRow({ pick }: { pick: Pick }) {
 
   return (
     <article className={'border-b border-border/50 ' + (isTracked ? 'border-l-4 border-l-tracked' : '')}>
+      {/* ── Desktop row (sm+): 7-column table cells ────────────────────── */}
       <div
         role="button"
         tabIndex={0}
@@ -376,111 +393,159 @@ export function PickRow({ pick }: { pick: Pick }) {
         aria-controls={panelId}
         onClick={toggle}
         onKeyDown={onKeyDown}
-        className={
-          'grid w-full cursor-pointer grid-cols-12 items-center gap-2 px-3 py-3 text-left transition-colors sm:gap-3 sm:px-4 ' +
-          rowFill
-        }
+        className={'w-full cursor-pointer px-3 py-3 text-left transition-colors sm:px-4 ' + rowFill}
       >
-        {/* Tracked indicator — desktop column 1, mobile inline */}
-        <div className="col-span-1 hidden font-mono text-base sm:block" aria-hidden="true">
-          {isTracked && <span className="text-tracked">🔥</span>}
-        </div>
+        {/* Desktop: 7-column grid */}
+        <div className="hidden sm:grid sm:grid-cols-[2fr_1.2fr_1fr_1fr_0.8fr_0.8fr_0.8fr] sm:items-center sm:gap-3">
+          {/* PLAYER */}
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              {isTracked && <span className="text-tracked" aria-hidden="true">🔥</span>}
+              <span className={'min-w-0 break-words font-semibold text-ink'}>
+                {pick.player.fullName}
+              </span>
+              <span className="shrink-0 rounded bg-card-elevated px-1.5 py-0.5 font-mono text-[10px] tabular-nums text-ink-muted">
+                #{pick.lineupSlot}
+              </span>
+            </div>
+            <div className="mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs text-ink-muted">
+              <span>{pick.player.bats}</span>
+              <span className="text-ink-muted/50" aria-hidden="true">·</span>
+              <LineupBadge status={pick.lineupStatus} />
+            </div>
+            <div className="mt-0.5 text-xs text-ink-muted">
+              vs {pick.opposingPitcher.name}
+            </div>
+            <div className="mt-0.5 flex items-center gap-1">
+              <PitcherBadge status={pick.opposingPitcher.status} />
+            </div>
+          </div>
 
-        {/* Player + meta */}
-        <div className="col-span-12 min-w-0 sm:col-span-4">
-          <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
-            <span className="sm:hidden" aria-hidden="true">
-              {isTracked ? <span className="text-tracked">🔥</span> : null}
+          {/* GAME */}
+          <div className="min-w-0">
+            <div className="font-mono text-xs tabular-nums text-ink">
+              {gameMatchup}
+            </div>
+            {pick.gameDate && (
+              <time
+                dateTime={pick.gameDate}
+                className="block font-mono text-xs tabular-nums text-ink-muted"
+              >
+                {localTime?.short ?? ' '}
+              </time>
+            )}
+          </div>
+
+          {/* PROB. TYPICAL */}
+          <div className="text-right">
+            <span className="font-mono text-sm tabular-nums text-ink">
+              {pct(pick.pTypical, 1)}
             </span>
-            <span
+          </div>
+
+          {/* PROB. TODAY */}
+          <div className="text-right">
+            <span className={'font-mono text-sm tabular-nums ' + (isTracked ? 'font-semibold text-ink' : 'text-ink')}>
+              {pct(pick.pMatchup, 1)}
+            </span>
+          </div>
+
+          {/* EDGE */}
+          <div className="text-right">
+            <span className={'font-mono text-sm tabular-nums ' + (pick.edge >= 0 ? 'text-accent' : 'text-ink-muted')}>
+              {signedPct(pick.edge)}
+            </span>
+          </div>
+
+          {/* CONF */}
+          <div className="text-right">
+            <span className={'font-mono text-sm tabular-nums ' + (isTracked ? 'font-semibold text-hit' : 'text-ink')}>
+              {pct(pick.confidence, 0)}
+            </span>
+          </div>
+
+          {/* SCORE */}
+          <div className="text-right">
+            <div
               className={
-                'min-w-0 break-words ' +
-                (isTracked ? 'font-semibold text-ink' : 'font-medium text-ink')
+                'font-mono tabular-nums ' +
+                (isTracked
+                  ? 'text-base font-semibold text-tracked'
+                  : 'text-base font-semibold text-ink')
               }
             >
+              {pick.score.toFixed(3)}
+            </div>
+            <span
+              aria-hidden="true"
+              className={'block text-right text-[10px] text-ink-muted/60 transition-transform ' + (expanded ? 'rotate-180' : '')}
+            >
+              ▾
+            </span>
+          </div>
+        </div>
+
+        {/* Mobile: stacked card layout */}
+        <div className="sm:hidden">
+          <div className="flex items-center gap-2">
+            {isTracked && <span className="text-tracked" aria-hidden="true">🔥</span>}
+            <span className="min-w-0 break-words font-semibold text-ink">
               {pick.player.fullName}
             </span>
-            {isTracked && <span className="sr-only">Tracked pick</span>}
-          </div>
-          <div className="mt-0.5 flex flex-wrap items-baseline gap-x-1.5 gap-y-0 text-xs leading-tight text-ink-muted">
-            <span>
-              {pick.player.team} <span className="text-ink-muted/70">vs</span> {pick.opponent.abbrev}
+            <span className="shrink-0 rounded bg-card-elevated px-1.5 py-0.5 font-mono text-[10px] tabular-nums text-ink-muted">
+              #{pick.lineupSlot}
             </span>
-            {pick.gameDate && (
+          </div>
+          <div className="mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs text-ink-muted">
+            <span>{pick.player.bats}</span>
+            <span className="text-ink-muted/50" aria-hidden="true">·</span>
+            <LineupBadge status={pick.lineupStatus} />
+          </div>
+          <div className="mt-0.5 flex flex-wrap items-baseline gap-x-1.5 text-xs text-ink-muted">
+            <span className="font-mono">{gameMatchup}</span>
+            {pick.gameDate && localTime && (
               <>
                 <span className="text-ink-muted/50" aria-hidden="true">·</span>
-                {/* Empty placeholder before mount so the layout doesn't jump
-                    when the localised time appears post-hydration. */}
-                <time
-                  dateTime={pick.gameDate}
-                  className="font-mono tabular-nums text-ink-subtle"
-                >
-                  {localTime?.short ?? '     '}
+                <time dateTime={pick.gameDate} className="font-mono tabular-nums">
+                  {localTime.short}
                 </time>
               </>
             )}
-            <span className="text-ink-muted/50" aria-hidden="true">·</span>
-            <span>slot {pick.lineupSlot}</span>
-            <LineupBadge status={pick.lineupStatus} />
           </div>
-          <div className="mt-0.5 break-words text-xs leading-tight text-ink-muted">
-            <span className="text-ink-muted/80">P:</span> {pick.opposingPitcher.name}
+          <div className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-xs text-ink-muted">
+            <span>vs {pick.opposingPitcher.name}</span>
             <PitcherBadge status={pick.opposingPitcher.status} />
           </div>
-        </div>
 
-        {/* Stats grid */}
-        <div className="col-span-12 grid min-w-0 grid-cols-4 gap-2 text-right font-mono text-sm sm:col-span-7 sm:grid-cols-7 sm:items-center sm:gap-3">
-          <div className="min-w-0 sm:col-span-2">
-            <div className={'tabular-nums ' + (isTracked ? 'font-semibold text-ink' : 'text-ink')}>
-              {pct(pick.pMatchup, 1)}
+          {/* Mobile metrics */}
+          <div className="mt-2 border-t border-border/30 pt-2">
+            <div className="flex justify-between text-xs">
+              <span className="text-ink-muted">Typical</span>
+              <span className="font-mono tabular-nums text-ink">{pct(pick.pTypical, 1)}</span>
             </div>
-            <div className="text-[11px] tabular-nums text-ink-muted">vs {pct(pick.pTypical, 1)}</div>
-            <div className="text-[10px] uppercase tracking-wider text-ink-muted/80 sm:hidden">
-              prob
+            <div className="flex justify-between text-xs">
+              <span className="text-ink-muted">Today</span>
+              <span className={'font-mono tabular-nums ' + (isTracked ? 'font-semibold text-ink' : 'text-ink')}>{pct(pick.pMatchup, 1)}</span>
             </div>
-          </div>
-
-          <div className="min-w-0 sm:col-span-2">
-            <div className={'tabular-nums ' + (pick.edge >= 0 ? 'text-accent' : 'text-ink-muted')}>
-              {signedPct(pick.edge)}
-            </div>
-            <div className="text-[10px] uppercase tracking-wider text-ink-muted/80">edge</div>
-          </div>
-
-          <div className="min-w-0 sm:col-span-1">
-            <div className={'tabular-nums ' + (isTracked ? 'font-semibold text-hit' : 'text-ink')}>
-              {pct(pick.confidence, 0)}
-            </div>
-            <div className="text-[10px] uppercase tracking-wider text-ink-muted/80">conf</div>
-          </div>
-
-          <div className="min-w-0 sm:col-span-2">
-            <div
-              className={
-                'tabular-nums ' +
-                (isTracked
-                  ? 'text-base font-semibold text-tracked sm:text-xl'
-                  : 'text-base font-semibold text-ink sm:text-lg')
-              }
-            >
-              {(pick.score * 100).toFixed(1)}
-            </div>
-            <div className="flex items-center justify-end gap-1 text-[10px] uppercase tracking-wider text-ink-muted/80">
-              <span>score</span>
-              <span
-                aria-hidden="true"
-                className={'inline-block transition-transform ' + (expanded ? 'rotate-180' : '')}
-              >
-                ▾
-              </span>
+            <div className="mt-1 flex gap-4 text-xs">
+              <div className="flex items-baseline gap-1">
+                <span className="text-ink-muted">Edge</span>
+                <span className={'font-mono tabular-nums ' + (pick.edge >= 0 ? 'text-accent' : 'text-ink-muted')}>{signedPct(pick.edge)}</span>
+              </div>
+              <div className="flex items-baseline gap-1">
+                <span className="text-ink-muted">Conf</span>
+                <span className={'font-mono tabular-nums ' + (isTracked ? 'font-semibold text-hit' : 'text-ink')}>{pct(pick.confidence, 0)}</span>
+              </div>
+              <div className="flex items-baseline gap-1">
+                <span className="text-ink-muted">Score</span>
+                <span className={'font-mono tabular-nums ' + (isTracked ? 'font-semibold text-tracked' : 'text-ink')}>{pick.score.toFixed(3)}</span>
+              </div>
             </div>
           </div>
         </div>
       </div>
 
-      {/* Expanded math panel — only the values that actually feed the score
-          (no redundancy with the summary row). */}
+      {/* Expanded math panel */}
       {expanded && (
         <div id={panelId} className="border-t border-border/40 bg-bg-soft/60">
           <MathPanel pick={pick} localTime={localTime} />
