@@ -424,6 +424,8 @@ export async function rankPicks(date: string): Promise<PicksResponse> {
         weatherStable: true,
         isOpener: false,
         timeToFirstPitchMin,
+        batterSeasonPa: 0,    // Phase 8: wire real PA count
+        maxCacheAgeSec: 0,    // Phase 8: wire real cache age
       })
 
       const inputs: PickInputs = {

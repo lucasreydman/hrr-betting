@@ -26,9 +26,11 @@ export interface ConfidenceInputs {
   weatherStable: boolean  // forecast volatility
   isOpener: boolean  // bullpen-after-opener is harder to predict
   timeToFirstPitchMin: number  // time until first pitch (min); closer = more confident
+  batterSeasonPa: number  // batter's PAs this season (0 = no data yet)
+  maxCacheAgeSec: number  // age of the freshest-out-of-date upstream cache (seconds)
 }
 
-/** Per-factor breakdown of the confidence multiplier. Product of all six = `confidence`. */
+/** Per-factor breakdown of the confidence multiplier. Product of all eight = `confidence`. */
 export interface ConfidenceFactors {
   lineup: number       // 1.00 / 0.85 / 0.70 by lineup status
   bvp: number          // 0.90–1.00 ramp from 0 to 20 BvP at-bats
@@ -36,6 +38,8 @@ export interface ConfidenceFactors {
   weather: number      // 1.00 stable / 0.90 volatile
   time: number         // 1.00 within 90 min / 0.95 at 4+ hrs out
   opener: number       // 1.00 normal / 0.90 opener
+  sampleSize: number   // 0.85 at 0 PA → 1.00 at ≥200 PA, linear
+  dataFreshness: number // 1.00 if ≤5 min stale → 0.90 if ≥30 min, linear
 }
 
 /**
@@ -62,9 +66,14 @@ export function computeConfidenceBreakdown(args: ConfidenceInputs): {
     args.timeToFirstPitchMin >= 240 ? 0.95 :
     1.0 - ((args.timeToFirstPitchMin - 90) / 150) * 0.05
   const opener = args.isOpener ? 0.90 : 1.0
+  const sampleSize = Math.min(1.0, Math.max(0.85, 0.85 + 0.15 * Math.min(1, args.batterSeasonPa / 200)))
+  const dataFreshness =
+    args.maxCacheAgeSec <= 5 * 60 ? 1.0 :
+    args.maxCacheAgeSec >= 30 * 60 ? 0.90 :
+    1.0 - ((args.maxCacheAgeSec - 5 * 60) / (25 * 60)) * 0.10
 
-  const factors: ConfidenceFactors = { lineup, bvp, pitcherStart, weather, time, opener }
-  const product = lineup * bvp * pitcherStart * weather * time * opener
+  const factors: ConfidenceFactors = { lineup, bvp, pitcherStart, weather, time, opener, sampleSize, dataFreshness }
+  const product = lineup * bvp * pitcherStart * weather * time * opener * sampleSize * dataFreshness
   return { factors, product }
 }
 

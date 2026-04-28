@@ -1,4 +1,4 @@
-import { computeConfidence, passesHardGates } from '@/lib/confidence'
+import { computeConfidence, computeConfidenceBreakdown, passesHardGates } from '@/lib/confidence'
 
 describe('passesHardGates', () => {
   test('postponed game fails', () => {
@@ -48,7 +48,10 @@ describe('passesHardGates', () => {
 })
 
 describe('computeConfidence', () => {
-  test('confirmed lineup + good samples + stable weather + non-opener → 1.0', () => {
+  // With batterSeasonPa:0 → sampleSize=0.85; maxCacheAgeSec:0 → dataFreshness=1.0
+  // All existing tests must include the two new required fields.
+
+  test('confirmed lineup + good samples + stable weather + non-opener → 0.85 (sampleSize floor)', () => {
     const c = computeConfidence({
       lineupStatus: 'confirmed',
       bvpAB: 25,
@@ -56,11 +59,28 @@ describe('computeConfidence', () => {
       weatherStable: true,
       isOpener: false,
       timeToFirstPitchMin: 60,
+      batterSeasonPa: 0,
+      maxCacheAgeSec: 0,
+    })
+    // All original factors = 1.0; sampleSize(0 PA)=0.85; dataFreshness=1.0 → product=0.85
+    expect(c).toBeCloseTo(0.85, 2)
+  })
+
+  test('confirmed lineup + good samples + full PA + stable weather + non-opener → 1.0', () => {
+    const c = computeConfidence({
+      lineupStatus: 'confirmed',
+      bvpAB: 25,
+      pitcherStartCount: 12,
+      weatherStable: true,
+      isOpener: false,
+      timeToFirstPitchMin: 60,
+      batterSeasonPa: 200,
+      maxCacheAgeSec: 0,
     })
     expect(c).toBeCloseTo(1.0, 2)
   })
 
-  test('estimated lineup + zero BvP + few starts + volatile weather + opener → ~0.45', () => {
+  test('estimated lineup + zero BvP + few starts + volatile weather + opener → ~0.38', () => {
     const c = computeConfidence({
       lineupStatus: 'estimated',
       bvpAB: 0,
@@ -68,9 +88,13 @@ describe('computeConfidence', () => {
       weatherStable: false,
       isOpener: true,
       timeToFirstPitchMin: 240,
+      batterSeasonPa: 0,
+      maxCacheAgeSec: 0,
     })
-    expect(c).toBeGreaterThan(0.40)
-    expect(c).toBeLessThan(0.65)
+    // Original factors: 0.70 * 0.90 * 0.90 * 0.90 * 0.95 * 0.90 ≈ 0.386
+    // × sampleSize(0.85) × dataFreshness(1.0) ≈ 0.328
+    expect(c).toBeGreaterThan(0.25)
+    expect(c).toBeLessThan(0.55)
   })
 
   test('partial lineup with otherwise good inputs', () => {
@@ -81,27 +105,100 @@ describe('computeConfidence', () => {
       weatherStable: true,
       isOpener: false,
       timeToFirstPitchMin: 90,
+      batterSeasonPa: 200,
+      maxCacheAgeSec: 0,
     })
-    expect(c).toBeCloseTo(0.85, 2)  // primarily limited by partial-lineup factor
+    // All non-lineup factors = 1.0; lineup=0.85; sampleSize(200PA)=1.0; dataFreshness=1.0
+    expect(c).toBeCloseTo(0.85, 2)
   })
 
-  test('opener reduces confidence by 0.90×', () => {
-    const noOpener = computeConfidence({
-      lineupStatus: 'confirmed',
+  test('opener reduces confidence by 0.90× relative to non-opener', () => {
+    const base = {
+      lineupStatus: 'confirmed' as const,
       bvpAB: 25,
       pitcherStartCount: 12,
       weatherStable: true,
-      isOpener: false,
       timeToFirstPitchMin: 60,
-    })
-    const opener = computeConfidence({
-      lineupStatus: 'confirmed',
-      bvpAB: 25,
-      pitcherStartCount: 12,
-      weatherStable: true,
-      isOpener: true,
-      timeToFirstPitchMin: 60,
-    })
+      batterSeasonPa: 200,
+      maxCacheAgeSec: 0,
+    }
+    const noOpener = computeConfidence({ ...base, isOpener: false })
+    const opener = computeConfidence({ ...base, isOpener: true })
     expect(opener).toBeCloseTo(noOpener * 0.90, 3)
+  })
+})
+
+describe('computeConfidenceBreakdown — sampleSize factor', () => {
+  const baseGood = {
+    lineupStatus: 'confirmed' as const,
+    bvpAB: 25,
+    pitcherStartCount: 12,
+    weatherStable: true,
+    isOpener: false,
+    timeToFirstPitchMin: 60,
+    maxCacheAgeSec: 0,
+  }
+
+  test('0 PA → sampleSize = 0.85', () => {
+    const { factors } = computeConfidenceBreakdown({ ...baseGood, batterSeasonPa: 0 })
+    expect(factors.sampleSize).toBeCloseTo(0.85, 4)
+  })
+
+  test('200 PA → sampleSize = 1.0', () => {
+    const { factors } = computeConfidenceBreakdown({ ...baseGood, batterSeasonPa: 200 })
+    expect(factors.sampleSize).toBeCloseTo(1.0, 4)
+  })
+
+  test('100 PA → sampleSize = 0.925', () => {
+    const { factors } = computeConfidenceBreakdown({ ...baseGood, batterSeasonPa: 100 })
+    expect(factors.sampleSize).toBeCloseTo(0.925, 4)
+  })
+
+  test('clamps at lower bound: -5 PA → sampleSize = 0.85', () => {
+    const { factors } = computeConfidenceBreakdown({ ...baseGood, batterSeasonPa: -5 })
+    expect(factors.sampleSize).toBeCloseTo(0.85, 4)
+  })
+
+  test('clamps at upper bound: 500 PA → sampleSize = 1.0', () => {
+    const { factors } = computeConfidenceBreakdown({ ...baseGood, batterSeasonPa: 500 })
+    expect(factors.sampleSize).toBeCloseTo(1.0, 4)
+  })
+})
+
+describe('computeConfidenceBreakdown — dataFreshness factor', () => {
+  const baseGood = {
+    lineupStatus: 'confirmed' as const,
+    bvpAB: 25,
+    pitcherStartCount: 12,
+    weatherStable: true,
+    isOpener: false,
+    timeToFirstPitchMin: 60,
+    batterSeasonPa: 200,
+  }
+
+  test('60s old → dataFreshness = 1.0', () => {
+    const { factors } = computeConfidenceBreakdown({ ...baseGood, maxCacheAgeSec: 60 })
+    expect(factors.dataFreshness).toBeCloseTo(1.0, 4)
+  })
+
+  test('5 min (300s) exactly → dataFreshness = 1.0', () => {
+    const { factors } = computeConfidenceBreakdown({ ...baseGood, maxCacheAgeSec: 300 })
+    expect(factors.dataFreshness).toBeCloseTo(1.0, 4)
+  })
+
+  test('30 min (1800s) → dataFreshness = 0.90', () => {
+    const { factors } = computeConfidenceBreakdown({ ...baseGood, maxCacheAgeSec: 1800 })
+    expect(factors.dataFreshness).toBeCloseTo(0.90, 4)
+  })
+
+  test('17.5 min (1050s) → dataFreshness ≈ 0.95', () => {
+    // midpoint between 5 min and 30 min → 0.90 + 0.05 = 0.95
+    const { factors } = computeConfidenceBreakdown({ ...baseGood, maxCacheAgeSec: 1050 })
+    expect(factors.dataFreshness).toBeCloseTo(0.95, 4)
+  })
+
+  test('clamps above 30 min: 60 min → dataFreshness = 0.90', () => {
+    const { factors } = computeConfidenceBreakdown({ ...baseGood, maxCacheAgeSec: 3600 })
+    expect(factors.dataFreshness).toBeCloseTo(0.90, 4)
   })
 })
