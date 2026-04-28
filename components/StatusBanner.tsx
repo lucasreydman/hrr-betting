@@ -57,8 +57,6 @@ function FreshnessLabel({ refreshedAt }: { refreshedAt: string }) {
 }
 
 export function StatusBanner({ refreshedAt, meta, totalTracked, onRefresh }: StatusBannerProps) {
-  const warming = meta.gamesWithoutSim.length > 0
-
   const states = meta.gameStates
   const showProgress = states && (states.inProgress > 0 || states.final > 0)
   const progressValue = states
@@ -84,19 +82,11 @@ export function StatusBanner({ refreshedAt, meta, totalTracked, onRefresh }: Sta
           ariaLabel={`${totalTracked} tracked picks across all rungs`}
         />
         <StatChip
-          label="Sims"
-          value={`${meta.gamesWithSim} / ${meta.gamesTotal}`}
-          tone={warming ? 'warn' : 'neutral'}
-          ariaLabel={`${meta.gamesWithSim} of ${meta.gamesTotal} games simmed`}
+          label="Games"
+          value={`${meta.gamesTotal}`}
+          tone="neutral"
+          ariaLabel={`${meta.gamesTotal} games on slate`}
         />
-        {warming && (
-          <StatChip
-            label="Warming"
-            value={`${meta.gamesWithoutSim.length}`}
-            tone="warn"
-            ariaLabel={`${meta.gamesWithoutSim.length} games warming`}
-          />
-        )}
         {showProgress && (
           <StatChip
             label="Slate"

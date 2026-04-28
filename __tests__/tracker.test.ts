@@ -103,7 +103,7 @@ describe('snapshotLockedPicks (in-memory KV)', () => {
       rung1: [earlyPick],
       rung2: [],
       rung3: [],
-      meta: { gamesTotal: 2, gamesWithSim: 2, gamesWithoutSim: [], fromCache: false },
+      meta: { gamesTotal: 2, fromCache: false, gameStates: { scheduled: 2, inProgress: 0, final: 0, postponed: 0 } },
     })
     const first = await snapshotLockedPicks(date)
     expect(first.locked).toBe(1)
@@ -119,7 +119,7 @@ describe('snapshotLockedPicks (in-memory KV)', () => {
       rung1: [earlyPick, latePick],
       rung2: [],
       rung3: [],
-      meta: { gamesTotal: 2, gamesWithSim: 2, gamesWithoutSim: [], fromCache: false },
+      meta: { gamesTotal: 2, fromCache: false, gameStates: { scheduled: 2, inProgress: 0, final: 0, postponed: 0 } },
     })
     const second = await snapshotLockedPicks(date)
     expect(second.locked).toBe(2)

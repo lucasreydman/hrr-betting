@@ -19,8 +19,6 @@ export default async function Home() {
     rung3: [],
     meta: {
       gamesTotal: 0,
-      gamesWithSim: 0,
-      gamesWithoutSim: [],
       fromCache: false,
       gameStates: { scheduled: 0, inProgress: 0, final: 0, postponed: 0 },
     },

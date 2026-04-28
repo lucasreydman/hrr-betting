@@ -1,33 +1,50 @@
 /**
  * lib/ranker.ts
  *
- * Composition layer that reads sim cache, calls getPTypical, and assembles
- * ranked picks per rung for the /api/picks endpoint.
+ * Composition layer that calls getPTypical + computeProbToday (closed-form),
+ * then assembles ranked picks per rung for the /api/picks endpoint.
+ *
+ * Phase 8 change: per-game sim cache is no longer used. probToday is computed
+ * directly from factor functions (pitcher, park, weather, handedness, bullpen,
+ * paCount) applied to the player's pTypical baseline.
  *
  * V1 simplifications (documented):
- *  - confidence computed with bvpAB=0 (no BvP layer), pitcherStartCount=10,
- *    weatherStable=true, isOpener=false, timeToFirstPitchMin=60
- *  - probableStarterId sentinel=1 (passesHardGates only checks null, not validity)
- *  - expectedPA hardcoded to 4 per player
+ *  - hardHitRate falls back to LG_HARD_HIT_RATE when Savant pitcher data is unavailable
+ *  - weatherStable=true, isOpener=false (opener detection deferred to later phase)
+ *  - timeToFirstPitchMin computed live from game.gameDate
+ *  - expectedPA hardcoded to 4 per player (hard gates only)
  *  - Hard gates evaluated once per game side (not per rung, not per player)
  */
 
-import { kvGet } from './kv'
 import { computeEdge, computeScore } from './edge'
 import { computeConfidenceBreakdown, passesHardGates, type ConfidenceFactors } from './confidence'
 import { getPTypical } from './p-typical'
-import { fetchSchedule, fetchProbablePitchers, fetchPitcherRecentStarts, fetchBvP, fetchPeople } from './mlb-api'
-import { fetchLineup, lineupHash } from './lineup'
+import { computeProbTodayWithBreakdown } from './prob-today'
+import {
+  fetchSchedule,
+  fetchProbablePitchers,
+  fetchPitcherRecentStarts,
+  fetchPitcherSeasonStats,
+  fetchBatterSeasonStats,
+  fetchBvP,
+  fetchPeople,
+} from './mlb-api'
+import { fetchLineup } from './lineup'
 import { getHrParkFactorForBatter, getParkVenueName } from './park-factors'
 import { fetchWeather, getOutfieldFacingDegrees } from './weather-api'
 import { computeWeatherFactors } from './weather-factors'
+import { fetchBullpenStats } from './bullpen'
+import { getPitcherStatcast } from './savant-api'
 import {
   EDGE_FLOORS,
   PROB_FLOORS,
   CONFIDENCE_FLOOR_TRACKED,
   DISPLAY_FLOOR_SCORE,
+  LG_K_PCT,
+  LG_BB_PCT,
+  LG_HR_PCT,
+  LG_HARD_HIT_RATE,
 } from './constants'
-import type { BatterHRRDist } from './sim'
 import type { Rung, BvPRecord } from './types'
 
 // ---------------------------------------------------------------------------
@@ -125,8 +142,6 @@ export interface PicksResponse {
   rung3: Pick[]
   meta: {
     gamesTotal: number
-    gamesWithSim: number
-    gamesWithoutSim: number[]  // gameIds skipped this refresh
     fromCache: boolean
     /**
      * Game-state breakdown for the slate. Sums to gamesTotal modulo `postponed`,
@@ -136,73 +151,6 @@ export interface PicksResponse {
      */
     gameStates: { scheduled: number; inProgress: number; final: number; postponed: number }
   }
-}
-
-// ---------------------------------------------------------------------------
-// Sim cache shape (matches what /api/sim/[gameId] writes)
-// ---------------------------------------------------------------------------
-
-interface SimCachePayload {
-  batterHRR: Record<string, BatterHRRDist>
-  iterations: number
-}
-
-// ---------------------------------------------------------------------------
-// Self-warming: fire internal HTTPS requests to /api/sim/[gameId] for any
-// games whose sim cache is missing. The GitHub Actions cron is supposed to
-// keep these warmed every 5 min during slate hours, but the free tier
-// throttles scheduled workflows heavily — sometimes firing only once an
-// hour. So we let the *act of viewing the page* warm any missing sims as
-// a fallback, with a tight budget so it doesn't slow the picks endpoint
-// past Vercel Hobby's 10 s function limit.
-// ---------------------------------------------------------------------------
-
-/** How long rankPicks will wait for in-flight sim warm-ups before returning. */
-const SIM_WARM_BUDGET_MS = 6_000
-
-/** Resolve the deployment's own base URL for self-fetches. */
-function selfBaseUrl(): string {
-  // Vercel auto-injects VERCEL_URL with the deployment-specific host
-  // (e.g. "hrr-betting.vercel.app" or a preview URL).
-  const vercelUrl = process.env.VERCEL_URL
-  if (vercelUrl) return `https://${vercelUrl}`
-  const port = process.env.PORT ?? '3000'
-  return `http://localhost:${port}`
-}
-
-/**
- * Fire-and-budget: kick off internal HTTPS calls to /api/sim/[gameId] for
- * each `gameId`, race the bundle against a deadline, return after either
- * (a) all warm-ups finish, or (b) the budget elapses — whichever is first.
- *
- * Each warm-up runs as its *own* Vercel function invocation, with its own
- * full function-time budget (10 s on Hobby). So even when this race resolves
- * on the timeout, the in-flight warm-ups keep going on Vercel's side and
- * the sim cache populates for the next /api/picks poll. Internally-fired
- * fetches that beat the timeout also leave their results in the sim cache,
- * which we re-read after the race.
- *
- * Errors are swallowed silently — one bad sim shouldn't block the others
- * or fail the picks request.
- */
-async function warmMissingSims(gameIds: number[], date: string): Promise<void> {
-  if (gameIds.length === 0) return
-  const cronSecret = process.env.CRON_SECRET ?? ''
-  const base = selfBaseUrl()
-
-  const fired = gameIds.map(id => {
-    const url = `${base}/api/sim/${id}?date=${encodeURIComponent(date)}`
-    return fetch(url, {
-      headers: cronSecret ? { 'x-cron-secret': cronSecret } : {},
-      // Don't blow up the calling request on per-sim errors.
-      cache: 'no-store',
-    }).catch(() => undefined)
-  })
-
-  await Promise.race([
-    Promise.allSettled(fired),
-    new Promise(resolve => setTimeout(resolve, SIM_WARM_BUDGET_MS)),
-  ])
 }
 
 // ---------------------------------------------------------------------------
@@ -234,40 +182,12 @@ export function classifyTier(args: {
 export async function rankPicks(date: string): Promise<PicksResponse> {
   const games = await fetchSchedule(date)
   const gamesTotal = games.length
-  const gamesWithoutSim: number[] = []
-  let gamesWithSim = 0
+  const season = parseInt(date.slice(0, 4), 10)
 
   // Separate accumulators per rung (avoids adding `rung` to the public Pick type)
   const rung1Picks: Pick[] = []
   const rung2Picks: Pick[] = []
   const rung3Picks: Pick[] = []
-
-  // ---------------------------------------------------------------------
-  // Pre-pass: identify games whose sim isn't in the cache yet, warm them
-  // in parallel with a 6 s budget, then continue. This is the safety net
-  // for unreliable cron firing — even if GitHub Actions hasn't fired its
-  // 5-min schedule for an hour, the act of someone viewing /api/picks
-  // triggers warming. The fetchLineup / fetchProbablePitchers calls below
-  // run again inside the main loop, but both go through kv-cached paths
-  // so the duplication is just an extra ~30 ms of cache reads per game.
-  // ---------------------------------------------------------------------
-  const live = games.filter(g => g.status !== 'postponed' && g.status !== 'final')
-  const preChecks = await Promise.all(live.map(async game => {
-    const [homeLineup, awayLineup, probables] = await Promise.all([
-      fetchLineup(game.gameId, game.homeTeam.teamId, 'home', date),
-      fetchLineup(game.gameId, game.awayTeam.teamId, 'away', date),
-      fetchProbablePitchers(game.gameId),
-    ])
-    const lH = lineupHash(homeLineup) + ':' + lineupHash(awayLineup)
-    const probableH = `${probables.home || 0}:${probables.away || 0}`
-    const cacheKey = `sim:${game.gameId}:${lH}:${probableH}`
-    const cached = await kvGet<SimCachePayload>(cacheKey)
-    return { gameId: game.gameId, hit: cached !== null }
-  }))
-  const missingIds = preChecks.filter(p => !p.hit).map(p => p.gameId)
-  if (missingIds.length > 0) {
-    await warmMissingSims(missingIds, date)
-  }
 
   for (const game of games) {
     // Skip terminal game states — no point building picks
@@ -280,22 +200,6 @@ export async function rankPicks(date: string): Promise<PicksResponse> {
       fetchProbablePitchers(game.gameId),
     ])
 
-    // Build the combined lineup hash + probable-pitcher hash for the sim cache key.
-    // Including probableHash ensures a pitcher announcement (TBD → known) invalidates
-    // the cache key on the read side too — preventing the case where ranker reports
-    // the new pitcher name while the sim was actually computed against league-avg
-    // pitcher rates from when the slot was TBD.
-    const lH = lineupHash(homeLineup) + ':' + lineupHash(awayLineup)
-    const probableH = `${probables.home || 0}:${probables.away || 0}`
-    const cacheKey = `sim:${game.gameId}:${lH}:${probableH}`
-
-    const sim = await kvGet<SimCachePayload>(cacheKey)
-    if (!sim) {
-      gamesWithoutSim.push(game.gameId)
-      continue  // orchestrator will populate on next refresh
-    }
-    gamesWithSim++
-
     // Compute time to first pitch (in minutes from now). Used as a confidence input.
     const firstPitchMs = new Date(game.gameDate).getTime()
     const timeToFirstPitchMin = Math.max(0, Math.round((firstPitchMs - Date.now()) / 60000))
@@ -305,8 +209,7 @@ export async function rankPicks(date: string): Promise<PicksResponse> {
     // park factors are per-handedness).
     const venueName = getParkVenueName(game.venueId)
 
-    // Per-game weather: fetched once, reused across all 18 picks. The fetch
-    // is internally cached so this is cheap on warm slates.
+    // Per-game weather: fetched once, reused across all 18 picks.
     const outfieldFacingDeg = getOutfieldFacingDegrees(game.venueId)
     const weatherData = await fetchWeather(game.venueId, game.gameDate)
     const weatherResult = computeWeatherFactors({
@@ -324,8 +227,7 @@ export async function rankPicks(date: string): Promise<PicksResponse> {
       failure: weatherData.failure,
     }
 
-    // Pre-compute lineup summaries (one per side) so we can attach the same
-    // 9-entry array to every batter on a side without rebuilding it 9 times.
+    // Pre-compute lineup summaries (one per side).
     const homeLineupSummary: LineupSlotSummary[] = homeLineup.entries.map(e => ({
       slot: e.slot, playerId: e.player.playerId, fullName: e.player.fullName,
     }))
@@ -334,41 +236,45 @@ export async function rankPicks(date: string): Promise<PicksResponse> {
     }))
 
     // Fetch each probable pitcher's recent-starts count + name in parallel.
-    // fetchPeople caches per-ID 24h so name lookups are cheap on repeat calls.
+    // Also fetch season stats (kPct, bbPct, hrPct, bf) and Savant hardHitRate.
     const pitcherIds = [probables.home, probables.away].filter(id => id > 0)
-    const [homePitcherStarts, awayPitcherStarts, pitcherPeople] = await Promise.all([
-      probables.home > 0 ? fetchPitcherRecentStarts(probables.home, 10).catch(() => []) : Promise.resolve([]),
-      probables.away > 0 ? fetchPitcherRecentStarts(probables.away, 10).catch(() => []) : Promise.resolve([]),
+    const [
+      homePitcherStarts,
+      awayPitcherStarts,
+      pitcherPeople,
+      homePitcherSeasonStats,
+      awayPitcherSeasonStats,
+      homePitcherSavant,
+      awayPitcherSavant,
+      homeBullpenStats,
+      awayBullpenStats,
+    ] = await Promise.all([
+      probables.home > 0 ? fetchPitcherRecentStarts(probables.home, 10, season).catch(() => []) : Promise.resolve([]),
+      probables.away > 0 ? fetchPitcherRecentStarts(probables.away, 10, season).catch(() => []) : Promise.resolve([]),
       pitcherIds.length > 0 ? fetchPeople(pitcherIds) : Promise.resolve(new Map()),
+      probables.home > 0 ? fetchPitcherSeasonStats(probables.home, season).catch(() => null) : Promise.resolve(null),
+      probables.away > 0 ? fetchPitcherSeasonStats(probables.away, season).catch(() => null) : Promise.resolve(null),
+      probables.home > 0 ? getPitcherStatcast(probables.home, season).catch(() => null) : Promise.resolve(null),
+      probables.away > 0 ? getPitcherStatcast(probables.away, season).catch(() => null) : Promise.resolve(null),
+      // Bullpen for each side: home batters face away bullpen, away batters face home bullpen.
+      fetchBullpenStats(game.awayTeam.teamId, season).catch(() => null),
+      fetchBullpenStats(game.homeTeam.teamId, season).catch(() => null),
     ])
+
     const pitcherNames = new Map<number, string>()
     for (const [id, ref] of pitcherPeople) pitcherNames.set(id, ref.fullName)
 
     // Hard gates evaluated per-side below (lineupStatus is per-side).
-    // Game-level conditions (gameStatus, probableStarterId, expectedPA) are
-    // checked inside the per-side call.
-
     const sides = [
       { lineup: homeLineup, opponent: game.awayTeam, isHome: true },
       { lineup: awayLineup, opponent: game.homeTeam, isHome: false },
     ] as const
 
-    // Parallelize across both sides + all 18 batters per game.
-    // Each call to getPTypical hits its own cache; cold misses run a sim
-    // internally. Without parallelism this is 18 × 30ms (cache hit) or
-    // 18 × ~1s (cache miss) sequential — multiplied by 15 games it times out.
-    //
-    // Per-side hard gate is evaluated once here; per-batter confidence is
-    // recomputed below because it depends on the batter's own BvP sample.
     const sideJobs = sides.map(({ lineup, opponent, isHome }) => {
-      // The opposing starter is whoever the BATTERS face — home batters face the away starter.
       const opposingStarterId = isHome ? probables.away : probables.home
       return {
         lineup,
         opponent,
-        // Pass sentinel `1` when probable starter is TBD (common in early season /
-        // far-from-game-time). The sim already uses league-avg fallback rates for
-        // unknown pitchers, and pitcherStartCount=0 already penalizes confidence below.
         sidePassesGates: passesHardGates({
           gameStatus: game.status,
           probableStarterId: opposingStarterId > 0 ? opposingStarterId : 1,
@@ -378,14 +284,13 @@ export async function rankPicks(date: string): Promise<PicksResponse> {
       }
     })
 
-    // Resolve all P_typical lookups across both sides in parallel
+    // Resolve all P_typical lookups across both sides in parallel.
     const playerJobs = sideJobs.flatMap(({ lineup, opponent, sidePassesGates }) =>
       lineup.entries.map(entry => ({ entry, lineup, opponent, sidePassesGates }))
     )
 
-    // P_typical + per-batter BvP (the latter is what gives confidence its real
-    // per-pick variation — without it, every batter on a side has the same conf).
-    const [pTypicalResults, bvpResults] = await Promise.all([
+    // P_typical + per-batter BvP + per-batter season stats (for batterSeasonPa).
+    const [pTypicalResults, bvpResults, batterSeasonResults] = await Promise.all([
       Promise.all(playerJobs.map(({ entry }) => getPTypical({ playerId: entry.player.playerId }))),
       Promise.all(playerJobs.map(({ entry, lineup }) => {
         const onHome = lineup === homeLineup
@@ -393,30 +298,58 @@ export async function rankPicks(date: string): Promise<PicksResponse> {
         if (opposingStarterId <= 0) return Promise.resolve(null)  // unknown starter → no BvP
         return fetchBvP(entry.player.playerId, opposingStarterId).catch(() => null)
       })),
+      Promise.all(playerJobs.map(({ entry }) =>
+        fetchBatterSeasonStats(entry.player.playerId, season).catch(() => null)
+      )),
     ])
 
     for (let i = 0; i < playerJobs.length; i++) {
       const { entry, lineup, opponent, sidePassesGates } = playerJobs[i]
       const pTypicalResult = pTypicalResults[i]
       const bvp = bvpResults[i]
+      const batterSeason = batterSeasonResults[i]
 
       const player = entry.player
-      const dist = sim.batterHRR[String(player.playerId)]
-      if (!dist) continue
 
-      // Recompute confidence per-batter to incorporate this batter's BvP sample.
-      // (Other inputs are per-side, so they're shared across batters on a side.)
+      // Per-side pitcher context
       const onHome = lineup === homeLineup
       const opposingStarterStartCount = onHome ? awayPitcherStarts.length : homePitcherStarts.length
       const opposingStarterId = onHome ? probables.away : probables.home
-      // game.status was already filtered to exclude 'postponed' and 'final' at the
-      // top of the per-game loop, so reaching here means 'scheduled' or 'in_progress'.
+      const opposingPitcherSeasonStats = onHome ? awayPitcherSeasonStats : homePitcherSeasonStats
+      const opposingPitcherSavant = onHome ? awayPitcherSavant : homePitcherSavant
+      // Home batters face away bullpen, away batters face home bullpen.
+      const opposingBullpen = onHome ? homeBullpenStats : awayBullpenStats
+
+      // Build PitcherInputs — fall back to league-average rates when data unavailable.
+      // This gives pitcherFactor = 1.0 (conservative, not a crash).
+      const pitcherBf = opposingPitcherSeasonStats?.ip
+        ? Math.round(opposingPitcherSeasonStats.ip * 4.3)  // ~4.3 BF/IP
+        : 0
+      const pitcherInputs = {
+        id: opposingStarterId > 0 ? opposingStarterId : 0,
+        kPct: opposingPitcherSeasonStats?.kPct ?? LG_K_PCT,
+        bbPct: opposingPitcherSeasonStats?.bbPct ?? LG_BB_PCT,
+        hrPct: opposingPitcherSeasonStats
+          ? (opposingPitcherSeasonStats.hrPer9 / 9)  // hrPer9 → hrPct (per BF approx)
+          : LG_HR_PCT,
+        hardHitRate: opposingPitcherSavant?.hardHitPctAllowed ?? LG_HARD_HIT_RATE,
+        bf: pitcherBf,
+        recentStarts: opposingStarterStartCount,
+        throws: opposingStarterId > 0
+          ? (pitcherPeople.get(opposingStarterId)?.throws ?? 'R')
+          : 'R',
+      }
+
+      // Pitcher throws hand (for handedness factor in computeProbToday)
       const opposingPitcherStatus: 'tbd' | 'probable' | 'confirmed' =
         opposingStarterId <= 0
           ? 'tbd'
           : game.status === 'in_progress'
             ? 'confirmed'
             : 'probable'
+
+      const batterSeasonPa = batterSeason?.pa ?? 0
+
       const { factors: confidenceFactors, product: confidence } = computeConfidenceBreakdown({
         lineupStatus: lineup.status,
         bvpAB: bvp?.ab ?? 0,
@@ -424,18 +357,13 @@ export async function rankPicks(date: string): Promise<PicksResponse> {
         weatherStable: true,
         isOpener: false,
         timeToFirstPitchMin,
-        batterSeasonPa: 0,    // Phase 8: wire real PA count
-        maxCacheAgeSec: 0,    // Phase 8: wire real cache age
+        batterSeasonPa,
+        maxCacheAgeSec: 0,  // neutral — cache ages not tracked per-call
       })
 
       const inputs: PickInputs = {
         venueId: game.venueId,
-        // Prefer FG's venue name (matches the lookup table) but fall back to
-        // the MLB schedule name if the venue isn't in our park-factors map.
         venueName: venueName !== 'Unknown park' ? venueName : game.venueName,
-        // The actual HR multiplier the sim used for THIS batter — picks up
-        // the per-handedness asymmetry (e.g. Yankee Stadium boosts LHB more
-        // than RHB).
         parkHrFactor: getHrParkFactorForBatter(game.venueId, player.bats),
         weather: pickWeather,
         bvp,
@@ -446,8 +374,24 @@ export async function rankPicks(date: string): Promise<PicksResponse> {
       }
 
       for (const rung of [1, 2, 3] as Rung[]) {
-        const pMatchup = dist.atLeast[rung] ?? 0
         const pTyp = pTypicalResult.atLeast[rung] ?? 0
+
+        // Closed-form probToday replaces per-game sim cache lookup.
+        const probTodayResult = computeProbTodayWithBreakdown({
+          probTypical: pTyp,
+          pitcher: pitcherInputs,
+          venueId: game.venueId,
+          batterHand: player.bats,
+          weather: {
+            hrMult: weatherResult.hrMult,
+            controlled: weatherData.controlled,
+            failure: weatherData.failure,
+          },
+          bullpen: opposingBullpen,
+          lineupSlot: entry.slot,
+        })
+        const pMatchup = probTodayResult.probToday  // kept as pMatchup to avoid renaming Pick type
+
         const edge = computeEdge({ pMatchup, pTypical: pTyp })
         const score = computeScore({ edge, confidence })
 
@@ -492,7 +436,6 @@ export async function rankPicks(date: string): Promise<PicksResponse> {
   const byScoreDesc = (a: Pick, b: Pick) => b.score - a.score
 
   // Tally game states for the slate-progress chip in the status banner.
-  // Use the schedule's status field directly — it's authoritative.
   const gameStates = { scheduled: 0, inProgress: 0, final: 0, postponed: 0 }
   for (const g of games) {
     if (g.status === 'scheduled') gameStates.scheduled++
@@ -509,8 +452,6 @@ export async function rankPicks(date: string): Promise<PicksResponse> {
     rung3: rung3Picks.sort(byScoreDesc),
     meta: {
       gamesTotal,
-      gamesWithSim,
-      gamesWithoutSim,
       fromCache: false,
       gameStates,
     },
