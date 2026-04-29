@@ -42,11 +42,11 @@ export function BoardSection({ rung, picks }: { rung: 1 | 2 | 3; picks: Pick[] }
       </header>
 
       {/* Column headers — desktop only. Uses a visually-styled row that mirrors
-          the 7-column grid in PickRow. aria-hidden because PickRow cells aren't
+          the 8-column grid in PickRow. aria-hidden because PickRow cells aren't
           in a semantic <table> (they're divs for expand/collapse); screen readers
           get column context from visible labels inside each row instead. */}
       <div
-        className="hidden sm:grid sm:grid-cols-[2fr_1.2fr_1fr_1fr_0.8fr_0.8fr_0.8fr] sm:gap-3 sm:border-b sm:border-border sm:bg-card/30 sm:px-4 sm:py-2"
+        className="hidden sm:grid sm:grid-cols-[3fr_1.2fr_1fr_1fr_0.8fr_0.8fr_0.6fr_0.4fr] sm:gap-3 sm:border-b sm:border-border sm:bg-card/30 sm:px-4 sm:py-2"
         aria-hidden="true"
       >
         <div className="text-[11px] uppercase tracking-wider text-ink-muted">Player</div>
@@ -56,6 +56,7 @@ export function BoardSection({ rung, picks }: { rung: 1 | 2 | 3; picks: Pick[] }
         <div className="text-right text-[11px] uppercase tracking-wider text-ink-muted">Edge</div>
         <div className="text-right text-[11px] uppercase tracking-wider text-ink-muted">Conf</div>
         <div className="text-right text-[11px] uppercase tracking-wider text-ink-muted">Score</div>
+        <div></div>
       </div>
 
       {tracked.map((p, i) => (

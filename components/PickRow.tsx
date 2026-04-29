@@ -427,11 +427,12 @@ export function PickRow({ pick }: { pick: Pick }) {
         onKeyDown={onKeyDown}
         className={'w-full cursor-pointer px-3 py-3 text-left transition-colors sm:px-4 ' + rowFill}
       >
-        {/* Desktop: 7-column grid */}
-        <div className="hidden sm:grid sm:grid-cols-[2fr_1.2fr_1fr_1fr_0.8fr_0.8fr_0.8fr] sm:items-center sm:gap-3">
-          {/* PLAYER */}
+        {/* Desktop: 8-column grid (player · game · p.typ · p.today · edge · conf · score · caret) */}
+        <div className="hidden sm:grid sm:grid-cols-[3fr_1.2fr_1fr_1fr_0.8fr_0.8fr_0.6fr_0.4fr] sm:items-center sm:gap-3">
+          {/* PLAYER — 3 lines: name+slot+hand+lineup-badge / vs pitcher+pitcher-badge */}
           <div className="min-w-0">
-            <div className="flex items-center gap-2">
+            {/* Line 1: fire · name · slot · hand · lineup status */}
+            <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
               {isTracked && <span className="text-tracked" aria-hidden="true">🔥</span>}
               <span className={'min-w-0 break-words font-semibold text-ink'}>
                 {pick.player.fullName}
@@ -439,16 +440,12 @@ export function PickRow({ pick }: { pick: Pick }) {
               <span className="shrink-0 rounded bg-card-elevated px-1.5 py-0.5 font-mono text-[10px] tabular-nums text-ink-muted">
                 #{pick.lineupSlot}
               </span>
-            </div>
-            <div className="mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs text-ink-muted">
-              <span>{pick.player.bats}</span>
-              <span className="text-ink-muted/50" aria-hidden="true">·</span>
+              <span className="text-xs text-ink-muted">{pick.player.bats}</span>
               <LineupBadge status={pick.lineupStatus} />
             </div>
-            <div className="mt-0.5 text-xs text-ink-muted">
-              vs {pick.opposingPitcher.name}
-            </div>
-            <div className="mt-0.5 flex items-center gap-1">
+            {/* Line 2: vs pitcher · pitcher badge */}
+            <div className="mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs text-ink-muted">
+              <span>vs {pick.opposingPitcher.name}</span>
               <PitcherBadge status={pick.opposingPitcher.status} />
             </div>
           </div>
@@ -501,7 +498,7 @@ export function PickRow({ pick }: { pick: Pick }) {
             </span>
           </div>
 
-          {/* SCORE */}
+          {/* SCORE — integer ×100 */}
           <div className="text-right">
             <div
               className={
@@ -511,11 +508,15 @@ export function PickRow({ pick }: { pick: Pick }) {
                   : 'text-base font-semibold text-ink')
               }
             >
-              {pick.score.toFixed(3)}
+              {(pick.score * 100).toFixed(0)}
             </div>
+          </div>
+
+          {/* CARET — dedicated 8th column so score numbers don't shift */}
+          <div className="flex items-center justify-center">
             <span
               aria-hidden="true"
-              className={'block text-right text-[10px] text-ink-muted/60 transition-transform ' + (expanded ? 'rotate-180' : '')}
+              className={'text-sm text-ink-muted/60 transition-transform ' + (expanded ? 'rotate-180' : '')}
             >
               ▾
             </span>
@@ -575,7 +576,7 @@ export function PickRow({ pick }: { pick: Pick }) {
               </div>
               <div className="flex items-baseline gap-1">
                 <span className="text-ink-muted">Score</span>
-                <span className={'font-mono tabular-nums ' + (isTracked ? 'font-semibold text-tracked' : 'text-ink')}>{pick.score.toFixed(3)}</span>
+                <span className={'font-mono tabular-nums ' + (isTracked ? 'font-semibold text-tracked' : 'text-ink')}>{(pick.score * 100).toFixed(0)}</span>
               </div>
             </div>
           </div>
