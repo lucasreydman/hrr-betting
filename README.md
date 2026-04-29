@@ -1,6 +1,6 @@
 # HRR Betting — MLB Hits + Runs + RBIs Prop Model
 
-A standalone MLB betting tool that ranks the best **Hits + Runs + RBIs** prop plays for the day across three rungs (1+, 2+, 3+ HRR). One unified board ranks the slate's top 50 plays by SCORE = EDGE × confidence, with filter chips for rung, game status, and tracked-only. Picks clearing all three per-rung floors are auto-tracked (always shown), settled from the boxscore the next morning, and surfaced on a calibration history page.
+A standalone MLB betting tool that ranks the best **Hits + Runs + RBIs** prop plays for the day across three rungs (1+, 2+, 3+ HRR). One unified board ranks the slate's top 50 plays by SCORE = Kelly fraction × confidence — a variance-aware, betting-actionable metric — with filter chips for rung, game status, and tracked-only. Picks clearing all three per-rung floors are auto-tracked (always shown), settled from the boxscore the next morning, and surfaced on a calibration history page.
 
 **Live (planned):** [hrr-betting.vercel.app](https://hrr-betting.vercel.app)
 
@@ -19,7 +19,7 @@ For each player on the day's slate, the model:
 2. **At request time (closed-form):** Evaluates `probToday = probTypical × pitcherFactor × parkFactor × weatherFactor × handednessFactor × bullpenFactor × paCountFactor` in sub-millisecond time (`lib/prob-today.ts`). No per-request Monte Carlo.
 3. Computes `P(HRR ≥ N)` for each rung from `probToday`.
 4. Compares to `probTypical` → **EDGE** = `max(probToday, ε) / max(probTypical, ε) − 1`.
-5. Multiplies by a **confidence factor** (lineup confirmation, BvP sample, recent-pitcher-start sample, weather stability, time-to-first-pitch, opener flag) → **SCORE = EDGE × confidence**.
+5. Multiplies a **Kelly bet fraction** by a **confidence factor** (lineup confirmation, BvP sample, recent-pitcher-start sample, weather stability, time-to-first-pitch, opener flag) → **SCORE = (p_today − p_typical) ÷ (1 − p_typical) × confidence**. Kelly is variance-aware: longshots get sized down even when their relative edge is huge, so the score directly answers "how much would I bet on this play."
 6. Tags **Tracked** picks per rung (must clear all three: confidence ≥ 0.85, per-rung EDGE floor, per-rung probability floor). The board surfaces the top 50 plays across all rungs — tracked picks always make the cut, watching plays fill remaining slots by score.
 7. Auto-settles picks from the boxscore the next morning. Tracks rolling 30-day hit rate + Brier score per rung.
 

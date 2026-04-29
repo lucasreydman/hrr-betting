@@ -57,13 +57,15 @@ export const EDGE_FLOORS: Record<Rung, number> = { 1: 0.10, 2: 0.30, 3: 0.60 }
 export const PROB_FLOORS: Record<Rung, number> = { 1: 0.85, 2: 0.55, 3: 0.20 }
 
 // Display floor: a pick is shown in the "Other plays" section if SCORE >= this.
-// SCORE = edge × confidence. With odds-ratio probToday composition (post-2026-04-28
-// math fix), scores typically run ~0.05-0.20 for solid picks. A floor of 0.10
-// keeps the per-rung "Other plays" list to a manageable size (~10-30 picks)
-// while still surfacing genuinely strong matchups outside the Tracked tier.
-// Bump higher (e.g. 0.13) if the list still feels long, lower if too sparse.
+// SCORE = Kelly fraction × confidence (post-2026-04-29 switch from EDGE × conf
+// — see lib/edge.ts:computeScore). Kelly scales differently than the old
+// relative-edge formula:
+//   · A 1+ HRR play with p_typical=0.75 / p_today=0.85 / conf=0.90 → SCORE ≈ 0.36
+//   · A 3+ HRR longshot with p_typical=0.10 / p_today=0.18 / conf=0.80 → SCORE ≈ 0.07
+// 0.05 is the new floor — "Kelly says bet at least 5% of bankroll, weighted by
+// confidence." Below that, the play is too marginal to feature outside Tracked.
 // Recalibrate against settled history once available — see lib/tracker.ts.
-export const DISPLAY_FLOOR_SCORE = 0.10
+export const DISPLAY_FLOOR_SCORE = 0.05
 
 // Minimum confidence for a pick to be Tracked.
 export const CONFIDENCE_FLOOR_TRACKED = 0.85

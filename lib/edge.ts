@@ -21,10 +21,35 @@ export function computeEdge(args: { pMatchup: number; pTypical: number }): numbe
 }
 
 /**
- * Compute final score: EDGE multiplied by confidence factor.
+ * Compute the betting score for a play. Uses a Kelly-fraction formulation so
+ * the score answers "how much would I bet on this at fair-typical odds,
+ * weighted by data quality" — a directly actionable bet-quality ranking.
  *
- *   SCORE = EDGE × confidence
+ *   KELLY = (pMatchup − pTypical) / (1 − pTypical)        // bankroll fraction
+ *   SCORE = KELLY × confidence
+ *
+ * Why Kelly over EDGE × confidence:
+ *  · Relative EDGE = (p_today / p_typical − 1) scales with rarity, so 3+ HRR
+ *    longshots (p_typical ≈ 10%) trivially produce huge edges and dominate any
+ *    cross-rung ranking. Kelly's denominator (1 − p_typical) flips the bias —
+ *    high-prob plays where you can win a lot of bets get rewarded, and
+ *    long-shot variance gets penalised the way a bankroll model would.
+ *  · The score has a clean betting interpretation: SCORE × 100 ≈ "Kelly says
+ *    bet this many percent of bankroll at fair-typical odds, scaled by how
+ *    much we trust the inputs."
+ *
+ * Edge cases:
+ *  · pTypical ≥ 1 would divide by zero. Floor (1 − pTypical) at 0.01 — a player
+ *    with effectively-certain typical hit rate is a non-event for the model.
+ *  · pMatchup < pTypical produces a negative Kelly fraction, which we preserve
+ *    so unfavorable matchups sort below favorable ones.
  */
-export function computeScore(args: { edge: number; confidence: number }): number {
-  return args.edge * args.confidence
+export function computeScore(args: {
+  pMatchup: number
+  pTypical: number
+  confidence: number
+}): number {
+  const denom = Math.max(1 - args.pTypical, 0.01)
+  const kelly = (args.pMatchup - args.pTypical) / denom
+  return kelly * args.confidence
 }

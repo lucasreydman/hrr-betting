@@ -390,9 +390,17 @@ function MathPanel({ pick, localTime }: { pick: Pick; localTime: ReturnType<type
 
       <PanelSection title="Score">
         <p className="font-mono text-[11px] text-ink-muted">
-          score = edge × confidence
-          <span className="ml-1 text-ink-muted/70">(displayed ×100 for readability)</span>
+          score = (p̂<sub>today</sub> − p̂<sub>typical</sub>) ÷ (1 − p̂<sub>typical</sub>) × confidence
+          <span className="ml-1 text-ink-muted/70">(Kelly bet fraction × conf, ×100 for display)</span>
         </p>
+        <KV label="Kelly fraction">
+          <span className="text-ink">
+            {(((pick.pMatchup - pick.pTypical) / Math.max(1 - pick.pTypical, 0.01)) * 100).toFixed(1)}%
+          </span>
+          <span className="ml-2 text-[11px] text-ink-muted">
+            ({pct(pick.pMatchup, 1)} − {pct(pick.pTypical, 1)}) ÷ {pct(1 - pick.pTypical, 1)}
+          </span>
+        </KV>
         <KV label="= Score">
           <span className={isTracked ? 'font-semibold text-tracked' : 'text-ink'}>
             {(pick.score * 100).toFixed(1)}
@@ -402,7 +410,8 @@ function MathPanel({ pick, localTime }: { pick: Pick; localTime: ReturnType<type
           </span>
         </KV>
         <p className="text-[11px] text-ink-muted">
-          {signedPct(pick.edge)} × {pct(pick.confidence, 0)} × 100 = {(pick.score * 100).toFixed(1)}
+          Higher score = bigger Kelly bet at fair-typical odds. Variance-aware:
+          longshots get sized down even when relative edge is huge.
         </p>
       </PanelSection>
     </div>

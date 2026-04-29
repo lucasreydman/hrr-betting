@@ -93,7 +93,7 @@ export function ClientShell({ initialPicks }: { initialPicks: PicksResponse }) {
       <header className="space-y-2">
         <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">Today&apos;s board</h1>
         <p className="text-sm text-ink-muted">
-          Hits + Runs + RBIs prop picks ranked by matchup edge × confidence.
+          Hits + Runs + RBIs prop picks ranked by Kelly bet fraction × confidence.
           Slate updates automatically every minute.
         </p>
         <div className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 font-mono text-sm">
@@ -163,9 +163,13 @@ export function ClientShell({ initialPicks }: { initialPicks: PicksResponse }) {
               <li>
                 <span className="font-mono text-ink">Score</span>
                 {' '}—{' '}
-                <span className="font-mono">edge × confidence</span>.
-                The default sort. Higher score = stronger play, accounting for both edge and
-                how reliable the inputs are.{' '}
+                <span className="font-mono">
+                  (p̂<sub>today</sub> − p̂<sub>typical</sub>) ÷ (1 − p̂<sub>typical</sub>) × confidence
+                </span>.
+                Kelly bet fraction × confidence — answers &ldquo;how much would Kelly bet on
+                this at fair-typical odds, weighted by data quality.&rdquo; Variance-aware, so
+                longshots get sized down even when their relative edge is huge. The default
+                sort.{' '}
                 <span className="text-tracked">🔥 Tracked</span>
                 {' '}rows clear all rung floors; everything below is &ldquo;Other plays.&rdquo;
               </li>

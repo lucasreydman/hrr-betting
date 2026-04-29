@@ -45,17 +45,28 @@ export default function Methodology() {
       </Section>
 
       <Section heading="EDGE & SCORE">
-        <p>The model&apos;s single ranking metric:</p>
+        <p>The model surfaces two related metrics. <Code>EDGE</Code> describes the matchup; <Code>SCORE</Code> ranks the plays:</p>
         <CodeBlock>
 {`EDGE  = max(P_matchup, 0.01) / max(P_typical, 0.01) − 1
-SCORE = EDGE × confidence`}
+KELLY = (P_matchup − P_typical) / (1 − P_typical)
+SCORE = KELLY × confidence`}
         </CodeBlock>
         <p>
           <Code>P_matchup</Code> is the model&apos;s probability for clearing the rung in this specific matchup
           (from the simulator). <Code>P_typical</Code> is the same player&apos;s average probability across their
           season&apos;s actual matchups — this is the key denominator that isolates <em>matchup</em> edge from
           <em> player skill</em> (since books already price skill into the line). Both numerator and denominator
-          are floored at 1% so that two equally-tiny probabilities don&apos;t produce a misleading huge edge.
+          of <Code>EDGE</Code> are floored at 1% so two equally-tiny probabilities don&apos;t produce a
+          misleading huge edge.
+        </p>
+        <p>
+          <Code>SCORE</Code> uses the <Code>KELLY</Code> bet fraction rather than relative <Code>EDGE</Code> so
+          long-shot variance is priced in. The relative edge formulation rewards rarity — a 3+ HRR play with
+          P_typical ≈ 10% trivially produces +90% edge for modest absolute gains. Kelly&apos;s denominator
+          <Code>(1 − P_typical)</Code> flips that: high-probability plays where you can win a lot of bets get
+          rewarded, and low-probability plays get sized down the way a bankroll model would. The score directly
+          answers <em>&ldquo;what fraction of bankroll would Kelly bet on this play at fair-typical odds,
+          weighted by data quality.&rdquo;</em>
         </p>
         <p>
           <Code>confidence</Code> is a graded multiplier (0.55–1.00) based on lineup confirmation, BvP sample

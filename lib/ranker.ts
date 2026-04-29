@@ -411,7 +411,7 @@ export async function rankPicks(date: string): Promise<PicksResponse> {
         const pMatchup = probTodayResult.probToday  // kept as pMatchup to avoid renaming Pick type
 
         const edge = computeEdge({ pMatchup, pTypical: pTyp })
-        const score = computeScore({ edge, confidence })
+        const score = computeScore({ pMatchup, pTypical: pTyp, confidence })
 
         if (!sidePassesGates) continue
 
