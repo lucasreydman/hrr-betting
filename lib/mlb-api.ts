@@ -44,6 +44,14 @@ const TTL_6H = 6 * 60 * 60
 /** Long cache TTL for expensive season-aggregation calls: 24 hours */
 const TTL_24H = 24 * 60 * 60
 
+/**
+ * Short TTL for the schedule. Schedule rows include `game.status` which flips
+ * scheduled → in_progress → final throughout the day; that flip drives pitcher
+ * status (probable → confirmed) and gating in the ranker. 2 min matches the
+ * refresh-cron cadence so each cron tick sees fresh status.
+ */
+const TTL_SCHEDULE = 2 * 60
+
 const LEAGUE_AVG_FIP = 4.05
 const LEAGUE_AVG_K_PCT = 0.222
 const LEAGUE_AVG_BB_PCT = 0.082
@@ -287,7 +295,9 @@ function toTeamRef(t: { id: number; name: string; abbreviation?: string }): Team
  * 6-hour KV cache.
  */
 export async function fetchSchedule(date: string): Promise<Game[]> {
-  const cacheKey = `hrr:schedule:${date}`
+  // Key bumped to v2 alongside the TTL cut from 6h → 2min so old 6h-cached rows
+  // don't continue serving stale `game.status` until they organically expire.
+  const cacheKey = `hrr:schedule:v2:${date}`
   const cached = await kvGet<Game[]>(cacheKey)
   if (cached) return cached
 
@@ -310,7 +320,7 @@ export async function fetchSchedule(date: string): Promise<Game[]> {
       status:    mapGameStatus(g),
     }))
 
-  await kvSet(cacheKey, games, TTL_6H)
+  await kvSet(cacheKey, games, TTL_SCHEDULE)
   return games
 }
 
