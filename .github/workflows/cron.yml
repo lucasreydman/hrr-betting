@@ -23,15 +23,15 @@ on:
     - cron: '*/5 17-23 * * *'
     - cron: '*/5 0-7 * * *'
 
-  # Allow manual trigger from GitHub UI (Actions tab → Run workflow)
+  # Allow manual trigger from GitHub UI (Actions tab → Run workflow) or `gh workflow run`
   workflow_dispatch:
     inputs:
       job:
         description: 'Which job to run manually'
         required: true
-        default: 'lock'
+        default: 'refresh'
         type: choice
-        options: [lock, settle]
+        options: [lock, settle, refresh, typical-full, typical-slate]
       date:
         description: 'Date override (YYYY-MM-DD; default = current ET-3AM slate).'
         required: false
@@ -59,13 +59,15 @@ jobs:
             "${{ secrets.VERCEL_DEPLOY_URL }}/api/settle"
 
   typical-sim:
-    if: github.event_name == 'schedule' && (github.event.schedule == '0 8 * * 0' || github.event.schedule == '0 8 * * 1-6')
+    if: |
+      (github.event_name == 'schedule' && (github.event.schedule == '0 8 * * 0' || github.event.schedule == '0 8 * * 1-6')) ||
+      (github.event_name == 'workflow_dispatch' && (github.event.inputs.job == 'typical-full' || github.event.inputs.job == 'typical-slate'))
     runs-on: ubuntu-latest
     steps:
       - name: Determine mode
         id: mode
         run: |
-          if [ "${{ github.event.schedule }}" = '0 8 * * 0' ]; then
+          if [ "${{ github.event.schedule }}" = '0 8 * * 0' ] || [ "${{ github.event.inputs.job }}" = 'typical-full' ]; then
             echo "mode=full" >> $GITHUB_OUTPUT
           else
             echo "mode=slate" >> $GITHUB_OUTPUT
@@ -76,7 +78,7 @@ jobs:
         run: |
           TOMORROW=$(TZ='America/New_York' date -d 'tomorrow' +%Y-%m-%d)
           IDS=$(curl -fsS -H "x-cron-secret: ${{ secrets.CRON_SECRET }}" \
-            "${{ secrets.APP_BASE_URL }}/api/sim/typical-slate-ids?date=$TOMORROW")
+            "${{ secrets.VERCEL_DEPLOY_URL }}/api/sim/typical-slate-ids?date=$TOMORROW")
           echo "ids=$IDS" >> $GITHUB_OUTPUT
       - name: Trigger full-mode sim
         if: steps.mode.outputs.mode == 'full'
@@ -84,7 +86,7 @@ jobs:
           curl -fsS -X POST -H "x-cron-secret: ${{ secrets.CRON_SECRET }}" \
             -H "content-type: application/json" \
             -d '{"mode":"full"}' \
-            "${{ secrets.APP_BASE_URL }}/api/sim/typical"
+            "${{ secrets.VERCEL_DEPLOY_URL }}/api/sim/typical"
       - name: Trigger slate-mode per-player calls
         if: steps.mode.outputs.mode == 'slate'
         run: |
@@ -92,12 +94,14 @@ jobs:
             curl -fsS -X POST -H "x-cron-secret: ${{ secrets.CRON_SECRET }}" \
               -H "content-type: application/json" \
               -d "{\"mode\":\"player\",\"playerId\":$pid}" \
-              "${{ secrets.APP_BASE_URL }}/api/sim/typical" &
+              "${{ secrets.VERCEL_DEPLOY_URL }}/api/sim/typical" &
           done
           wait
 
   slate-refresh:
-    if: github.event_name == 'schedule' && (github.event.schedule == '*/2 17-23 * * *' || github.event.schedule == '*/2 0-7 * * *')
+    if: |
+      (github.event_name == 'schedule' && (github.event.schedule == '*/2 17-23 * * *' || github.event.schedule == '*/2 0-7 * * *')) ||
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.job == 'refresh')
     runs-on: ubuntu-latest
     steps:
       - name: Trigger /api/refresh
@@ -105,4 +109,4 @@ jobs:
           curl -fsS -X POST -H "x-cron-secret: ${{ secrets.CRON_SECRET }}" \
             -H "content-type: application/json" \
             -d '{"scope":"today"}' \
-            "${{ secrets.APP_BASE_URL }}/api/refresh"
+            "${{ secrets.VERCEL_DEPLOY_URL }}/api/refresh"
