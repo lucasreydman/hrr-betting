@@ -419,9 +419,17 @@ function MathPanel({ pick, localTime }: { pick: Pick; localTime: ReturnType<type
 }
 
 function RungBadge({ rung }: { rung: 1 | 2 | 3 }) {
+  // Progressively deeper blue from 1+ → 3+ to give the rare-rung pills a
+  // visual weight cue. All three remain readable on the dark card background.
+  const cls =
+    rung === 1
+      ? 'border-sky-300/40 bg-sky-300/10 text-sky-300'
+      : rung === 2
+      ? 'border-sky-400/50 bg-sky-400/15 text-sky-400'
+      : 'border-blue-500/60 bg-blue-500/20 text-blue-400'
   return (
     <span
-      className="shrink-0 rounded border border-accent/40 bg-accent/10 px-1.5 py-0.5 font-mono text-[10px] font-medium uppercase tracking-wider leading-none text-accent"
+      className={`shrink-0 rounded border px-1.5 py-0.5 font-mono text-[10px] font-medium uppercase tracking-wider leading-none ${cls}`}
       title={`Targeting ${rung}+ HRR rung`}
     >
       {rung}+ HRR
