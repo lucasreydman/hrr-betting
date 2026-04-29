@@ -51,9 +51,7 @@ export function Board({ picks }: { picks: PickWithRung[] }) {
     () => watchingAll.slice(0, Math.max(0, TOTAL_CAP - tracked.length)),
     [watchingAll, tracked.length],
   )
-  const totalAvailable = trackedAll.length + watchingAll.length
   const totalShown = tracked.length + watching.length
-  const truncated = totalAvailable > totalShown
 
   // Don't allow zero rungs — keeps the board from going empty in a confusing way.
   const toggleRung = (r: 1 | 2 | 3) => {
@@ -105,11 +103,8 @@ export function Board({ picks }: { picks: PickWithRung[] }) {
           </button>
         </div>
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-          <span
-            className="font-mono text-[11px] tabular-nums text-ink-muted"
-            title={truncated ? `Board capped at ${TOTAL_CAP} plays` : undefined}
-          >
-            {truncated ? `${totalShown} of ${totalAvailable}` : `${totalShown} plays`}
+          <span className="font-mono text-[11px] tabular-nums text-ink-muted">
+            {totalShown} {totalShown === 1 ? 'play' : 'plays'}
           </span>
           <label className="flex items-center gap-2">
             <span className="text-[11px] uppercase tracking-wider text-ink-muted">Sort by</span>
