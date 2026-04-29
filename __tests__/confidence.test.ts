@@ -10,6 +10,15 @@ describe('passesHardGates', () => {
     })).toBe(false)
   })
 
+  test('final game passes — kept in the data so the live board can show outcome', () => {
+    expect(passesHardGates({
+      gameStatus: 'final',
+      probableStarterId: 543037,
+      lineupStatus: 'confirmed',
+      expectedPA: 4,
+    })).toBe(true)
+  })
+
   test('TBD pitcher (null id) fails', () => {
     expect(passesHardGates({
       gameStatus: 'scheduled',

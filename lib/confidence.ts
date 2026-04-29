@@ -10,9 +10,16 @@ export interface HardGateInputs {
 /**
  * Hard gates that, if any fail, the pick is dropped entirely (not even shown
  * as Watching). Returns true if ALL gates pass.
+ *
+ * `final` games used to be dropped here, which produced a confusing UX: when
+ * a game ended, every pick from that game vanished from the live board and
+ * didn't reappear until the next morning's settle cron populated /history.
+ * Now we keep finalised picks in the data and let the UI mark them as FINAL
+ * with the actual HIT/MISS outcome (computed from the boxscore by the
+ * ranker). Postponed games still drop — there's no game to settle.
  */
 export function passesHardGates(args: HardGateInputs): boolean {
-  if (args.gameStatus === 'postponed' || args.gameStatus === 'final') return false
+  if (args.gameStatus === 'postponed') return false
   if (args.probableStarterId == null) return false
   if (args.lineupStatus == null) return false
   if (args.expectedPA < 3) return false

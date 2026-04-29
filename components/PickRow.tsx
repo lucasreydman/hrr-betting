@@ -140,10 +140,30 @@ function LiveBadge({ inning }: { inning?: Pick['gameInning'] }) {
   )
 }
 
-function FinalBadge() {
+function FinalBadge({ outcome, actualHRR }: { outcome?: Pick['outcome']; actualHRR?: number }) {
+  if (outcome === 'HIT') {
+    return (
+      <span className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-hit">
+        FINAL
+        <span className="text-hit/60" aria-hidden="true">·</span>
+        <span aria-hidden="true">✓</span>
+        <span>HIT{actualHRR != null ? ` (${actualHRR})` : ''}</span>
+      </span>
+    )
+  }
+  if (outcome === 'MISS') {
+    return (
+      <span className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-miss">
+        FINAL
+        <span className="text-miss/60" aria-hidden="true">·</span>
+        <span aria-hidden="true">✗</span>
+        <span>MISS{actualHRR != null ? ` (${actualHRR})` : ''}</span>
+      </span>
+    )
+  }
   return (
     <span className="text-[10px] font-semibold uppercase tracking-wider text-ink-muted">
-      FINAL
+      FINAL{outcome === 'PENDING' ? ' · pending' : ''}
     </span>
   )
 }
@@ -553,7 +573,7 @@ export function PickRow({ pick, rung }: { pick: Pick; rung?: 1 | 2 | 3 }) {
             {pick.gameStatus === 'in_progress' ? (
               <LiveBadge inning={pick.gameInning} />
             ) : pick.gameStatus === 'final' ? (
-              <FinalBadge />
+              <FinalBadge outcome={pick.outcome} actualHRR={pick.actualHRR} />
             ) : firstPitchCountdown ? (
               <span className="block text-[10px] text-ink-muted/70">
                 {firstPitchCountdown}
@@ -653,7 +673,7 @@ export function PickRow({ pick, rung }: { pick: Pick; rung?: 1 | 2 | 3 }) {
             {pick.gameStatus === 'final' && (
               <>
                 <span className="text-ink-muted/50" aria-hidden="true">·</span>
-                <FinalBadge />
+                <FinalBadge outcome={pick.outcome} actualHRR={pick.actualHRR} />
               </>
             )}
           </div>

@@ -28,6 +28,7 @@ import {
   fetchBatterSeasonStats,
   fetchBvP,
   fetchPeople,
+  fetchBoxscore,
 } from './mlb-api'
 import { fetchLineup } from './lineup'
 import { getHrParkFactorForBatter, getParkVenueName } from './park-factors'
@@ -134,6 +135,15 @@ export interface Pick {
   confidence: number
   score: number
   tier: 'tracked' | 'watching'
+  /**
+   * Live-settled outcome for picks whose game has finalised. Populated by
+   * the ranker after the main score loop, by fetching the boxscore and
+   * comparing the player's actual HRR total to the rung. Undefined for
+   * non-final games.
+   */
+  outcome?: 'HIT' | 'MISS' | 'PENDING'
+  /** Player's actual HRR total from the boxscore, when known. */
+  actualHRR?: number
   /**
    * The math inputs that produced confidence × edge, surfaced for the UI's
    * "show me the math" panel. Optional because settled-history rows from the
@@ -461,6 +471,52 @@ export async function rankPicks(date: string): Promise<PicksResponse> {
   }
 
   const byScoreDesc = (a: Pick, b: Pick) => b.score - a.score
+
+  // Live-settle picks for final games. Closes the lifecycle gap between
+  // game-end and the daily settle cron at 6 AM ET — picks now show ✓ HIT or
+  // ✗ MISS on the live board the moment the boxscore is final, instead of
+  // disappearing for the rest of the slate.
+  const finalGameIds = new Set(games.filter(g => g.status === 'final').map(g => g.gameId))
+  if (finalGameIds.size > 0) {
+    const allPicks: Pick[] = [...rung1Picks, ...rung2Picks, ...rung3Picks]
+    const finalPicks = allPicks.filter(p => finalGameIds.has(p.gameId))
+    if (finalPicks.length > 0) {
+      const distinctGameIds = [...new Set(finalPicks.map(p => p.gameId))]
+      const boxByGame = new Map<number, Awaited<ReturnType<typeof fetchBoxscore>>>()
+      await Promise.all(
+        distinctGameIds.map(async gid => {
+          try {
+            boxByGame.set(gid, await fetchBoxscore(gid))
+          } catch {
+            // Boxscore unavailable — leave outcome undefined; UI shows FINAL with no badge.
+          }
+        }),
+      )
+      // Need rung context for the HIT/MISS comparison; iterate per-rung arrays.
+      const rungArrays: Array<[Rung, Pick[]]> = [[1, rung1Picks], [2, rung2Picks], [3, rung3Picks]]
+      for (const [rung, arr] of rungArrays) {
+        for (const pick of arr) {
+          if (!finalGameIds.has(pick.gameId)) continue
+          const box = boxByGame.get(pick.gameId)
+          if (!box || box.status !== 'final') {
+            pick.outcome = 'PENDING'
+            continue
+          }
+          const stats = box.playerStats[pick.player.playerId]
+          if (!stats) {
+            // Player didn't appear in the boxscore (didn't bat). Counts as a MISS
+            // — the rung threshold (≥1 HRR) wasn't reached.
+            pick.outcome = 'MISS'
+            pick.actualHRR = 0
+            continue
+          }
+          const hrr = stats.hits + stats.runs + stats.rbis
+          pick.actualHRR = hrr
+          pick.outcome = hrr >= rung ? 'HIT' : 'MISS'
+        }
+      }
+    }
+  }
 
   // Tally game states for the slate-progress chip in the status banner.
   const gameStates = { scheduled: 0, inProgress: 0, final: 0, postponed: 0 }
