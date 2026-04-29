@@ -115,52 +115,59 @@ export function ClientShell({ initialPicks }: { initialPicks: PicksResponse }) {
             </p>
             <ul className="space-y-1 text-xs">
               <li>
-                <span className="font-mono text-ink">Bet</span> — rung tier:
-                <span className="ml-1">1+ HRR (most likely), 2+ HRR (mid), 3+ HRR (long shot).</span>
+                <span className="font-mono text-ink">Bet</span>
+                {' '}— rung tier: 1+ HRR (most likely), 2+ HRR (mid), 3+ HRR (long shot).
                 A batter can show up at multiple rungs.
               </li>
               <li>
-                <span className="font-mono text-ink">Batter</span> — name, batting hand,
-                and lineup-status pill (<span className="text-hit">confirmed</span> /
-                <span className="text-warn"> partial</span> /
-                <span className="text-yellow-300"> estimated</span>) with batting-order slot.
+                <span className="font-mono text-ink">Batter</span>
+                {' '}— name, batting hand, and lineup-status pill with batting-order slot:{' '}
+                <span className="text-hit">confirmed</span>
+                {' '}= full 9-batter lineup posted,{' '}
+                <span className="text-yellow-300">estimated</span>
+                {' '}= no lineup yet, predicted from the team&apos;s recent batting-order history.
               </li>
               <li>
-                <span className="font-mono text-ink">Pitcher</span> — opposing starter, throws
-                hand, and confirmation status.
+                <span className="font-mono text-ink">Pitcher</span>
+                {' '}— opposing starter, throws hand, and confirmation status.
               </li>
               <li>
-                <span className="font-mono text-ink">Game</span> — matchup, first pitch local
-                time, countdown / <span className="text-miss">LIVE</span> / FINAL.
+                <span className="font-mono text-ink">Game</span>
+                {' '}— matchup, first pitch local time, countdown /{' '}
+                <span className="text-miss">LIVE</span>
+                {' '}/ FINAL.
               </li>
               <li>
-                <span className="font-mono text-ink">p̂<sub>typical</sub></span> — estimated
-                probability of the bet hitting in this batter&apos;s <em>typical</em> matchup
-                (his baseline, from a 20k-iteration Monte Carlo). Shown as % over the fair
-                American odds.
+                <span className="font-mono text-ink">p̂<sub>typical</sub></span>
+                {' '}— estimated probability of the bet hitting in this batter&apos;s{' '}
+                <em>typical</em> matchup (his baseline, from a 20k-iteration Monte Carlo).
+                Shown as % over the fair American odds.
               </li>
               <li>
-                <span className="font-mono text-ink">p̂<sub>today</sub></span> — estimated
-                probability of the bet hitting <em>today</em>, after applying the pitcher,
-                park, weather, handedness, bullpen, and PA-count adjustments. If a sportsbook
-                offers worse than this fair line, you&apos;re getting positive EV.
+                <span className="font-mono text-ink">p̂<sub>today</sub></span>
+                {' '}— estimated probability of the bet hitting <em>today</em>, after applying
+                the pitcher, park, weather, handedness, bullpen, and PA-count adjustments.
+                If a sportsbook offers worse than this fair line, you&apos;re getting positive EV.
               </li>
               <li>
-                <span className="font-mono text-ink">Edge</span> — how much better today is
-                than typical: <span className="font-mono">p̂<sub>today</sub> ÷ p̂<sub>typical</sub> − 1</span>.
+                <span className="font-mono text-ink">Edge</span>
+                {' '}— how much better today is than typical:{' '}
+                <span className="font-mono">p̂<sub>today</sub> ÷ p̂<sub>typical</sub> − 1</span>.
                 Positive = unusually favorable matchup.
               </li>
               <li>
-                <span className="font-mono text-ink">Conf</span> — confidence multiplier
-                (lineup confirmation, BvP sample size, pitcher start sample, weather stability,
-                time-to-first-pitch, opener-risk).
+                <span className="font-mono text-ink">Conf</span>
+                {' '}— confidence multiplier (lineup confirmation, BvP sample size, pitcher
+                start sample, weather stability, time-to-first-pitch, opener-risk).
               </li>
               <li>
-                <span className="font-mono text-ink">Score</span> —
-                <span className="font-mono"> edge × confidence</span>. The default sort.
-                Higher score = stronger play, accounting for both edge and how reliable the
-                inputs are. <span className="text-tracked">🔥 Tracked</span> rows clear all
-                rung floors; everything below is &ldquo;Other plays.&rdquo;
+                <span className="font-mono text-ink">Score</span>
+                {' '}—{' '}
+                <span className="font-mono">edge × confidence</span>.
+                The default sort. Higher score = stronger play, accounting for both edge and
+                how reliable the inputs are.{' '}
+                <span className="text-tracked">🔥 Tracked</span>
+                {' '}rows clear all rung floors; everything below is &ldquo;Other plays.&rdquo;
               </li>
             </ul>
           </div>
