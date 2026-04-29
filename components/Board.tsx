@@ -25,11 +25,38 @@ const RUNG_TOOLTIPS: Record<1 | 2 | 3, string> = {
   3: '3+ HRR · floor: prob ≥ 20%, edge ≥ 60%',
 }
 
+type GameStatusFilter = 'upcoming' | 'live' | 'settled'
+
+const STATUS_LABELS: Record<GameStatusFilter, string> = {
+  upcoming: 'Upcoming',
+  live: 'Live',
+  settled: 'Settled',
+}
+
+const STATUS_TOOLTIPS: Record<GameStatusFilter, string> = {
+  upcoming: 'Games that haven\'t started yet (scheduled)',
+  live: 'Games currently in progress',
+  settled: 'Games that have finished (final)',
+}
+
+/** Map a Pick's gameStatus to one of the three filter buckets. */
+function bucketForStatus(status: PickWithRung['gameStatus']): GameStatusFilter {
+  if (status === 'in_progress') return 'live'
+  if (status === 'final') return 'settled'
+  // 'scheduled', 'postponed', and undefined all bucket as upcoming — postponed
+  // is filtered upstream so we won't actually see it; undefined comes from
+  // legacy locked-pick rows hydrated from the DB.
+  return 'upcoming'
+}
+
 const TOTAL_CAP = 50
 
 export function Board({ picks }: { picks: PickWithRung[] }) {
   const [sortKey, setSortKey] = useState<SortKey>('score')
   const [enabledRungs, setEnabledRungs] = useState<Set<1 | 2 | 3>>(new Set([1, 2, 3]))
+  const [enabledStatuses, setEnabledStatuses] = useState<Set<GameStatusFilter>>(
+    new Set(['upcoming', 'live', 'settled']),
+  )
   const [trackedOnly, setTrackedOnly] = useState(false)
 
   // The "universe" is the top TOTAL_CAP plays across the full slate, ranked by
@@ -43,8 +70,14 @@ export function Board({ picks }: { picks: PickWithRung[] }) {
   )
 
   const visible = useMemo(
-    () => universe.filter(p => enabledRungs.has(p.rung) && (!trackedOnly || p.tier === 'tracked')),
-    [universe, enabledRungs, trackedOnly],
+    () =>
+      universe.filter(
+        p =>
+          enabledRungs.has(p.rung) &&
+          enabledStatuses.has(bucketForStatus(p.gameStatus)) &&
+          (!trackedOnly || p.tier === 'tracked'),
+      ),
+    [universe, enabledRungs, enabledStatuses, trackedOnly],
   )
 
   const tracked = useMemo(
@@ -70,6 +103,18 @@ export function Board({ picks }: { picks: PickWithRung[] }) {
     })
   }
 
+  const toggleStatus = (s: GameStatusFilter) => {
+    setEnabledStatuses(prev => {
+      const next = new Set(prev)
+      if (next.has(s)) {
+        if (next.size > 1) next.delete(s)
+      } else {
+        next.add(s)
+      }
+      return next
+    })
+  }
+
   return (
     <section className="overflow-hidden rounded-lg border border-border bg-card/20" aria-label="Picks board">
       <header className="flex flex-wrap items-center justify-between gap-x-4 gap-y-3 border-b border-border bg-card/50 px-3 py-3 sm:px-4">
@@ -90,6 +135,24 @@ export function Board({ picks }: { picks: PickWithRung[] }) {
               }
             >
               {r}+
+            </button>
+          ))}
+          <span className="ml-2 text-[11px] uppercase tracking-wider text-ink-muted">Game</span>
+          {(['upcoming', 'live', 'settled'] as const).map(s => (
+            <button
+              key={s}
+              type="button"
+              onClick={() => toggleStatus(s)}
+              title={STATUS_TOOLTIPS[s]}
+              aria-pressed={enabledStatuses.has(s)}
+              className={
+                'rounded border px-2 py-0.5 font-mono text-xs tabular-nums transition-colors ' +
+                (enabledStatuses.has(s)
+                  ? 'border-tracked/60 bg-tracked/10 text-tracked'
+                  : 'border-border bg-card/30 text-ink-muted hover:bg-card/60')
+              }
+            >
+              {STATUS_LABELS[s]}
             </button>
           ))}
           <button
