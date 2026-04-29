@@ -49,14 +49,14 @@ function bucketForStatus(status: PickWithRung['gameStatus']): GameStatusFilter {
   return 'upcoming'
 }
 
-// Per-rung universe quotas. Total cap = 60. Tracked plays for a rung always
+// Per-rung universe quotas. Total cap = 30. Tracked plays for a rung always
 // show (no cap on tracked); watching plays for that rung fill up to the quota.
 // Without this, Kelly's variance penalty would erase 3+ HRR longshots from the
 // board entirely — the rung filter chip would be permanently empty.
 const RUNG_QUOTAS: Record<1 | 2 | 3, number> = {
-  1: 30,
-  2: 20,
-  3: 10,
+  1: 15,
+  2: 10,
+  3: 5,
 }
 
 export function Board({ picks }: { picks: PickWithRung[] }) {
