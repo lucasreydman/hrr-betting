@@ -52,6 +52,15 @@ const TTL_24H = 24 * 60 * 60
  */
 const TTL_SCHEDULE = 2 * 60
 
+/**
+ * Short TTL for *unfinalised* lineups (estimated / partial). Once an MLB lineup
+ * is fully posted (status: confirmed) it doesn't change for the rest of the
+ * game, so confirmed rows still get the long 6h TTL — but estimated and partial
+ * rows must turn over fast so we pick up the real lineup as soon as the team
+ * posts it.
+ */
+const TTL_LINEUP_PENDING = 2 * 60
+
 const LEAGUE_AVG_FIP = 4.05
 const LEAGUE_AVG_K_PCT = 0.222
 const LEAGUE_AVG_BB_PCT = 0.082
@@ -504,12 +513,11 @@ export async function fetchLineup(
   side:     'home' | 'away',
   date?:    string,
 ): Promise<Lineup> {
-  // `v2:` prefix bump (was `hrr:lineup:{gameId}:...`) — forces a re-fetch
-  // for any lineup cached under the old median-based slot logic, which
-  // could produce fractional slots like 4.5 and assign multiple players
-  // to the same slot. The new mode-based estimator guarantees integer
-  // slots 1-9 with no duplicates.
-  const cacheKey = `hrr:lineup:v2:${gameId}:${teamId}:${side}`
+  // `v3:` bump (was v2) — forces re-fetch of all lineups cached with the prior
+  // uniform 6h TTL, which kept estimated/partial rows stuck for hours after the
+  // real lineup posted. New writes use a status-aware TTL: confirmed → 6h,
+  // pending (partial/estimated) → 2 min so transitions land fast.
+  const cacheKey = `hrr:lineup:v3:${gameId}:${teamId}:${side}`
   const cached = await kvGet<Lineup>(cacheKey)
   if (cached) return cached
 
@@ -558,7 +566,8 @@ export async function fetchLineup(
         player: stubPlayerRef(p.id, p.fullName),
       }))
       const lineup = await enrichLineup({ status: 'partial', entries }, teamAbbrevForCache)
-      await kvSet(cacheKey, lineup, TTL_6H)
+      // Partial lineups will become confirmed soon — short TTL so we pick that up fast.
+      await kvSet(cacheKey, lineup, TTL_LINEUP_PENDING)
       return lineup
     }
   }
@@ -569,7 +578,9 @@ export async function fetchLineup(
     await buildEstimatedLineupForTeam(teamId, targetDate),
     teamAbbrevForCache,
   )
-  await kvSet(cacheKey, estimated, TTL_6H)
+  // Estimated lineups should turn over fast — the team will post a real lineup
+  // and we want to pick it up within minutes, not hours.
+  await kvSet(cacheKey, estimated, TTL_LINEUP_PENDING)
   return estimated
 }
 
