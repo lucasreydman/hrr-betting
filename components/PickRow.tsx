@@ -52,6 +52,30 @@ function useLocalTime(iso: string | undefined) {
   return t
 }
 
+function useTimeUntilFirstPitch(iso: string | undefined): string | null {
+  const [label, setLabel] = useState<string | null>(null)
+  useEffect(() => {
+    if (!iso) return
+    const target = new Date(iso).getTime()
+    if (Number.isNaN(target)) return
+    function tick() {
+      const ms = target - Date.now()
+      if (ms <= 0) {
+        setLabel(null)
+        return
+      }
+      const totalMin = Math.round(ms / 60000)
+      const hours = Math.floor(totalMin / 60)
+      const mins = totalMin % 60
+      setLabel(hours > 0 ? `first pitch in ${hours}h ${mins}m` : `first pitch in ${mins}m`)
+    }
+    tick()
+    const interval = setInterval(tick, 30_000)
+    return () => clearInterval(interval)
+  }, [iso])
+  return label
+}
+
 function LineupBadge({ status }: { status: Pick['lineupStatus'] }) {
   if (status === 'confirmed') {
     return (
@@ -359,6 +383,7 @@ export function PickRow({ pick }: { pick: Pick }) {
   const [expanded, setExpanded] = useState(false)
   const panelId = useId()
   const localTime = useLocalTime(pick.gameDate)
+  const firstPitchCountdown = useTimeUntilFirstPitch(pick.gameDate)
 
   // Derive "Away at Home" matchup string using team nicknames.
   // Falls back to abbreviation format for locked picks (teamId === 0 sentinel).
@@ -440,6 +465,11 @@ export function PickRow({ pick }: { pick: Pick }) {
               >
                 {localTime?.short ?? ' '}
               </time>
+            )}
+            {firstPitchCountdown && (
+              <span className="block text-[10px] text-ink-muted/70">
+                {firstPitchCountdown}
+              </span>
             )}
           </div>
 
