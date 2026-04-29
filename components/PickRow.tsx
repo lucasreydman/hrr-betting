@@ -438,26 +438,36 @@ export function PickRow({ pick, rung }: { pick: Pick; rung?: 1 | 2 | 3 }) {
         onKeyDown={onKeyDown}
         className={'w-full cursor-pointer px-3 py-3 text-left transition-colors sm:px-4 ' + rowFill}
       >
-        {/* Desktop: 8-column grid (player · game · p.typ · p.today · edge · conf · score · caret) */}
-        <div className="hidden sm:grid sm:grid-cols-[3fr_1.2fr_1fr_1fr_0.8fr_0.8fr_0.6fr_0.4fr] sm:items-center sm:gap-3">
-          {/* PLAYER — 3 lines: name+slot+hand+lineup-badge / vs pitcher+pitcher-badge */}
+        {/* Desktop: 10-column grid (bet · batter · pitcher · game · p.typ · p.today · edge · conf · score · caret) */}
+        <div className="hidden sm:grid sm:grid-cols-[0.7fr_1.6fr_1.4fr_1.2fr_0.85fr_0.85fr_0.7fr_0.7fr_0.6fr_0.3fr] sm:items-center sm:gap-3">
+          {/* BET — rung badge */}
           <div className="min-w-0">
-            {/* Line 1: fire · name · slot · hand · lineup status */}
+            {rung && <RungBadge rung={rung} />}
+          </div>
+
+          {/* BATTER — name+slot+hand+lineup-badge */}
+          <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
               {isTracked && <span className="text-tracked" aria-hidden="true">🔥</span>}
               <span className={'min-w-0 break-words font-semibold text-ink'}>
                 {pick.player.fullName}
               </span>
-              {rung && <RungBadge rung={rung} />}
               <span className="shrink-0 rounded bg-card-elevated px-1.5 py-0.5 font-mono text-[10px] tabular-nums text-ink-muted">
                 #{pick.lineupSlot}
               </span>
               <span className="text-xs text-ink-muted">{pick.player.bats}</span>
+            </div>
+            <div className="mt-0.5">
               <LineupBadge status={pick.lineupStatus} />
             </div>
-            {/* Line 2: vs pitcher · pitcher badge */}
-            <div className="mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs text-ink-muted">
-              <span>vs {pick.opposingPitcher.name}</span>
+          </div>
+
+          {/* PITCHER — name + status badge */}
+          <div className="min-w-0">
+            <div className="break-words text-sm text-ink">
+              {pick.opposingPitcher.name}
+            </div>
+            <div className="mt-0.5">
               <PitcherBadge status={pick.opposingPitcher.status} />
             </div>
           </div>

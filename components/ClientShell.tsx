@@ -89,7 +89,7 @@ export function ClientShell({ initialPicks }: { initialPicks: PicksResponse }) {
   )
 
   return (
-    <main className="mx-auto max-w-5xl space-y-6 px-3 py-6 sm:px-6 sm:py-8">
+    <main className="mx-auto max-w-screen-2xl space-y-6 px-3 py-6 sm:px-6 sm:py-8">
       <header className="space-y-2">
         <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">Today&apos;s board</h1>
         <p className="text-sm text-ink-muted">
