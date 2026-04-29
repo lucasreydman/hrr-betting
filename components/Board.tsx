@@ -32,26 +32,28 @@ export function Board({ picks }: { picks: PickWithRung[] }) {
   const [enabledRungs, setEnabledRungs] = useState<Set<1 | 2 | 3>>(new Set([1, 2, 3]))
   const [trackedOnly, setTrackedOnly] = useState(false)
 
-  const filtered = useMemo(
-    () => picks.filter(p => enabledRungs.has(p.rung) && (!trackedOnly || p.tier === 'tracked')),
-    [picks, enabledRungs, trackedOnly],
+  // The "universe" is the top TOTAL_CAP plays across the full slate, ranked by
+  // score. This is stable regardless of which filters the user toggles —
+  // filtering rungs or flipping "Tracked only" narrows what's *visible* from
+  // the universe, but never expands it. Sort changes only reorder the display
+  // within tier; the universe membership is always score-determined.
+  const universe = useMemo(
+    () => [...picks].sort((a, b) => b.score - a.score).slice(0, TOTAL_CAP),
+    [picks],
   )
 
-  const trackedAll = useMemo(
-    () => filtered.filter(p => p.tier === 'tracked').sort((a, b) => b[sortKey] - a[sortKey]),
-    [filtered, sortKey],
-  )
-  const watchingAll = useMemo(
-    () => filtered.filter(p => p.tier === 'watching').sort((a, b) => b[sortKey] - a[sortKey]),
-    [filtered, sortKey],
+  const visible = useMemo(
+    () => universe.filter(p => enabledRungs.has(p.rung) && (!trackedOnly || p.tier === 'tracked')),
+    [universe, enabledRungs, trackedOnly],
   )
 
-  // Cap the entire board at TOTAL_CAP rows. Tracked rows take priority — they
-  // fill slots first, then watching takes whatever's left.
-  const tracked = useMemo(() => trackedAll.slice(0, TOTAL_CAP), [trackedAll])
+  const tracked = useMemo(
+    () => visible.filter(p => p.tier === 'tracked').sort((a, b) => b[sortKey] - a[sortKey]),
+    [visible, sortKey],
+  )
   const watching = useMemo(
-    () => watchingAll.slice(0, Math.max(0, TOTAL_CAP - tracked.length)),
-    [watchingAll, tracked.length],
+    () => visible.filter(p => p.tier === 'watching').sort((a, b) => b[sortKey] - a[sortKey]),
+    [visible, sortKey],
   )
   const totalShown = tracked.length + watching.length
 
