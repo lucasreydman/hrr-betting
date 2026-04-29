@@ -49,7 +49,15 @@ function bucketForStatus(status: PickWithRung['gameStatus']): GameStatusFilter {
   return 'upcoming'
 }
 
-const TOTAL_CAP = 50
+// Per-rung universe quotas. Total cap = 60. Tracked plays for a rung always
+// show (no cap on tracked); watching plays for that rung fill up to the quota.
+// Without this, Kelly's variance penalty would erase 3+ HRR longshots from the
+// board entirely — the rung filter chip would be permanently empty.
+const RUNG_QUOTAS: Record<1 | 2 | 3, number> = {
+  1: 30,
+  2: 20,
+  3: 10,
+}
 
 export function Board({ picks }: { picks: PickWithRung[] }) {
   const [sortKey, setSortKey] = useState<SortKey>('score')
@@ -59,23 +67,28 @@ export function Board({ picks }: { picks: PickWithRung[] }) {
   )
   const [trackedOnly, setTrackedOnly] = useState(false)
 
-  // The "universe" is at most TOTAL_CAP plays from the full slate. Tracked
-  // plays always make the cut — they're the high-conviction picks and would
-  // otherwise lose a pure score sort to high-edge / low-prob long shots
-  // (a 3+ HRR play scores ~70, a 1+ tracked play scores ~12, so a naive top-50
-  // by score would erase the tracked tier). Watching plays fill any remaining
-  // slots, sorted by score. Universe membership is stable across filter
-  // toggles and sort changes; filters only narrow what's *visible* from it.
+  // The "universe" is built per-rung with a guaranteed minimum slot count for
+  // each (RUNG_QUOTAS). Tracked plays always make the cut — never capped —
+  // and watching plays fill any remaining slots up to the rung's quota,
+  // sorted by score. Without per-rung quotas, Kelly scoring (which heavily
+  // penalises longshot variance) would shut 3+ HRR plays out of the board
+  // entirely, since their Kelly scores rarely beat 1+/2+ tracked plays.
+  // Universe membership is stable across filter toggles and sort changes;
+  // filters only narrow what's *visible* from it.
   const universe = useMemo(() => {
-    const trackedAll = picks
-      .filter(p => p.tier === 'tracked')
-      .sort((a, b) => b.score - a.score)
-    const watchingAll = picks
-      .filter(p => p.tier === 'watching')
-      .sort((a, b) => b.score - a.score)
-    const trackedSlice = trackedAll.slice(0, TOTAL_CAP)
-    const watchingSlice = watchingAll.slice(0, Math.max(0, TOTAL_CAP - trackedSlice.length))
-    return [...trackedSlice, ...watchingSlice]
+    const result: PickWithRung[] = []
+    for (const rung of [1, 2, 3] as const) {
+      const rungPicks = picks.filter(p => p.rung === rung)
+      const trackedAll = rungPicks
+        .filter(p => p.tier === 'tracked')
+        .sort((a, b) => b.score - a.score)
+      const watchingAll = rungPicks
+        .filter(p => p.tier === 'watching')
+        .sort((a, b) => b.score - a.score)
+      const remainingSlots = Math.max(0, RUNG_QUOTAS[rung] - trackedAll.length)
+      result.push(...trackedAll, ...watchingAll.slice(0, remainingSlots))
+    }
+    return result
   }, [picks])
 
   const visible = useMemo(
