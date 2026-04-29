@@ -1,8 +1,8 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useMemo, useState, useCallback } from 'react'
 import type { PicksResponse } from '@/lib/ranker'
-import { BoardSection } from './BoardSection'
+import { Board, type PickWithRung } from './Board'
 import { StatusBanner } from './StatusBanner'
 import { SimWarmingProgress } from './SimWarmingProgress'
 
@@ -77,6 +77,17 @@ export function ClientShell({ initialPicks }: { initialPicks: PicksResponse }) {
     picks.rung2.filter(p => p.tier === 'tracked').length +
     picks.rung3.filter(p => p.tier === 'tracked').length
 
+  // Flatten the rung-keyed response into a single list, annotating each pick
+  // with its rung so the Board can show a rung badge and filter by it.
+  const allPicks = useMemo<PickWithRung[]>(
+    () => [
+      ...picks.rung1.map(p => ({ ...p, rung: 1 as const })),
+      ...picks.rung2.map(p => ({ ...p, rung: 2 as const })),
+      ...picks.rung3.map(p => ({ ...p, rung: 3 as const })),
+    ],
+    [picks],
+  )
+
   return (
     <main className="mx-auto max-w-5xl space-y-6 px-3 py-6 sm:px-6 sm:py-8">
       <header className="space-y-2">
@@ -126,11 +137,7 @@ export function ClientShell({ initialPicks }: { initialPicks: PicksResponse }) {
         </div>
       )}
 
-      <div className="space-y-6">
-        <BoardSection rung={1} picks={picks.rung1} />
-        <BoardSection rung={2} picks={picks.rung2} />
-        <BoardSection rung={3} picks={picks.rung3} />
-      </div>
+      <Board picks={allPicks} />
     </main>
   )
 }

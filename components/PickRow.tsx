@@ -378,7 +378,18 @@ function MathPanel({ pick, localTime }: { pick: Pick; localTime: ReturnType<type
   )
 }
 
-export function PickRow({ pick }: { pick: Pick }) {
+function RungBadge({ rung }: { rung: 1 | 2 | 3 }) {
+  return (
+    <span
+      className="shrink-0 rounded border border-accent/40 bg-accent/10 px-1.5 py-0.5 font-mono text-[10px] font-medium uppercase tracking-wider leading-none text-accent"
+      title={`Targeting ${rung}+ HRR rung`}
+    >
+      {rung}+ HRR
+    </span>
+  )
+}
+
+export function PickRow({ pick, rung }: { pick: Pick; rung?: 1 | 2 | 3 }) {
   const isTracked = pick.tier === 'tracked'
   const [expanded, setExpanded] = useState(false)
   const panelId = useId()
@@ -437,6 +448,7 @@ export function PickRow({ pick }: { pick: Pick }) {
               <span className={'min-w-0 break-words font-semibold text-ink'}>
                 {pick.player.fullName}
               </span>
+              {rung && <RungBadge rung={rung} />}
               <span className="shrink-0 rounded bg-card-elevated px-1.5 py-0.5 font-mono text-[10px] tabular-nums text-ink-muted">
                 #{pick.lineupSlot}
               </span>
@@ -525,11 +537,12 @@ export function PickRow({ pick }: { pick: Pick }) {
 
         {/* Mobile: stacked card layout */}
         <div className="sm:hidden">
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             {isTracked && <span className="text-tracked" aria-hidden="true">🔥</span>}
             <span className="min-w-0 break-words font-semibold text-ink">
               {pick.player.fullName}
             </span>
+            {rung && <RungBadge rung={rung} />}
             <span className="shrink-0 rounded bg-card-elevated px-1.5 py-0.5 font-mono text-[10px] tabular-nums text-ink-muted">
               #{pick.lineupSlot}
             </span>
