@@ -111,6 +111,8 @@ export interface Pick {
     id: number  // 0 when TBD
     name: string  // "TBD" when id is 0
     status: 'tbd' | 'probable' | 'confirmed'
+    /** Pitcher throws hand. Undefined for TBD starters or legacy locked-pick rows. */
+    throws?: 'R' | 'L' | 'S'
   }
   gameId: number
   /**
@@ -428,6 +430,9 @@ export async function rankPicks(date: string): Promise<PicksResponse> {
             id: opposingStarterId > 0 ? opposingStarterId : 0,
             name: opposingStarterId > 0 ? (pitcherNames.get(opposingStarterId) ?? `P ${opposingStarterId}`) : 'TBD',
             status: opposingPitcherStatus,
+            ...(opposingStarterId > 0 && pitcherPeople.get(opposingStarterId)?.throws
+              ? { throws: pitcherPeople.get(opposingStarterId)!.throws }
+              : {}),
           },
           gameId: game.gameId,
           gameDate: game.gameDate,

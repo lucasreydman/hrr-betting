@@ -76,28 +76,23 @@ function useTimeUntilFirstPitch(iso: string | undefined): string | null {
   return label
 }
 
-function LineupBadge({ status }: { status: Pick['lineupStatus'] }) {
-  if (status === 'confirmed') {
-    return (
-      <span
-        className="inline-flex items-center rounded border border-hit/40 bg-hit/10 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider leading-none text-hit"
-        title="Lineup confirmed"
-        aria-label="Lineup confirmed"
-      >
-        ✓ confirmed
-      </span>
-    )
-  }
-  if (status === 'partial') {
-    return (
-      <span className="rounded border border-warn/40 bg-warn/10 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider text-warn">
-        partial
-      </span>
-    )
-  }
+function LineupBadge({ status, slot }: { status: Pick['lineupStatus']; slot: number }) {
+  // confirmed = green, partial = orange, estimated = yellow.
+  // Slot number lives inside the pill so the row reads e.g. "estimated #3".
+  const cls =
+    status === 'confirmed'
+      ? 'border-hit/40 bg-hit/10 text-hit'
+      : status === 'partial'
+      ? 'border-warn/40 bg-warn/10 text-warn'
+      : 'border-yellow-400/40 bg-yellow-400/10 text-yellow-300'
+  const label = status === 'estimated' ? 'estimated' : status
   return (
-    <span className="rounded border border-border-strong/70 bg-border/30 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider text-ink-muted">
-      est.
+    <span
+      className={`inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider leading-none ${cls}`}
+      title={`Lineup ${label}, batting #${slot}`}
+    >
+      <span>{label}</span>
+      <span className="font-mono tabular-nums">#{slot}</span>
     </span>
   )
 }
@@ -445,27 +440,29 @@ export function PickRow({ pick, rung }: { pick: Pick; rung?: 1 | 2 | 3 }) {
             {rung && <RungBadge rung={rung} />}
           </div>
 
-          {/* BATTER — name+slot+hand+lineup-badge */}
+          {/* BATTER — name + hand + lineup-status-with-slot pill */}
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
               {isTracked && <span className="text-tracked" aria-hidden="true">🔥</span>}
               <span className={'min-w-0 break-words font-semibold text-ink'}>
                 {pick.player.fullName}
               </span>
-              <span className="shrink-0 rounded bg-card-elevated px-1.5 py-0.5 font-mono text-[10px] tabular-nums text-ink-muted">
-                #{pick.lineupSlot}
-              </span>
               <span className="text-xs text-ink-muted">{pick.player.bats}</span>
             </div>
             <div className="mt-0.5">
-              <LineupBadge status={pick.lineupStatus} />
+              <LineupBadge status={pick.lineupStatus} slot={pick.lineupSlot} />
             </div>
           </div>
 
-          {/* PITCHER — name + status badge */}
+          {/* PITCHER — name + throws-hand + status badge */}
           <div className="min-w-0">
-            <div className="break-words text-sm text-ink">
-              {pick.opposingPitcher.name}
+            <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
+              <span className="break-words text-sm text-ink">
+                {pick.opposingPitcher.name}
+              </span>
+              {pick.opposingPitcher.throws && (
+                <span className="text-xs text-ink-muted">{pick.opposingPitcher.throws}</span>
+              )}
             </div>
             <div className="mt-0.5">
               <PitcherBadge status={pick.opposingPitcher.status} />
@@ -553,14 +550,11 @@ export function PickRow({ pick, rung }: { pick: Pick; rung?: 1 | 2 | 3 }) {
               {pick.player.fullName}
             </span>
             {rung && <RungBadge rung={rung} />}
-            <span className="shrink-0 rounded bg-card-elevated px-1.5 py-0.5 font-mono text-[10px] tabular-nums text-ink-muted">
-              #{pick.lineupSlot}
-            </span>
           </div>
           <div className="mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs text-ink-muted">
             <span>{pick.player.bats}</span>
             <span className="text-ink-muted/50" aria-hidden="true">·</span>
-            <LineupBadge status={pick.lineupStatus} />
+            <LineupBadge status={pick.lineupStatus} slot={pick.lineupSlot} />
           </div>
           <div className="mt-0.5 flex flex-wrap items-baseline gap-x-1.5 text-xs text-ink-muted">
             <span className="font-mono">{gameMatchup}</span>
@@ -575,6 +569,7 @@ export function PickRow({ pick, rung }: { pick: Pick; rung?: 1 | 2 | 3 }) {
           </div>
           <div className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-xs text-ink-muted">
             <span>vs {pick.opposingPitcher.name}</span>
+            {pick.opposingPitcher.throws && <span>{pick.opposingPitcher.throws}</span>}
             <PitcherBadge status={pick.opposingPitcher.status} />
           </div>
 
