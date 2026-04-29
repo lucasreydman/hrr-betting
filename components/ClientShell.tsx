@@ -101,6 +101,70 @@ export function ClientShell({ initialPicks }: { initialPicks: PicksResponse }) {
           <span className="text-ink-muted">{date}</span>
           <span className="text-[11px] uppercase tracking-wider text-ink-muted">slate</span>
         </div>
+
+        <details className="group rounded-lg border border-border bg-card/20 text-sm">
+          <summary className="flex cursor-pointer items-center justify-between gap-2 px-3 py-2 text-ink-muted hover:text-ink">
+            <span>How to read this board</span>
+            <span aria-hidden="true" className="text-xs transition-transform group-open:rotate-180">▾</span>
+          </summary>
+          <div className="space-y-2 border-t border-border/50 px-3 py-3 text-ink-muted">
+            <p>
+              Each row is one prop bet — a single batter at a single rung. The board
+              ranks every available bet across all games, with the highest-conviction
+              plays at the top.
+            </p>
+            <ul className="space-y-1 text-xs">
+              <li>
+                <span className="font-mono text-ink">Bet</span> — rung tier:
+                <span className="ml-1">1+ HRR (most likely), 2+ HRR (mid), 3+ HRR (long shot).</span>
+                A batter can show up at multiple rungs.
+              </li>
+              <li>
+                <span className="font-mono text-ink">Batter</span> — name, batting hand,
+                and lineup-status pill (<span className="text-hit">confirmed</span> /
+                <span className="text-warn"> partial</span> /
+                <span className="text-yellow-300"> estimated</span>) with batting-order slot.
+              </li>
+              <li>
+                <span className="font-mono text-ink">Pitcher</span> — opposing starter, throws
+                hand, and confirmation status.
+              </li>
+              <li>
+                <span className="font-mono text-ink">Game</span> — matchup, first pitch local
+                time, countdown / <span className="text-miss">LIVE</span> / FINAL.
+              </li>
+              <li>
+                <span className="font-mono text-ink">p̂<sub>typical</sub></span> — estimated
+                probability of the bet hitting in this batter&apos;s <em>typical</em> matchup
+                (his baseline, from a 20k-iteration Monte Carlo). Shown as % over the fair
+                American odds.
+              </li>
+              <li>
+                <span className="font-mono text-ink">p̂<sub>today</sub></span> — estimated
+                probability of the bet hitting <em>today</em>, after applying the pitcher,
+                park, weather, handedness, bullpen, and PA-count adjustments. If a sportsbook
+                offers worse than this fair line, you&apos;re getting positive EV.
+              </li>
+              <li>
+                <span className="font-mono text-ink">Edge</span> — how much better today is
+                than typical: <span className="font-mono">p̂<sub>today</sub> ÷ p̂<sub>typical</sub> − 1</span>.
+                Positive = unusually favorable matchup.
+              </li>
+              <li>
+                <span className="font-mono text-ink">Conf</span> — confidence multiplier
+                (lineup confirmation, BvP sample size, pitcher start sample, weather stability,
+                time-to-first-pitch, opener-risk).
+              </li>
+              <li>
+                <span className="font-mono text-ink">Score</span> —
+                <span className="font-mono"> edge × confidence</span>. The default sort.
+                Higher score = stronger play, accounting for both edge and how reliable the
+                inputs are. <span className="text-tracked">🔥 Tracked</span> rows clear all
+                rung floors; everything below is &ldquo;Other plays.&rdquo;
+              </li>
+            </ul>
+          </div>
+        </details>
       </header>
 
       <StatusBanner

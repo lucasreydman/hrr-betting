@@ -9,12 +9,14 @@ export type PickWithRung = Pick & { rung: 1 | 2 | 3 }
 
 type SortKey = 'score' | 'pMatchup' | 'edge' | 'confidence' | 'pTypical'
 
+// p̂ = "p-hat", standard stats notation for an estimated probability. Used in
+// labels and column headers throughout the board.
 const SORT_LABELS: Record<SortKey, string> = {
   score: 'Score',
-  pMatchup: 'Prob Today',
+  pMatchup: 'p̂ today',
   edge: 'Edge',
   confidence: 'Confidence',
-  pTypical: 'Prob Typical',
+  pTypical: 'p̂ typical',
 }
 
 const RUNG_TOOLTIPS: Record<1 | 2 | 3, string> = {
@@ -130,8 +132,12 @@ export function Board({ picks }: { picks: PickWithRung[] }) {
         <div className="text-[11px] uppercase tracking-wider text-ink-muted">Batter</div>
         <div className="text-[11px] uppercase tracking-wider text-ink-muted">Pitcher</div>
         <div className="text-[11px] uppercase tracking-wider text-ink-muted">Game</div>
-        <div className="text-right text-[11px] uppercase tracking-wider text-ink-muted">Prob. Typical</div>
-        <div className="text-right text-[11px] uppercase tracking-wider text-ink-muted">Prob. Today</div>
+        <div className="text-right text-[11px] tracking-wider text-ink-muted">
+          p̂<sub className="text-[9px]">typical</sub>
+        </div>
+        <div className="text-right text-[11px] tracking-wider text-ink-muted">
+          p̂<sub className="text-[9px]">today</sub>
+        </div>
         <div className="text-right text-[11px] uppercase tracking-wider text-ink-muted">Edge</div>
         <div className="text-right text-[11px] uppercase tracking-wider text-ink-muted">Conf</div>
         <div className="text-right text-[11px] uppercase tracking-wider text-ink-muted">Score</div>
