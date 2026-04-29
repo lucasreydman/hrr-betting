@@ -162,8 +162,8 @@ function PitcherBadge({ status }: { status: Pick['opposingPitcher']['status'] })
 /** Section header inside the expanded panel. */
 function PanelSection({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <section className="space-y-2">
-      <h3 className="text-[11px] font-medium uppercase tracking-wider text-ink-muted">{title}</h3>
+    <section className="space-y-1">
+      <h3 className="text-[10px] font-medium uppercase tracking-wider text-ink-muted">{title}</h3>
       {children}
     </section>
   )
@@ -172,9 +172,9 @@ function PanelSection({ title, children }: { title: string; children: React.Reac
 /** Two-column "label · value" row; values right-aligned and monospace. */
 function KV({ label, children }: { label: React.ReactNode; children: React.ReactNode }) {
   return (
-    <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5 border-b border-border/30 py-1 last:border-b-0">
+    <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5 border-b border-border/20 py-0.5 last:border-b-0">
       <span className="text-xs text-ink-muted">{label}</span>
-      <span className="text-right font-mono text-sm tabular-nums text-ink">{children}</span>
+      <span className="text-right font-mono text-xs tabular-nums text-ink">{children}</span>
     </div>
   )
 }
@@ -225,7 +225,7 @@ function MathPanel({ pick, localTime }: { pick: Pick; localTime: ReturnType<type
   const denomFloored = pick.pTypical < edgeFloor
 
   return (
-    <div className="space-y-6 px-4 py-5 sm:grid sm:grid-cols-2 sm:gap-x-8 sm:gap-y-6 sm:space-y-0 sm:px-5">
+    <div className="space-y-3 px-3 py-3 sm:grid sm:grid-cols-2 sm:gap-x-6 sm:gap-y-3 sm:space-y-0 sm:px-4 sm:py-3">
       {/* ── Left column: game / context inputs ─────────────────────────── */}
       <PanelSection title="Matchup">
         <KV label="First pitch">
@@ -672,12 +672,23 @@ export function PickRow({ pick, rung }: { pick: Pick; rung?: 1 | 2 | 3 }) {
         </div>
       </div>
 
-      {/* Expanded math panel */}
-      {expanded && (
-        <div id={panelId} className="border-t border-border/40 bg-bg-soft/60">
-          <MathPanel pick={pick} localTime={localTime} />
+      {/* Expanded math panel — uses the grid-rows trick to animate smoothly
+          from height: 0 → auto. Outer grid transitions grid-template-rows;
+          inner div is min-h-0 + overflow-hidden so content doesn't peek. */}
+      <div
+        id={panelId}
+        className={
+          'grid transition-[grid-template-rows] duration-300 ease-out ' +
+          (expanded ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]')
+        }
+        aria-hidden={!expanded}
+      >
+        <div className="min-h-0 overflow-hidden">
+          <div className="border-t border-border/40 bg-bg-soft/60">
+            <MathPanel pick={pick} localTime={localTime} />
+          </div>
         </div>
-      )}
+      </div>
     </article>
   )
 }
