@@ -2,10 +2,12 @@ import { ClientShell } from '@/components/ClientShell'
 import { rankPicks } from '@/lib/ranker'
 import { slateDateString } from '@/lib/date-utils'
 
-// Revalidate the page every 60 s so the SSR'd HTML doesn't go stale faster
-// than the auto-refreshing client. The client also polls /api/picks every
-// 60 s and refetches on visibility change for true near-live updates.
-export const revalidate = 60
+// Force dynamic rendering. The page reads upstream MLB data + per-player
+// probTypical cache; on a cold cache, getPTypical() runs ~10s lazy-backfill
+// sims per player, which would time out static-page generation during build.
+// Dynamic rendering also means data is fresh on every request (the client
+// still polls /api/picks every 60s on top).
+export const dynamic = 'force-dynamic'
 
 export default async function Home() {
   // Single source of truth: ET 3AM-rollover slate date. The client doesn't

@@ -38,6 +38,11 @@ const LEAGUE_AVG_FALLBACK: number[] = [1.0, 0.65, 0.30, 0.10, 0.03]
 /**
  * Cache-only reader. Lazy-backfills on miss by running a single 20k-iter sim
  * inline (~10s). Logs a warning so cron-drift becomes visible.
+ *
+ * During Next.js build (NEXT_PHASE === 'phase-production-build'), the lazy
+ * backfill is suppressed and a fallback is returned: a 20k-iter sim per
+ * player × hundreds of players would blow the 60s static-page budget. At
+ * build time we render with fallbacks; cron + first request populate the cache.
  */
 export async function getPTypical(args: {
   playerId: number
@@ -46,6 +51,10 @@ export async function getPTypical(args: {
   const cacheKey = `typical:v1:${args.playerId}`
   const cached = await kvGet<PTypicalResult>(cacheKey)
   if (cached) return cached
+
+  if (process.env.NEXT_PHASE === 'phase-production-build') {
+    return makeFallback(args.playerId)
+  }
 
   console.warn(`[p-typical] cache miss for player ${args.playerId} — running inline backfill`)
   const result = await computeTypicalOffline({ playerId: args.playerId, season: args.season })
