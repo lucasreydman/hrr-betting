@@ -23,7 +23,7 @@ const RUNG_TOOLTIPS: Record<1 | 2 | 3, string> = {
   3: '3+ HRR · floor: prob ≥ 20%, edge ≥ 60%',
 }
 
-const TOTAL_CAP = 100
+const TOTAL_CAP = 50
 
 export function Board({ picks }: { picks: PickWithRung[] }) {
   const [sortKey, setSortKey] = useState<SortKey>('score')

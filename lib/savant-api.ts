@@ -1,13 +1,17 @@
 import Papa from 'papaparse'
 import type { BatterStatcast, PitcherStatcast } from './types'
 import { kvGet, kvSet } from './kv'
+import { slateDateString } from './date-utils'
 
-const KV_TTL_SECONDS = 12 * 60 * 60 // 12 hours
+// 24h TTL paired with a slate-aligned cache key — Savant updates a few times
+// per day and we don't want mid-game updates flipping plays previously given,
+// so the slate segment freezes the snapshot for the day.
+const KV_TTL_SECONDS = 24 * 60 * 60
 const SAVANT_CACHE_VERSION = 'v1'
 const MIN_REASONABLE_SAVANT_ROWS = 50
 
 function savantKey(type: 'batter' | 'pitcher', year: number): string {
-  return `savant:${type}:${SAVANT_CACHE_VERSION}:${year}`
+  return `savant:${type}:${SAVANT_CACHE_VERSION}:${year}:${slateDateString()}`
 }
 
 export type BatterStore = Record<number, BatterStatcast>

@@ -13,6 +13,22 @@ function signedPct(value: number): string {
 }
 
 /**
+ * Convert a probability (0-1) into American moneyline odds — the "fair" line a
+ * sportsbook would offer at zero juice. Below 50% returns a positive number
+ * (underdog), above 50% returns a negative number (favourite). Beating the
+ * displayed line means you're getting positive expected value.
+ */
+function americanOdds(p: number): string {
+  if (!Number.isFinite(p) || p <= 0 || p >= 1) return '—'
+  if (p >= 0.5) {
+    const v = Math.round((p / (1 - p)) * 100) * -1
+    return `${v}`
+  }
+  const v = Math.round(((1 - p) / p) * 100)
+  return `+${v}`
+}
+
+/**
  * Format an ISO timestamp into the *user's* local time. We can't compute
  * this during render and have it stay stable across hydration: the server
  * runs in UTC, the user's browser doesn't. We render a placeholder on the
@@ -93,6 +109,26 @@ function LineupBadge({ status, slot }: { status: Pick['lineupStatus']; slot: num
     >
       <span>{label}</span>
       <span className="font-mono tabular-nums">#{slot}</span>
+    </span>
+  )
+}
+
+function LiveBadge() {
+  return (
+    <span className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-miss">
+      <span
+        className="inline-block h-1.5 w-1.5 rounded-full bg-miss animate-pulse"
+        aria-hidden="true"
+      />
+      LIVE
+    </span>
+  )
+}
+
+function FinalBadge() {
+  return (
+    <span className="text-[10px] font-semibold uppercase tracking-wider text-ink-muted">
+      FINAL
     </span>
   )
 }
@@ -482,25 +518,35 @@ export function PickRow({ pick, rung }: { pick: Pick; rung?: 1 | 2 | 3 }) {
                 {localTime?.short ?? ' '}
               </time>
             )}
-            {firstPitchCountdown && (
+            {pick.gameStatus === 'in_progress' ? (
+              <LiveBadge />
+            ) : pick.gameStatus === 'final' ? (
+              <FinalBadge />
+            ) : firstPitchCountdown ? (
               <span className="block text-[10px] text-ink-muted/70">
                 {firstPitchCountdown}
               </span>
-            )}
+            ) : null}
           </div>
 
-          {/* PROB. TYPICAL */}
+          {/* PROB. TYPICAL — % over American odds */}
           <div className="text-right">
-            <span className="font-mono text-sm tabular-nums text-ink">
+            <div className="font-mono text-sm tabular-nums text-ink">
               {pct(pick.pTypical, 1)}
-            </span>
+            </div>
+            <div className="font-mono text-[10px] tabular-nums text-ink-muted">
+              {americanOdds(pick.pTypical)}
+            </div>
           </div>
 
-          {/* PROB. TODAY */}
+          {/* PROB. TODAY — % over American odds */}
           <div className="text-right">
-            <span className={'font-mono text-sm tabular-nums ' + (isTracked ? 'font-semibold text-ink' : 'text-ink')}>
+            <div className={'font-mono text-sm tabular-nums ' + (isTracked ? 'font-semibold text-ink' : 'text-ink')}>
               {pct(pick.pMatchup, 1)}
-            </span>
+            </div>
+            <div className="font-mono text-[10px] tabular-nums text-ink-muted">
+              {americanOdds(pick.pMatchup)}
+            </div>
           </div>
 
           {/* EDGE */}
@@ -566,6 +612,18 @@ export function PickRow({ pick, rung }: { pick: Pick; rung?: 1 | 2 | 3 }) {
                 </time>
               </>
             )}
+            {pick.gameStatus === 'in_progress' && (
+              <>
+                <span className="text-ink-muted/50" aria-hidden="true">·</span>
+                <LiveBadge />
+              </>
+            )}
+            {pick.gameStatus === 'final' && (
+              <>
+                <span className="text-ink-muted/50" aria-hidden="true">·</span>
+                <FinalBadge />
+              </>
+            )}
           </div>
           <div className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-xs text-ink-muted">
             <span>vs {pick.opposingPitcher.name}</span>
@@ -577,11 +635,15 @@ export function PickRow({ pick, rung }: { pick: Pick; rung?: 1 | 2 | 3 }) {
           <div className="mt-2 border-t border-border/30 pt-2">
             <div className="flex justify-between text-xs">
               <span className="text-ink-muted">Typical</span>
-              <span className="font-mono tabular-nums text-ink">{pct(pick.pTypical, 1)}</span>
+              <span className="font-mono tabular-nums text-ink">
+                {pct(pick.pTypical, 1)} <span className="text-[10px] text-ink-muted">/ {americanOdds(pick.pTypical)}</span>
+              </span>
             </div>
             <div className="flex justify-between text-xs">
               <span className="text-ink-muted">Today</span>
-              <span className={'font-mono tabular-nums ' + (isTracked ? 'font-semibold text-ink' : 'text-ink')}>{pct(pick.pMatchup, 1)}</span>
+              <span className={'font-mono tabular-nums ' + (isTracked ? 'font-semibold text-ink' : 'text-ink')}>
+                {pct(pick.pMatchup, 1)} <span className="text-[10px] text-ink-muted">/ {americanOdds(pick.pMatchup)}</span>
+              </span>
             </div>
             <div className="mt-1 flex gap-4 text-xs">
               <div className="flex items-baseline gap-1">

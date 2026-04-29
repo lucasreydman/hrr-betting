@@ -14,6 +14,7 @@
  */
 
 import { kvGet, kvSet } from './kv'
+import { slateDateString } from './date-utils'
 import type {
   Game,
   TeamRef,
@@ -38,11 +39,26 @@ import type {
 
 const MLB_BASE = 'https://statsapi.mlb.com/api/v1'
 
-/** Standard cache TTL: 6 hours in seconds */
+/**
+ * Long cache TTL: 6 hours. Used by data that genuinely doesn't change for the
+ * rest of the day once observed — confirmed lineups (stable post-posting) and
+ * finalised boxscores (game over, stats locked).
+ */
 const TTL_6H = 6 * 60 * 60
 
 /** Long cache TTL for expensive season-aggregation calls: 24 hours */
 const TTL_24H = 24 * 60 * 60
+
+/**
+ * Daily-refresh TTL: 1 hour. Used for season-cumulative data (pitcher/batter
+ * season stats, BvP, recent starts, bullpen aggregates, batter game logs) and
+ * for probable-pitcher announcements. These all move during the day — stats
+ * tick after games finalise, BvP grows when a matchup occurs, probables get
+ * announced/scratched. 1h is short enough that the slate-prep cron at 4am ET
+ * always sees fresh overnight stats and any intraday changes land within the
+ * hour, while still keeping per-request work bounded.
+ */
+const TTL_DAILY = 60 * 60
 
 /**
  * Short TTL for the schedule. Schedule rows include `game.status` which flips
@@ -364,7 +380,7 @@ export async function fetchProbablePitchers(
     away: game?.teams.away.probablePitcher?.id ?? 0,
   }
 
-  await kvSet(cacheKey, result, TTL_6H)
+  await kvSet(cacheKey, result, TTL_DAILY)
   return result
 }
 
@@ -789,7 +805,9 @@ export async function fetchPitcherSeasonStats(
   pitcherId: number,
   season:    number,
 ): Promise<PitcherStats> {
-  const cacheKey = `hrr:pitcher:season:${pitcherId}:${season}`
+  // Slate-aligned: data freezes for the entire slate (3am ET → next 3am ET) so
+  // mid-game stat updates don't shift previously-given plays.
+  const cacheKey = `hrr:pitcher:season:${pitcherId}:${season}:${slateDateString()}`
   const cached = await kvGet<PitcherStats>(cacheKey)
   if (cached) return cached
 
@@ -807,7 +825,7 @@ export async function fetchPitcherSeasonStats(
 
   if (!stat) {
     const result = fallbackPitcherStats(pitcherId)
-    await kvSet(cacheKey, result, TTL_6H)
+    await kvSet(cacheKey, result, TTL_24H)
     return result
   }
 
@@ -823,7 +841,7 @@ export async function fetchPitcherSeasonStats(
     hrPer9:  ip > 0 ? (stat.homeRuns * 9) / ip : LEAGUE_AVG_HR_PER9,
   }
 
-  await kvSet(cacheKey, result, TTL_6H)
+  await kvSet(cacheKey, result, TTL_24H)
   return result
 }
 
@@ -854,7 +872,9 @@ export async function fetchPitcherRecentStarts(
   season?:   number,
 ): Promise<StartLine[]> {
   const s = season ?? currentSeason()
-  const cacheKey = `hrr:pitcher:starts:${pitcherId}:${s}:${n}`
+  // Slate-aligned: today's start (if any) gets baked into the slate's snapshot
+  // and doesn't shift mid-game.
+  const cacheKey = `hrr:pitcher:starts:${pitcherId}:${s}:${n}:${slateDateString()}`
   const cached = await kvGet<StartLine[]>(cacheKey)
   if (cached) return cached
 
@@ -862,7 +882,7 @@ export async function fetchPitcherRecentStarts(
   const res = await fetch(url, { cache: 'no-store' })
 
   if (!res.ok) {
-    await kvSet(cacheKey, [], TTL_6H)
+    await kvSet(cacheKey, [], TTL_24H)
     return []
   }
 
@@ -881,7 +901,7 @@ export async function fetchPitcherRecentStarts(
     .sort((a, b) => b.gameDate.localeCompare(a.gameDate))
     .slice(0, n)
 
-  await kvSet(cacheKey, starts, TTL_6H)
+  await kvSet(cacheKey, starts, TTL_24H)
   return starts
 }
 
@@ -898,7 +918,9 @@ export async function fetchBatterSeasonStats(
   batterId: number,
   season:   number,
 ): Promise<BatterStats> {
-  const cacheKey = `hrr:batter:season:${batterId}:${season}`
+  // Slate-aligned: a batter's season totals tick during their game today; we
+  // freeze the morning snapshot for the whole slate so plays don't shift mid-game.
+  const cacheKey = `hrr:batter:season:${batterId}:${season}:${slateDateString()}`
   const cached = await kvGet<BatterStats>(cacheKey)
   if (cached) return cached
 
@@ -916,7 +938,7 @@ export async function fetchBatterSeasonStats(
 
   if (!stat || stat.plateAppearances === 0) {
     const result = fallbackBatterStats(batterId)
-    await kvSet(cacheKey, result, TTL_6H)
+    await kvSet(cacheKey, result, TTL_24H)
     return result
   }
 
@@ -936,7 +958,7 @@ export async function fetchBatterSeasonStats(
     }),
   }
 
-  await kvSet(cacheKey, result, TTL_6H)
+  await kvSet(cacheKey, result, TTL_24H)
   return result
 }
 
@@ -963,7 +985,9 @@ export async function fetchBatterGameLog(
   batterId: number,
   season:   number,
 ): Promise<GameLogEntry[]> {
-  const cacheKey = `hrr:batter:gamelog:${batterId}:${season}`
+  // Slate-aligned for the same reason as fetchBatterSeasonStats — today's
+  // gamelog tick mid-game shouldn't shift previously-given plays.
+  const cacheKey = `hrr:batter:gamelog:${batterId}:${season}:${slateDateString()}`
   const cached = await kvGet<GameLogEntry[]>(cacheKey)
   if (cached) return cached
 
@@ -971,7 +995,7 @@ export async function fetchBatterGameLog(
   const res = await fetch(url, { cache: 'no-store' })
 
   if (!res.ok) {
-    await kvSet(cacheKey, [], TTL_6H)
+    await kvSet(cacheKey, [], TTL_24H)
     return []
   }
 
@@ -1004,7 +1028,7 @@ export async function fetchBatterGameLog(
     })
     .sort((a, b) => b.gameDate.localeCompare(a.gameDate))
 
-  await kvSet(cacheKey, entries, TTL_6H)
+  await kvSet(cacheKey, entries, TTL_24H)
   return entries
 }
 
@@ -1039,7 +1063,9 @@ export async function fetchTeamBullpenStats(
   season?: number,
 ): Promise<BullpenStats> {
   const s = season ?? currentSeason()
-  const cacheKey = `hrr:bullpen:${teamId}:${s}`
+  // Slate-aligned: bullpen aggregates tick after each game; freezing per slate
+  // keeps mid-game changes from shifting previously-given plays.
+  const cacheKey = `hrr:bullpen:${teamId}:${s}:${slateDateString()}`
   const cached = await kvGet<BullpenStats>(cacheKey)
   if (cached) return cached
 
@@ -1048,7 +1074,7 @@ export async function fetchTeamBullpenStats(
 
   if (!res.ok) {
     const result = fallbackBullpenStats()
-    await kvSet(cacheKey, result, TTL_6H)
+    await kvSet(cacheKey, result, TTL_24H)
     return result
   }
 
@@ -1102,7 +1128,7 @@ export async function fetchTeamBullpenStats(
 
   if (relievers.length === 0) {
     const result = fallbackBullpenStats()
-    await kvSet(cacheKey, result, TTL_6H)
+    await kvSet(cacheKey, result, TTL_24H)
     return result
   }
 
@@ -1146,7 +1172,7 @@ export async function fetchTeamBullpenStats(
     rest:         aggregateTier(rest.length > 0 ? rest : relievers),
   }
 
-  await kvSet(cacheKey, result, TTL_6H)
+  await kvSet(cacheKey, result, TTL_24H)
   return result
 }
 
@@ -1224,7 +1250,10 @@ export async function fetchBvP(
   batterId:  number,
   pitcherId: number,
 ): Promise<BvPRecord> {
-  const cacheKey = `hrr:bvp:${batterId}:${pitcherId}`
+  // Slate-aligned: BvP record updates with each PA against this pitcher today.
+  // Freezing per slate keeps the morning's snapshot stable so the play given
+  // before first pitch doesn't shift mid-game when ABs accumulate.
+  const cacheKey = `hrr:bvp:${batterId}:${pitcherId}:${slateDateString()}`
   const cached = await kvGet<BvPRecord>(cacheKey)
   if (cached) return cached
 
@@ -1234,7 +1263,7 @@ export async function fetchBvP(
   const empty: BvPRecord = { ab: 0, hits: 0, '1B': 0, '2B': 0, '3B': 0, HR: 0, BB: 0, K: 0 }
 
   if (!res.ok) {
-    await kvSet(cacheKey, empty, TTL_6H)
+    await kvSet(cacheKey, empty, TTL_24H)
     return empty
   }
 
@@ -1257,7 +1286,7 @@ export async function fetchBvP(
 
   const split = data.stats?.[0]?.splits?.[0]
   if (!split) {
-    await kvSet(cacheKey, empty, TTL_6H)
+    await kvSet(cacheKey, empty, TTL_24H)
     return empty
   }
 
@@ -1274,7 +1303,7 @@ export async function fetchBvP(
     K:    s.strikeOuts,
   }
 
-  await kvSet(cacheKey, result, TTL_6H)
+  await kvSet(cacheKey, result, TTL_24H)
   return result
 }
 
