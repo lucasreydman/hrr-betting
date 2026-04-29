@@ -59,15 +59,24 @@ export function Board({ picks }: { picks: PickWithRung[] }) {
   )
   const [trackedOnly, setTrackedOnly] = useState(false)
 
-  // The "universe" is the top TOTAL_CAP plays across the full slate, ranked by
-  // score. This is stable regardless of which filters the user toggles —
-  // filtering rungs or flipping "Tracked only" narrows what's *visible* from
-  // the universe, but never expands it. Sort changes only reorder the display
-  // within tier; the universe membership is always score-determined.
-  const universe = useMemo(
-    () => [...picks].sort((a, b) => b.score - a.score).slice(0, TOTAL_CAP),
-    [picks],
-  )
+  // The "universe" is at most TOTAL_CAP plays from the full slate. Tracked
+  // plays always make the cut — they're the high-conviction picks and would
+  // otherwise lose a pure score sort to high-edge / low-prob long shots
+  // (a 3+ HRR play scores ~70, a 1+ tracked play scores ~12, so a naive top-50
+  // by score would erase the tracked tier). Watching plays fill any remaining
+  // slots, sorted by score. Universe membership is stable across filter
+  // toggles and sort changes; filters only narrow what's *visible* from it.
+  const universe = useMemo(() => {
+    const trackedAll = picks
+      .filter(p => p.tier === 'tracked')
+      .sort((a, b) => b.score - a.score)
+    const watchingAll = picks
+      .filter(p => p.tier === 'watching')
+      .sort((a, b) => b.score - a.score)
+    const trackedSlice = trackedAll.slice(0, TOTAL_CAP)
+    const watchingSlice = watchingAll.slice(0, Math.max(0, TOTAL_CAP - trackedSlice.length))
+    return [...trackedSlice, ...watchingSlice]
+  }, [picks])
 
   const visible = useMemo(
     () =>
