@@ -109,20 +109,31 @@ describe('getPTypical with mocked MLB API responses', () => {
     })
   }
 
-  test('returns a real player-specific distribution when MLB returns season stats', async () => {
+  test('returns league-avg fallback on cache miss (no inline backfill)', async () => {
+    // Use a fresh player ID so the in-memory KV cache from earlier tests doesn't dominate.
+    const result = await getPTypical({ playerId: 800001, season: 2025 })
+    expect(result.atLeast).toHaveLength(5)
+    expect(result.atLeast[0]).toBeCloseTo(1.0, 5)
+    // iterations === 0 indicates the fallback path (no sim was run inline);
+    // the cron path is what populates cache with iterations === 20_000.
+    expect(result.iterations).toBe(0)
+    // Fallback values per LEAGUE_AVG_FALLBACK in p-typical.ts.
+    expect(result.atLeast[1]).toBeCloseTo(0.65, 5)
+    expect(result.atLeast[2]).toBeCloseTo(0.30, 5)
+    expect(result.atLeast[3]).toBeCloseTo(0.10, 5)
+  })
+
+  test('computeTypicalOffline runs a real sim and returns iterations === 20000', async () => {
+    const { computeTypicalOffline } = await import('@/lib/p-typical')
     const fetchSpy = setupMlbFetchMocks()
     try {
-      // Use a fresh player ID so the in-memory KV cache from earlier tests doesn't dominate.
-      const result = await getPTypical({ playerId: 800001, season: 2025 })
+      const result = await computeTypicalOffline({ playerId: 800002, season: 2025 })
       expect(result.atLeast).toHaveLength(5)
       expect(result.atLeast[0]).toBeCloseTo(1.0, 5)
       for (let i = 1; i < result.atLeast.length; i++) {
         expect(result.atLeast[i]).toBeLessThanOrEqual(result.atLeast[i - 1])
       }
-      // iterations should be ITERATIONS (20000) since we ran a real sim
       expect(result.iterations).toBe(20000)
-      // The mock player has elite-ish rates (180 H / 600 PA + 25 HR), so atLeast[1]
-      // (≥1 HRR) should be solidly above the league-avg fallback 0.65.
       expect(result.atLeast[1]).toBeGreaterThan(0.5)
     } finally {
       fetchSpy.mockRestore()

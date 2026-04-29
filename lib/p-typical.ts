@@ -12,7 +12,7 @@
  * Slot variance at request time is absorbed by `paCountFactor` in lib/prob-today.ts.
  */
 
-import { kvGet, kvSet } from './kv'
+import { kvGet } from './kv'
 import { simSinglePlayerHRR } from './offline-sim/sim'
 import { fetchBatterSeasonStats } from './mlb-api'
 import { LEAGUE_AVG_RATES } from './constants'
@@ -28,7 +28,6 @@ export interface PTypicalResult {
   computedAt: number
 }
 
-const TYPICAL_TTL = 14 * 24 * 60 * 60   // 14 days
 const SLATE_BASELINE_SLOT = 4
 const ITERATIONS = 20_000
 
@@ -36,13 +35,18 @@ const ITERATIONS = 20_000
 const LEAGUE_AVG_FALLBACK: number[] = [1.0, 0.65, 0.30, 0.10, 0.03]
 
 /**
- * Cache-only reader. Lazy-backfills on miss by running a single 20k-iter sim
- * inline (~10s). Logs a warning so cron-drift becomes visible.
+ * Cache-only reader. Returns league-avg fallback on miss — does NOT
+ * inline-backfill, because in production a single page request can touch
+ * 200+ players, and 200 × 10s sims would blow Vercel's 10s function limit.
  *
- * During Next.js build (NEXT_PHASE === 'phase-production-build'), the lazy
- * backfill is suppressed and a fallback is returned: a 20k-iter sim per
- * player × hundreds of players would blow the 60s static-page budget. At
- * build time we render with fallbacks; cron + first request populate the cache.
+ * The cache is populated by the offline cron path:
+ *   - Weekly full sweep:   POST /api/sim/typical {mode: 'full'}    (Sun 4 AM ET)
+ *   - Nightly slate sweep: POST /api/sim/typical {mode: 'player'}  (Mon-Sat 4 AM ET)
+ *   - Manual warm:         npm run recalibrate (or hit the cron URL directly)
+ *
+ * Until the first cron run, picks are ranked using league-avg probTypical —
+ * still a usable ordering (driven by probToday's matchup-quality factors)
+ * but with reduced per-player fidelity.
  */
 export async function getPTypical(args: {
   playerId: number
@@ -51,15 +55,7 @@ export async function getPTypical(args: {
   const cacheKey = `typical:v1:${args.playerId}`
   const cached = await kvGet<PTypicalResult>(cacheKey)
   if (cached) return cached
-
-  if (process.env.NEXT_PHASE === 'phase-production-build') {
-    return makeFallback(args.playerId)
-  }
-
-  console.warn(`[p-typical] cache miss for player ${args.playerId} — running inline backfill`)
-  const result = await computeTypicalOffline({ playerId: args.playerId, season: args.season })
-  await kvSet(cacheKey, result, TYPICAL_TTL)
-  return result
+  return makeFallback(args.playerId)
 }
 
 /** Heavy compute. Called by /api/sim/typical and the lazy backfill path. */
