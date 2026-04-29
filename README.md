@@ -1,6 +1,6 @@
 # HRR Betting — MLB Hits + Runs + RBIs Prop Model
 
-A standalone MLB betting tool that ranks the best **Hits + Runs + RBIs** prop plays for the day across three rungs (1+, 2+, 3+ HRR). Each rung is its own independently-ranked board. Picks above the per-rung floors are auto-tracked, settled from the boxscore the next morning, and surfaced on a calibration history page.
+A standalone MLB betting tool that ranks the best **Hits + Runs + RBIs** prop plays for the day across three rungs (1+, 2+, 3+ HRR). One unified board ranks the slate's top 50 plays by SCORE = EDGE × confidence, with filter chips for rung, game status, and tracked-only. Picks clearing all three per-rung floors are auto-tracked (always shown), settled from the boxscore the next morning, and surfaced on a calibration history page.
 
 **Live (planned):** [hrr-betting.vercel.app](https://hrr-betting.vercel.app)
 
@@ -20,14 +20,14 @@ For each player on the day's slate, the model:
 3. Computes `P(HRR ≥ N)` for each rung from `probToday`.
 4. Compares to `probTypical` → **EDGE** = `max(probToday, ε) / max(probTypical, ε) − 1`.
 5. Multiplies by a **confidence factor** (lineup confirmation, BvP sample, recent-pitcher-start sample, weather stability, time-to-first-pitch, opener flag) → **SCORE = EDGE × confidence**.
-6. Ranks per-rung and tags **Tracked** picks (must clear all three: confidence ≥ 0.85, per-rung EDGE floor, per-rung probability floor).
+6. Tags **Tracked** picks per rung (must clear all three: confidence ≥ 0.85, per-rung EDGE floor, per-rung probability floor). The board surfaces the top 50 plays across all rungs — tracked picks always make the cut, watching plays fill remaining slots by score.
 7. Auto-settles picks from the boxscore the next morning. Tracks rolling 30-day hit rate + Brier score per rung.
 
 ---
 
 ## Pages
 
-- **`/`** — today's slate (ET, 3 AM rollover), three boards (1+, 2+, 3+), ranked by SCORE. Auto-refreshes every 60 s while the tab is visible, plus instant refresh on tab focus / network reconnect. Manual Refresh button forces a cache-bypassed reload. No date navigator — past slates live on /history.
+- **`/`** — today's slate (ET, 3 AM rollover). Single unified board of the top 50 prop plays across all three rungs (1+ / 2+ / 3+), default-sorted by SCORE = EDGE × confidence. Filter chips for rung, game status (Upcoming / Live / Settled), and a 🔥 Tracked-only toggle. Sort selector (Score / p̂<sub>today</sub> / Edge / Confidence / p̂<sub>typical</sub>). Tracked plays always appear; watching fills the rest. Each row shows the prob columns as % over fair American odds, a `LIVE` indicator (with blinking dot) once a game starts, and expands into a math panel breaking out every factor. A collapsible "How to read this board" legend explains every column inline. Auto-refreshes every 60 s while the tab is visible, plus instant refresh on tab focus / network reconnect. Manual Refresh button forces a cache-bypassed reload. No date navigator — past slates live on /history.
 - **`/history`** — rolling 30-day Tracked record, per-rung calibration table, daily activity bar chart, recent settled picks.
 - **`/methodology`** — full math, every factor, all sources cited.
 
@@ -65,7 +65,12 @@ All `?date=` params are validated as strict `YYYY-MM-DD` (no malformed strings o
 - **CI**: GitHub Actions (`.github/workflows/ci.yml`) — lint, typecheck, test, build on every push and PR.
 - **Hosting**: Vercel Hobby (free); closed-form `probToday` is sub-millisecond on the request path; offline MC (20k iters) runs in the cron, well outside the 10 s function budget.
 - **External APIs (no auth)**: MLB Stats, Baseball Savant CSV, Open-Meteo.
-- **Test runner**: Jest 30 + ts-jest. ~118 unit tests + ~19 live-network smoke tests gated on `RUN_LIVE_TESTS=1`.
+- **Test runner**: Jest 30 + ts-jest. ~285 unit tests + live-network smoke tests gated on `RUN_LIVE_TESTS=1`.
+- **Cache strategy** (`lib/mlb-api.ts`, `lib/savant-api.ts`): mixed TTL keyed by what changes when:
+  - Live state — schedule (`game.status`) and unfinalised lineups: **2 min** so `PROBABLE → CONFIRMED` and `estimated → confirmed` lineup transitions land within the refresh-cron cadence.
+  - Confirmed lineups + final boxscores: **6 h** (don't change once observed).
+  - Probables: **1 h** so scratched-starter announcements flow through pre-game.
+  - Cumulative season-level data — pitcher/batter season stats, BvP, recent starts, bullpen, batter game logs, Savant statcast: **slate-aligned key + 24 h TTL**. Cache key includes `slateDateString()`, so the morning's snapshot is frozen for the whole slate (3 AM ET → next 3 AM ET). A play given pre-first-pitch can't shift mid-game when the batter accumulates new ABs or the pitcher's HR/9 ticks; the next slate kicks fresh overnight data via the 4 AM ET sim cron.
 
 ---
 
