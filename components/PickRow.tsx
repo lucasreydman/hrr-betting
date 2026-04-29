@@ -400,7 +400,7 @@ export function PickRow({ pick }: { pick: Pick }) {
     const awayName = pick.isHome
       ? getTeamNickname(pick.opponent.teamId)
       : getTeamNickname(pick.player.teamId)
-    gameMatchup = `${awayName} at ${homeName}`
+    gameMatchup = `${awayName} @ ${homeName}`
   }
 
   const rowFill = isTracked
@@ -498,7 +498,7 @@ export function PickRow({ pick }: { pick: Pick }) {
             </span>
           </div>
 
-          {/* SCORE — integer ×100 */}
+          {/* SCORE — ×100 with one decimal */}
           <div className="text-right">
             <div
               className={
@@ -508,7 +508,7 @@ export function PickRow({ pick }: { pick: Pick }) {
                   : 'text-base font-semibold text-ink')
               }
             >
-              {(pick.score * 100).toFixed(0)}
+              {(pick.score * 100).toFixed(1)}
             </div>
           </div>
 
@@ -576,7 +576,7 @@ export function PickRow({ pick }: { pick: Pick }) {
               </div>
               <div className="flex items-baseline gap-1">
                 <span className="text-ink-muted">Score</span>
-                <span className={'font-mono tabular-nums ' + (isTracked ? 'font-semibold text-tracked' : 'text-ink')}>{(pick.score * 100).toFixed(0)}</span>
+                <span className={'font-mono tabular-nums ' + (isTracked ? 'font-semibold text-tracked' : 'text-ink')}>{(pick.score * 100).toFixed(1)}</span>
               </div>
             </div>
           </div>
