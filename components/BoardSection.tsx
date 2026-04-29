@@ -36,7 +36,7 @@ export function BoardSection({ rung, picks }: { rung: 1 | 2 | 3; picks: Pick[] }
             <span className="text-ink-muted">no tracked picks</span>
           )}
           {watching.length > 0 && (
-            <span className="text-ink-muted">{watching.length} watching</span>
+            <span className="text-ink-muted">{watching.length} other plays</span>
           )}
         </div>
       </header>
@@ -64,7 +64,7 @@ export function BoardSection({ rung, picks }: { rung: 1 | 2 | 3; picks: Pick[] }
 
       {watching.length > 0 && tracked.length > 0 && (
         <div className="border-y border-border/50 bg-card/10 px-4 py-1.5 text-xs uppercase tracking-wider text-ink-muted">
-          Watching · not tracked, shown for transparency
+          Other plays · solid matchups outside the tracked tier
         </div>
       )}
 

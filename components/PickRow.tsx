@@ -342,7 +342,7 @@ function MathPanel({ pick, localTime }: { pick: Pick; localTime: ReturnType<type
             {(pick.score * 100).toFixed(1)}
           </span>
           <span className="ml-2 text-[11px] uppercase tracking-wider text-ink-muted">
-            ({isTracked ? '🔥 Tracked' : 'Watching'})
+            ({isTracked ? '🔥 Tracked' : 'Other play'})
           </span>
         </KV>
         <p className="text-[11px] text-ink-muted">

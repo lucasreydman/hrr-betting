@@ -63,7 +63,7 @@ SCORE = EDGE × confidence`}
         </p>
       </Section>
 
-      <Section heading="Tracked vs Watching">
+      <Section heading="Tracked vs Other plays">
         <p>
           A pick is <span className="font-medium text-tracked">Tracked</span> only if all three conditions clear:
         </p>
@@ -77,7 +77,10 @@ SCORE = EDGE × confidence`}
           a 30% prob at 3+ has huge EDGE but is still a coin-flip on the bad side; an Aaron Judge 3+
           in a neutral matchup has high prob but no real edge.
         </p>
-        <p>Other picks above a low display floor are shown as <em>Watching</em> — informational, not counted in the success rate.</p>
+        <p>
+          Picks that don&apos;t hit the Tracked thresholds but still clear the display floor (<Code>SCORE ≥ 0.10</Code>)
+          appear under <em>Other plays</em> — additional solid matchups to consider, not counted in the Tracked success rate.
+        </p>
         <p className="text-sm text-ink-muted">
           Volume of Tracked picks varies by slate — could be 0 on a weak day, could be many on a strong day.
           Days with 0 record as <Code>0/0</Code> (no dilution).

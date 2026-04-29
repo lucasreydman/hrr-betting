@@ -56,13 +56,14 @@ export function blendWeights(month: number): { season: number; l30: number; l15:
 export const EDGE_FLOORS: Record<Rung, number> = { 1: 0.10, 2: 0.30, 3: 0.60 }
 export const PROB_FLOORS: Record<Rung, number> = { 1: 0.85, 2: 0.55, 3: 0.20 }
 
-// Display floor: a pick is Watching (shown but not tracked) if SCORE >= this.
-// Calibrated for v1 confidence values (typically 0.50-0.65 for estimated
-// lineups + early-season pitcher samples). A SCORE of 0.02 with conf ~0.55
-// implies EDGE > ~0.04 — i.e. picks the model thinks are at least slightly
-// better than the player's typical matchup. Bump higher post-launch when
-// the model's confidence factor is fully wired up and saturates closer to 1.0.
-export const DISPLAY_FLOOR_SCORE = 0.02
+// Display floor: a pick is shown in the "Other plays" section if SCORE >= this.
+// SCORE = edge × confidence. With odds-ratio probToday composition (post-2026-04-28
+// math fix), scores typically run ~0.05-0.20 for solid picks. A floor of 0.10
+// keeps the per-rung "Other plays" list to a manageable size (~10-30 picks)
+// while still surfacing genuinely strong matchups outside the Tracked tier.
+// Bump higher (e.g. 0.13) if the list still feels long, lower if too sparse.
+// Recalibrate against settled history once available — see lib/tracker.ts.
+export const DISPLAY_FLOOR_SCORE = 0.10
 
 // Minimum confidence for a pick to be Tracked.
 export const CONFIDENCE_FLOOR_TRACKED = 0.85
