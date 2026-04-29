@@ -73,7 +73,15 @@ function pickToLockedRow(date: string, p: Pick & { rung: Rung }): LockedPickRow 
 
 export function lockedRowToPick(row: LockedPickRow): Pick & { rung: Rung } {
   return {
-    player: { playerId: row.player_id, fullName: row.player_name, team: row.player_team, bats: row.player_bats },
+    player: {
+      playerId: row.player_id, fullName: row.player_name, team: row.player_team,
+      // teamId 0 = sentinel for locked picks that predate the teamId schema.
+      // PickRow falls back to abbreviation format when teamId === 0.
+      teamId: 0,
+      bats: row.player_bats,
+    },
+    // isHome false = sentinel; PickRow falls back to abbreviation for teamId=0 picks.
+    isHome: false,
     opponent: { teamId: row.opponent_team_id, abbrev: row.opponent_abbrev },
     // Locked picks predate the opposingPitcher schema; fill with sentinel so the
     // type matches. Future schema migration can persist the real pitcher metadata.

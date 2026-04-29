@@ -2,6 +2,7 @@
 
 import { useEffect, useId, useState } from 'react'
 import type { Pick, PickInputs } from '@/lib/ranker'
+import { getTeamNickname } from '@/lib/team-names'
 
 function pct(value: number, digits = 1): string {
   return `${(value * 100).toFixed(digits)}%`
@@ -359,17 +360,23 @@ export function PickRow({ pick }: { pick: Pick }) {
   const panelId = useId()
   const localTime = useLocalTime(pick.gameDate)
 
-  // Derive AWAY @ HOME matchup string. pick.opponent.abbrev is always the
-  // opposing team. pick.player.team is the player's team.
-  // We don't have an explicit home/away flag, so we use the convention that
-  // the player's team is listed second when home, first when away. The existing
-  // data shape exposes pick.opponent.abbrev but not home/away; mirror the
-  // previous layout which shows "TEAM vs OPP" — we keep that ordering here
-  // but format as "PLAYER_TEAM @ OPP" (treating player as away) if no flag
-  // available. Preserve original behaviour: show opponent at right.
-  const gameMatchup = pick.gameDate
-    ? `${pick.player.team} @ ${pick.opponent.abbrev}`
-    : `${pick.player.team} vs ${pick.opponent.abbrev}`
+  // Derive "Away at Home" matchup string using team nicknames.
+  // Falls back to abbreviation format for locked picks (teamId === 0 sentinel).
+  let gameMatchup: string
+  if (pick.player.teamId === 0) {
+    // Legacy locked pick — no teamId available; use abbreviations.
+    gameMatchup = pick.gameDate
+      ? `${pick.player.team} @ ${pick.opponent.abbrev}`
+      : `${pick.player.team} vs ${pick.opponent.abbrev}`
+  } else {
+    const homeName = pick.isHome
+      ? getTeamNickname(pick.player.teamId)
+      : getTeamNickname(pick.opponent.teamId)
+    const awayName = pick.isHome
+      ? getTeamNickname(pick.opponent.teamId)
+      : getTeamNickname(pick.player.teamId)
+    gameMatchup = `${awayName} at ${homeName}`
+  }
 
   const rowFill = isTracked
     ? 'bg-tracked/10 ring-1 ring-inset ring-tracked/20 hover:bg-tracked/15'

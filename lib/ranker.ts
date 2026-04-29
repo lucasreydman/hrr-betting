@@ -102,7 +102,9 @@ export interface PickInputs {
 }
 
 export interface Pick {
-  player: { playerId: number; fullName: string; team: string; bats: 'R' | 'L' | 'S' }
+  player: { playerId: number; fullName: string; team: string; teamId: number; bats: 'R' | 'L' | 'S' }
+  /** Whether the player's team is the home side. */
+  isHome: boolean
   opponent: { teamId: number; abbrev: string }
   /** The probable / confirmed starter this batter is facing, or TBD when unannounced. */
   opposingPitcher: {
@@ -286,6 +288,7 @@ export async function rankPicks(date: string): Promise<PicksResponse> {
       return {
         lineup,
         opponent,
+        isHome,
         sidePassesGates: passesHardGates({
           gameStatus: game.status,
           probableStarterId: opposingStarterId > 0 ? opposingStarterId : 1,
@@ -296,8 +299,8 @@ export async function rankPicks(date: string): Promise<PicksResponse> {
     })
 
     // Resolve all P_typical lookups across both sides in parallel.
-    const playerJobs = sideJobs.flatMap(({ lineup, opponent, sidePassesGates }) =>
-      lineup.entries.map(entry => ({ entry, lineup, opponent, sidePassesGates }))
+    const playerJobs = sideJobs.flatMap(({ lineup, opponent, isHome, sidePassesGates }) =>
+      lineup.entries.map(entry => ({ entry, lineup, opponent, isHome, sidePassesGates }))
     )
 
     // P_typical + per-batter BvP + per-batter season stats (for batterSeasonPa).
@@ -315,7 +318,7 @@ export async function rankPicks(date: string): Promise<PicksResponse> {
     ])
 
     for (let i = 0; i < playerJobs.length; i++) {
-      const { entry, lineup, opponent, sidePassesGates } = playerJobs[i]
+      const { entry, lineup, opponent, isHome, sidePassesGates } = playerJobs[i]
       const pTypicalResult = pTypicalResults[i]
       const bvp = bvpResults[i]
       const batterSeason = batterSeasonResults[i]
@@ -416,8 +419,10 @@ export async function rankPicks(date: string): Promise<PicksResponse> {
             playerId: player.playerId,
             fullName: player.fullName,
             team: player.team,
+            teamId: isHome ? game.homeTeam.teamId : game.awayTeam.teamId,
             bats: player.bats,
           },
+          isHome,
           opponent: { teamId: opponent.teamId, abbrev: opponent.abbrev },
           opposingPitcher: {
             id: opposingStarterId > 0 ? opposingStarterId : 0,

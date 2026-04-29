@@ -83,7 +83,8 @@ describe('snapshotLockedPicks (in-memory KV)', () => {
 
     const date = '2099-11-30'
     const earlyPick = {
-      player: { playerId: 600, fullName: 'Early', team: 'BOS', bats: 'R' as const },
+      player: { playerId: 600, fullName: 'Early', team: 'BOS', teamId: 111, bats: 'R' as const },
+      isHome: false,
       opponent: { teamId: 147, abbrev: 'NYY' },
       opposingPitcher: { id: 1, name: 'P', status: 'confirmed' as const },
       gameId: 1,
