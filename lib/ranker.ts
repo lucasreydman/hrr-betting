@@ -117,6 +117,8 @@ export interface Pick {
   gameId: number
   /** Live game state — drives the LIVE / FINAL indicator in the UI. */
   gameStatus?: 'scheduled' | 'in_progress' | 'final' | 'postponed'
+  /** Live inning info — only present when gameStatus === 'in_progress'. */
+  gameInning?: { half: 'top' | 'bot'; number: number }
   /**
    * ISO timestamp of first pitch (e.g. "2026-04-27T23:05:00Z"). Optional
    * because settled-history rows hydrated from the DB don't carry it (no
@@ -438,6 +440,7 @@ export async function rankPicks(date: string): Promise<PicksResponse> {
           },
           gameId: game.gameId,
           gameStatus: game.status,
+          ...(game.inning ? { gameInning: game.inning } : {}),
           gameDate: game.gameDate,
           lineupSlot: entry.slot,
           lineupStatus: lineup.status,

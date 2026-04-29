@@ -22,6 +22,8 @@ export interface Game {
   venueId: number
   venueName: string
   status: 'scheduled' | 'in_progress' | 'final' | 'postponed'
+  /** Live inning state — only populated when status === 'in_progress'. */
+  inning?: { half: 'top' | 'bot'; number: number }
 }
 
 export interface LineupEntry { slot: number; player: PlayerRef }

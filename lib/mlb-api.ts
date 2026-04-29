@@ -191,6 +191,10 @@ interface RawScheduleGame {
     homePlayers?: Array<{ id: number; fullName?: string }>
     awayPlayers?: Array<{ id: number; fullName?: string }>
   }
+  linescore?: {
+    currentInning?: number
+    inningHalf?: string  // "Top" | "Bottom" (raw API casing)
+  }
 }
 
 interface RawScheduleResponse {
@@ -320,13 +324,14 @@ function toTeamRef(t: { id: number; name: string; abbreviation?: string }): Team
  * 6-hour KV cache.
  */
 export async function fetchSchedule(date: string): Promise<Game[]> {
-  // Key bumped to v2 alongside the TTL cut from 6h → 2min so old 6h-cached rows
-  // don't continue serving stale `game.status` until they organically expire.
-  const cacheKey = `hrr:schedule:v2:${date}`
+  // Key bumped to v3: shape grew to include optional `inning` for live games.
+  // (Earlier v2 bump was for the TTL cut from 6h → 2min so stale game.status
+  // wouldn't keep serving for hours.)
+  const cacheKey = `hrr:schedule:v3:${date}`
   const cached = await kvGet<Game[]>(cacheKey)
   if (cached) return cached
 
-  const url = `${MLB_BASE}/schedule?sportId=1&date=${date}&hydrate=probablePitcher,lineups`
+  const url = `${MLB_BASE}/schedule?sportId=1&date=${date}&hydrate=probablePitcher,lineups,linescore`
   const res = await fetch(url, { cache: 'no-store' })
   if (!res.ok) return []
 
@@ -335,15 +340,27 @@ export async function fetchSchedule(date: string): Promise<Game[]> {
 
   const games: Game[] = rawGames
     .filter(g => !SKIP_STATES.has(g.status?.detailedState))
-    .map(g => ({
-      gameId:    g.gamePk,
-      gameDate:  g.gameDate,
-      homeTeam:  toTeamRef(g.teams.home.team),
-      awayTeam:  toTeamRef(g.teams.away.team),
-      venueId:   g.venue.id,
-      venueName: g.venue.name,
-      status:    mapGameStatus(g),
-    }))
+    .map(g => {
+      const status = mapGameStatus(g)
+      const inningRaw = g.linescore
+      const inning =
+        status === 'in_progress' && inningRaw?.currentInning && inningRaw?.inningHalf
+          ? {
+              half: (inningRaw.inningHalf.toLowerCase().startsWith('top') ? 'top' : 'bot') as 'top' | 'bot',
+              number: inningRaw.currentInning,
+            }
+          : undefined
+      return {
+        gameId:    g.gamePk,
+        gameDate:  g.gameDate,
+        homeTeam:  toTeamRef(g.teams.home.team),
+        awayTeam:  toTeamRef(g.teams.away.team),
+        venueId:   g.venue.id,
+        venueName: g.venue.name,
+        status,
+        ...(inning ? { inning } : {}),
+      }
+    })
 
   await kvSet(cacheKey, games, TTL_SCHEDULE)
   return games

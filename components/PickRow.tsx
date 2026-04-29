@@ -80,13 +80,21 @@ function useTimeUntilFirstPitch(iso: string | undefined): string | null {
         setLabel(null)
         return
       }
-      const totalMin = Math.round(ms / 60000)
-      const hours = Math.floor(totalMin / 60)
-      const mins = totalMin % 60
-      setLabel(hours > 0 ? `first pitch in ${hours}h ${mins}m` : `first pitch in ${mins}m`)
+      const totalSec = Math.floor(ms / 1000)
+      const hours = Math.floor(totalSec / 3600)
+      const mins = Math.floor((totalSec % 3600) / 60)
+      const secs = totalSec % 60
+      const pad = (n: number) => n.toString().padStart(2, '0')
+      if (hours > 0) {
+        setLabel(`first pitch in ${hours}h ${pad(mins)}m ${pad(secs)}s`)
+      } else if (mins > 0) {
+        setLabel(`first pitch in ${mins}m ${pad(secs)}s`)
+      } else {
+        setLabel(`first pitch in ${secs}s`)
+      }
     }
     tick()
-    const interval = setInterval(tick, 30_000)
+    const interval = setInterval(tick, 1000)
     return () => clearInterval(interval)
   }, [iso])
   return label
@@ -113,7 +121,8 @@ function LineupBadge({ status, slot }: { status: Pick['lineupStatus']; slot: num
   )
 }
 
-function LiveBadge() {
+function LiveBadge({ inning }: { inning?: Pick['gameInning'] }) {
+  const inningLabel = inning ? `${inning.half === 'top' ? 'TOP' : 'BOT'} ${inning.number}` : null
   return (
     <span className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-miss">
       <span
@@ -121,6 +130,12 @@ function LiveBadge() {
         aria-hidden="true"
       />
       LIVE
+      {inningLabel && (
+        <>
+          <span className="text-miss/50" aria-hidden="true">·</span>
+          <span className="text-miss/90">{inningLabel}</span>
+        </>
+      )}
     </span>
   )
 }
@@ -536,7 +551,7 @@ export function PickRow({ pick, rung }: { pick: Pick; rung?: 1 | 2 | 3 }) {
               </time>
             )}
             {pick.gameStatus === 'in_progress' ? (
-              <LiveBadge />
+              <LiveBadge inning={pick.gameInning} />
             ) : pick.gameStatus === 'final' ? (
               <FinalBadge />
             ) : firstPitchCountdown ? (
@@ -632,7 +647,7 @@ export function PickRow({ pick, rung }: { pick: Pick; rung?: 1 | 2 | 3 }) {
             {pick.gameStatus === 'in_progress' && (
               <>
                 <span className="text-ink-muted/50" aria-hidden="true">·</span>
-                <LiveBadge />
+                <LiveBadge inning={pick.gameInning} />
               </>
             )}
             {pick.gameStatus === 'final' && (
