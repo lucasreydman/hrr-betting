@@ -218,13 +218,18 @@ export async function rankPicks(date: string): Promise<PicksResponse> {
   const rung2Picks: Pick[] = []
   const rung3Picks: Pick[] = []
 
-  for (const game of games) {
-    // Postponed games drop entirely — there's no game to score.
-    // Finalised games still build picks (using slate-cached inputs that are
-    // frozen pre-first-pitch) so the live-settle loop below can stamp ✓ HIT
-    // / ✗ MISS on them. Without this, finalised picks vanish from the board
-    // until the next morning's settle cron — confusing UX.
-    if (game.status === 'postponed') continue
+  // Process all games in parallel. The previous serial `for (const game of
+  // games)` made wall-clock time = sum(per-game times); parallelising drops
+  // it to max(per-game times). Critical for /api/refresh staying under
+  // Vercel's 10s gateway timeout once finalised games started feeding the
+  // pipeline (a slate with 9 finals × ~500ms serial = 4.5s of pure waiting).
+  const perGameResults = await Promise.all(
+    games
+      .filter(g => g.status !== 'postponed')
+      .map(async game => {
+    const localR1: Pick[] = []
+    const localR2: Pick[] = []
+    const localR3: Pick[] = []
 
     // Fetch lineups + probable pitchers in parallel
     const [homeLineup, awayLineup, probables] = await Promise.all([
@@ -467,11 +472,20 @@ export async function rankPicks(date: string): Promise<PicksResponse> {
           inputs,
         }
 
-        if (rung === 1) rung1Picks.push(pick)
-        else if (rung === 2) rung2Picks.push(pick)
-        else rung3Picks.push(pick)
+        if (rung === 1) localR1.push(pick)
+        else if (rung === 2) localR2.push(pick)
+        else localR3.push(pick)
       }
     }
+
+    return { r1: localR1, r2: localR2, r3: localR3 }
+      }),
+  )
+
+  for (const { r1, r2, r3 } of perGameResults) {
+    rung1Picks.push(...r1)
+    rung2Picks.push(...r2)
+    rung3Picks.push(...r3)
   }
 
   const byScoreDesc = (a: Pick, b: Pick) => b.score - a.score
