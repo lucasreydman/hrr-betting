@@ -219,8 +219,12 @@ export async function rankPicks(date: string): Promise<PicksResponse> {
   const rung3Picks: Pick[] = []
 
   for (const game of games) {
-    // Skip terminal game states — no point building picks
-    if (game.status === 'postponed' || game.status === 'final') continue
+    // Postponed games drop entirely — there's no game to score.
+    // Finalised games still build picks (using slate-cached inputs that are
+    // frozen pre-first-pitch) so the live-settle loop below can stamp ✓ HIT
+    // / ✗ MISS on them. Without this, finalised picks vanish from the board
+    // until the next morning's settle cron — confusing UX.
+    if (game.status === 'postponed') continue
 
     // Fetch lineups + probable pitchers in parallel
     const [homeLineup, awayLineup, probables] = await Promise.all([
@@ -374,7 +378,7 @@ export async function rankPicks(date: string): Promise<PicksResponse> {
       const opposingPitcherStatus: 'tbd' | 'probable' | 'confirmed' =
         opposingStarterId <= 0
           ? 'tbd'
-          : game.status === 'in_progress'
+          : (game.status === 'in_progress' || game.status === 'final')
             ? 'confirmed'
             : 'probable'
 
