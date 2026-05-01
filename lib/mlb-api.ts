@@ -820,20 +820,19 @@ function modeSlot(slots: number[]): number {
  * Returns hits, runs, and RBIs per player (keyed by playerId).
  * Used by the settle route to record final stat lines.
  *
- * TTL policy:
- *  - **Successful, final** parse: 6h. Final games don't change, so a long
- *    cache is fine and saves repeat fetches when settle re-runs.
- *  - **HTTP error** fallback (status `scheduled`, empty playerStats): **5 min**
- *    so callers don't hammer a flapping endpoint, but the cache turns over fast
- *    enough that a transient outage doesn't lock us into an empty boxscore.
+ * TTL policy is status-aware (the live ranker now reads boxscores during
+ * the slate, not just the post-game settle cron):
+ *  - **final**:        6h — stable, doesn't change
+ *  - **in_progress**:  2 min — must turn over fast so we catch the
+ *                       final transition (otherwise picks stay stuck on
+ *                       FINAL · pending for hours after the game ends)
+ *  - **scheduled**:    5 min — pre-game lookups, refresh quickly once
+ *                       first pitch lands
+ *  - **HTTP error**:   5 min fallback — so callers don't hammer a flapping
+ *                       endpoint, but recovers fast once the API comes back
  *
- * The shorter TTL on the failure path is intentional and not a contradiction
- * with the 6h success TTL — they answer different questions.
- *
- * Note: today's only consumer is the settle cron at 10 UTC, by which time all
- * games are long final. If a future feature reads boxscores during games, the
- * 6h success TTL will be too long for an in-progress score and should drop to
- * ~2 min on a `status: 'in_progress'` parse.
+ * The differing TTLs aren't contradictions — they answer different questions
+ * about how stale "stale" actually is for each game state.
  */
 export async function fetchBoxscore(gameId: number): Promise<Boxscore> {
   const cacheKey = `hrr:boxscore:${gameId}`
@@ -877,7 +876,15 @@ export async function fetchBoxscore(gameId: number): Promise<Boxscore> {
                               'scheduled'
 
   const result: Boxscore = { gameId, status, playerStats }
-  await kvSet(cacheKey, result, TTL_6H)
+  // Status-aware TTL — see TTL policy block above. Crucial: an in_progress
+  // boxscore must NOT be cached for 6h, or every pick from a finished game
+  // will read the stale in-progress entry and stay on FINAL · pending until
+  // the cache expires.
+  const ttlSec =
+    status === 'final'       ? TTL_6H :
+    status === 'in_progress' ? 2 * 60 :
+                               5 * 60
+  await kvSet(cacheKey, result, ttlSec)
   return result
 }
 

@@ -1,0 +1,13 @@
+-- Flush all cached boxscore entries. Reason: the previous fetchBoxscore
+-- cached every successful response for 6h regardless of status. Once the
+-- ranker started reading boxscores during games (commit 4904f7b's live-
+-- settle loop), in-progress boxscores would stick around for 6h even after
+-- the game ended — leaving every pick stuck on `FINAL · pending` until the
+-- cache TTL naturally expired.
+--
+-- The fetcher now writes status-aware TTLs (final → 6h, in_progress → 2min,
+-- scheduled/error → 5min). Existing entries in the cache, however, were
+-- written under the old policy. Without this flush, picks from any game
+-- whose boxscore was first read mid-game would keep showing `pending` for
+-- up to 6 hours after this deploy.
+DELETE FROM cache WHERE key LIKE 'hrr:boxscore:%';

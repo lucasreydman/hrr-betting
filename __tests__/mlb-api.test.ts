@@ -466,6 +466,47 @@ describe('fetchBoxscore', () => {
     expect(box.status).toBe('scheduled')
     expect(box.playerStats).toEqual({})
   })
+
+  test('parses an in_progress boxscore (Live abstractGameState) without falling back', async () => {
+    // Regression: the live-settle ranker reads boxscores during games. If an
+    // in-progress response was treated as final/scheduled, picks would either
+    // settle prematurely or stay PENDING longer than necessary.
+    mockFetch(() => jsonResp({
+      teams: { home: { players: {} }, away: { players: {} } },
+      gameData: { status: { abstractGameState: 'Live' } },
+    }))
+    const box = await fetchBoxscore(806003)
+    expect(box.status).toBe('in_progress')
+  })
+
+  test('uses a short TTL when caching an in_progress boxscore', async () => {
+    // The TTL must be short for in_progress so the cache turns over quickly
+    // and picks/settle pick up the FINAL state. A 6h TTL on an in_progress
+    // boxscore is what caused FINAL · pending to stick after games ended.
+    const kv = await import('@/lib/kv')
+    const setSpy = jest.spyOn(kv, 'kvSet').mockResolvedValue(undefined)
+    mockFetch(() => jsonResp({
+      teams: { home: { players: {} }, away: { players: {} } },
+      gameData: { status: { abstractGameState: 'Live' } },
+    }))
+    await fetchBoxscore(806004)
+    expect(setSpy).toHaveBeenCalledTimes(1)
+    const [, , ttlSec] = setSpy.mock.calls[0]
+    expect(ttlSec).toBeLessThanOrEqual(5 * 60)  // ≤ 5 min — well below 6h
+  })
+
+  test('uses the long TTL when caching a final boxscore', async () => {
+    const kv = await import('@/lib/kv')
+    const setSpy = jest.spyOn(kv, 'kvSet').mockResolvedValue(undefined)
+    mockFetch(() => jsonResp({
+      teams: { home: { players: {} }, away: { players: {} } },
+      gameData: { status: { abstractGameState: 'Final' } },
+    }))
+    await fetchBoxscore(806005)
+    expect(setSpy).toHaveBeenCalledTimes(1)
+    const [, , ttlSec] = setSpy.mock.calls[0]
+    expect(ttlSec).toBeGreaterThanOrEqual(60 * 60)  // ≥ 1h — i.e. the 6h policy
+  })
 })
 
 // ---------------------------------------------------------------------------
