@@ -195,6 +195,11 @@ interface RawScheduleGame {
     currentInning?: number
     inningHalf?: string  // "Top" | "Bottom" (raw API casing)
   }
+  // Doubleheader fields. `doubleHeader`: 'N' none, 'Y' traditional, 'S' split.
+  // `gameNumber` is 1 or 2 within a doubleheader, omitted otherwise. Both used
+  // by `dedupeGamesByMatchup` below — see that function for why.
+  gameNumber?: number
+  doubleHeader?: string
 }
 
 interface RawScheduleResponse {
@@ -310,6 +315,66 @@ function mapGameStatus(raw: RawScheduleGame): Game['status'] {
   return 'scheduled'
 }
 
+// Status priority used by `dedupeGamesByMatchup`. Higher wins so we keep the
+// "most progressed" record when MLB returns multiple entries for the same
+// matchup (resumed games, schedule artifacts, postponement remnants).
+const STATUS_PRIORITY: Record<Game['status'], number> = {
+  in_progress: 4,
+  final: 3,
+  scheduled: 2,
+  postponed: 1,
+}
+
+/**
+ * Collapse multiple schedule entries that describe the same physical game.
+ *
+ * MLB Stats occasionally returns two `gamePk`s for one matchup — most often
+ * after a postponement+reschedule, after a suspended-game resumption, or
+ * during transient API blips. Without dedupe, both entries propagate
+ * identical-input picks (same player, same opposing pitcher, same park,
+ * same factors) so the board renders the same play twice with only the
+ * `gameDate` differing by a few minutes. Real doubleheaders are *not*
+ * collapsed: they have distinct `gameNumber` values (1 and 2), so the
+ * composite key keeps them apart.
+ *
+ * Dedupe key: `(homeTeamId, awayTeamId, gameNumber ?? 1)`. Within a
+ * collision, prefer (1) the most-progressed status, then (2) the latest
+ * `gameDate` (newest reschedule wins), then (3) the highest `gamePk`
+ * (newest record id wins). Each tiebreaker is deterministic so the output
+ * order doesn't depend on input ordering.
+ */
+export function dedupeGamesByMatchup(
+  games: Array<Game & { gameNumber?: number }>,
+): Game[] {
+  const byKey = new Map<string, Game & { gameNumber?: number }>()
+  for (const g of games) {
+    const key = `${g.homeTeam.teamId}:${g.awayTeam.teamId}:${g.gameNumber ?? 1}`
+    const existing = byKey.get(key)
+    if (!existing) {
+      byKey.set(key, g)
+      continue
+    }
+    const a = STATUS_PRIORITY[g.status] ?? 0
+    const b = STATUS_PRIORITY[existing.status] ?? 0
+    if (a > b) { byKey.set(key, g); continue }
+    if (a < b) continue
+    // Status tie → newer gameDate wins
+    const aDate = Date.parse(g.gameDate)
+    const bDate = Date.parse(existing.gameDate)
+    if (aDate > bDate) { byKey.set(key, g); continue }
+    if (aDate < bDate) continue
+    // Date tie → higher gamePk wins (newest record id)
+    if (g.gameId > existing.gameId) byKey.set(key, g)
+  }
+  // Strip the temporary `gameNumber` field — it's only needed for the dedupe
+  // key, not part of the public Game type.
+  return [...byKey.values()].map(g => {
+    const out = { ...g }
+    delete out.gameNumber
+    return out
+  })
+}
+
 function toTeamRef(t: { id: number; name: string; abbreviation?: string }): TeamRef {
   return { teamId: t.id, abbrev: t.abbreviation ?? t.name.slice(0, 3).toUpperCase(), name: t.name }
 }
@@ -324,10 +389,13 @@ function toTeamRef(t: { id: number; name: string; abbreviation?: string }): Team
  * 6-hour KV cache.
  */
 export async function fetchSchedule(date: string): Promise<Game[]> {
-  // Key bumped to v3: shape grew to include optional `inning` for live games.
-  // (Earlier v2 bump was for the TTL cut from 6h → 2min so stale game.status
-  // wouldn't keep serving for hours.)
-  const cacheKey = `hrr:schedule:v3:${date}`
+  // v4: dedupeGamesByMatchup collapses MLB-side schedule duplicates (same
+  // matchup, two gamePks, gameDates differ by minutes — usually a
+  // postponement+reschedule artifact). Bumped from v3 to evict any cached
+  // pre-dedupe lists holding the duplicate.
+  // Earlier bumps: v2 = TTL 6h → 2min so stale game.status didn't serve
+  // for hours; v3 = added optional `inning` for live games.
+  const cacheKey = `hrr:schedule:v4:${date}`
   const cached = await kvGet<Game[]>(cacheKey)
   if (cached) return cached
 
@@ -338,7 +406,7 @@ export async function fetchSchedule(date: string): Promise<Game[]> {
   const data: RawScheduleResponse = await res.json()
   const rawGames: RawScheduleGame[] = data.dates?.[0]?.games ?? []
 
-  const games: Game[] = rawGames
+  const mapped: Array<Game & { gameNumber?: number }> = rawGames
     .filter(g => !SKIP_STATES.has(g.status?.detailedState))
     .map(g => {
       const status = mapGameStatus(g)
@@ -359,8 +427,12 @@ export async function fetchSchedule(date: string): Promise<Game[]> {
         venueName: g.venue.name,
         status,
         ...(inning ? { inning } : {}),
+        // Carried only for the dedupe key; stripped from the Game returned.
+        ...(g.gameNumber ? { gameNumber: g.gameNumber } : {}),
       }
     })
+
+  const games = dedupeGamesByMatchup(mapped)
 
   await kvSet(cacheKey, games, TTL_SCHEDULE)
   return games

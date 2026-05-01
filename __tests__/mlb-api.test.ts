@@ -19,7 +19,9 @@ import {
   fetchTeamBullpenStats,
   fetchBvP,
   fetchPlayerSlotFrequency,
+  dedupeGamesByMatchup,
 } from '@/lib/mlb-api'
+import type { Game } from '@/lib/types'
 
 /** Build a Response wrapper from a JSON body. */
 function jsonResp(body: unknown, init: { ok?: boolean; status?: number } = {}): Response {
@@ -117,6 +119,145 @@ describe('fetchSchedule', () => {
     mockFetch(() => jsonResp({}, { ok: false, status: 500 }))
     const games = await fetchSchedule('2099-07-06')
     expect(games).toEqual([])
+  })
+
+  test('collapses MLB-side duplicate matchup entries (different gamePk, same teams)', async () => {
+    // Real-world artifact: MLB Stats returns two gamePks for the same physical
+    // game, gameDates differing by minutes (typically 5). Both must collapse
+    // to a single Game so the ranker doesn't produce duplicate picks.
+    mockFetch(() => jsonResp({
+      dates: [{
+        games: [
+          {
+            gamePk: 800001, gameDate: '2026-04-30T16:35:00Z',
+            status: { detailedState: 'Scheduled', abstractGameState: 'Preview' },
+            venue: { id: 2, name: 'Camden Yards' },
+            teams: {
+              home: { team: { id: 110, name: 'Baltimore Orioles', abbreviation: 'BAL' } },
+              away: { team: { id: 117, name: 'Houston Astros',    abbreviation: 'HOU' } },
+            },
+          },
+          {
+            gamePk: 800002, gameDate: '2026-04-30T16:40:00Z',  // 5-min later, same matchup
+            status: { detailedState: 'Scheduled', abstractGameState: 'Preview' },
+            venue: { id: 2, name: 'Camden Yards' },
+            teams: {
+              home: { team: { id: 110, name: 'Baltimore Orioles', abbreviation: 'BAL' } },
+              away: { team: { id: 117, name: 'Houston Astros',    abbreviation: 'HOU' } },
+            },
+          },
+        ],
+      }],
+    }))
+    const games = await fetchSchedule('2099-07-09')  // unique date for cache miss
+    expect(games.length).toBe(1)
+    // Newer gameDate wins on the status tie (both Scheduled).
+    expect(games[0].gameId).toBe(800002)
+  })
+
+  test('keeps real doubleheaders (distinct gameNumber values) as separate games', async () => {
+    mockFetch(() => jsonResp({
+      dates: [{
+        games: [
+          {
+            gamePk: 900001, gameDate: '2026-05-01T17:05:00Z',
+            gameNumber: 1, doubleHeader: 'Y',
+            status: { detailedState: 'Scheduled', abstractGameState: 'Preview' },
+            venue: { id: 2, name: 'Camden Yards' },
+            teams: {
+              home: { team: { id: 110, name: 'BAL', abbreviation: 'BAL' } },
+              away: { team: { id: 117, name: 'HOU', abbreviation: 'HOU' } },
+            },
+          },
+          {
+            gamePk: 900002, gameDate: '2026-05-01T22:05:00Z',
+            gameNumber: 2, doubleHeader: 'Y',
+            status: { detailedState: 'Scheduled', abstractGameState: 'Preview' },
+            venue: { id: 2, name: 'Camden Yards' },
+            teams: {
+              home: { team: { id: 110, name: 'BAL', abbreviation: 'BAL' } },
+              away: { team: { id: 117, name: 'HOU', abbreviation: 'HOU' } },
+            },
+          },
+        ],
+      }],
+    }))
+    const games = await fetchSchedule('2099-07-10')
+    expect(games.map(g => g.gameId).sort()).toEqual([900001, 900002])
+  })
+})
+
+// ---------------------------------------------------------------------------
+// dedupeGamesByMatchup (pure helper)
+// ---------------------------------------------------------------------------
+
+describe('dedupeGamesByMatchup', () => {
+  const baseGame = (overrides: Partial<Game & { gameNumber?: number }> = {}): Game & { gameNumber?: number } => ({
+    gameId: 1,
+    gameDate: '2026-04-30T16:35:00Z',
+    homeTeam: { teamId: 110, abbrev: 'BAL', name: 'Orioles' },
+    awayTeam: { teamId: 117, abbrev: 'HOU', name: 'Astros' },
+    venueId: 2,
+    venueName: 'Camden Yards',
+    status: 'scheduled',
+    ...overrides,
+  })
+
+  test('keeps the in_progress entry over scheduled when same matchup', () => {
+    const out = dedupeGamesByMatchup([
+      baseGame({ gameId: 1, status: 'scheduled' }),
+      baseGame({ gameId: 2, status: 'in_progress' }),
+    ])
+    expect(out.length).toBe(1)
+    expect(out[0].gameId).toBe(2)
+  })
+
+  test('keeps the final entry over scheduled when same matchup', () => {
+    const out = dedupeGamesByMatchup([
+      baseGame({ gameId: 1, status: 'final' }),
+      baseGame({ gameId: 2, status: 'scheduled' }),
+    ])
+    expect(out.length).toBe(1)
+    expect(out[0].gameId).toBe(1)
+  })
+
+  test('on status tie, prefers newer gameDate', () => {
+    const out = dedupeGamesByMatchup([
+      baseGame({ gameId: 1, gameDate: '2026-04-30T16:35:00Z' }),
+      baseGame({ gameId: 2, gameDate: '2026-04-30T16:40:00Z' }),
+    ])
+    expect(out.length).toBe(1)
+    expect(out[0].gameId).toBe(2)
+  })
+
+  test('on status + date tie, prefers higher gamePk', () => {
+    const out = dedupeGamesByMatchup([
+      baseGame({ gameId: 100 }),
+      baseGame({ gameId: 200 }),
+    ])
+    expect(out.length).toBe(1)
+    expect(out[0].gameId).toBe(200)
+  })
+
+  test('keeps real doubleheaders (distinct gameNumber)', () => {
+    const out = dedupeGamesByMatchup([
+      baseGame({ gameId: 1, gameNumber: 1, gameDate: '2026-05-01T17:05Z' }),
+      baseGame({ gameId: 2, gameNumber: 2, gameDate: '2026-05-01T22:05Z' }),
+    ])
+    expect(out.length).toBe(2)
+  })
+
+  test('does not collapse different matchups', () => {
+    const out = dedupeGamesByMatchup([
+      baseGame({ gameId: 1, awayTeam: { teamId: 117, abbrev: 'HOU', name: 'Astros' } }),
+      baseGame({ gameId: 2, awayTeam: { teamId: 121, abbrev: 'NYM', name: 'Mets' } }),
+    ])
+    expect(out.length).toBe(2)
+  })
+
+  test('output does not include the temporary gameNumber field on Game', () => {
+    const out = dedupeGamesByMatchup([baseGame({ gameNumber: 1 })])
+    expect(out[0]).not.toHaveProperty('gameNumber')
   })
 })
 
