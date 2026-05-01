@@ -185,6 +185,43 @@ describe('fetchSchedule', () => {
     const games = await fetchSchedule('2099-07-10')
     expect(games.map(g => g.gameId).sort()).toEqual([900001, 900002])
   })
+
+  test('collapses MLB-mislabelled "doubleheader" entries 5min apart (real anomaly)', async () => {
+    // Observed in production: Astros @ Orioles 2026-04-30 returned gameNumber 1
+    // at 16:35Z and gameNumber 2 at 16:40Z, both with doubleHeader='Y'. 5 min
+    // is not a real doubleheader — the proximity sweep should collapse them
+    // even though gameNumbers differ.
+    mockFetch(() => jsonResp({
+      dates: [{
+        games: [
+          {
+            gamePk: 824848, gameDate: '2026-04-30T16:35:00Z',
+            gameNumber: 1, doubleHeader: 'Y',
+            status: { detailedState: 'Final', abstractGameState: 'Final' },
+            venue: { id: 2, name: 'Camden Yards' },
+            teams: {
+              home: { team: { id: 110, name: 'BAL', abbreviation: 'BAL' } },
+              away: { team: { id: 117, name: 'HOU', abbreviation: 'HOU' } },
+            },
+          },
+          {
+            gamePk: 824850, gameDate: '2026-04-30T16:40:00Z',
+            gameNumber: 2, doubleHeader: 'Y',
+            status: { detailedState: 'Final', abstractGameState: 'Final' },
+            venue: { id: 2, name: 'Camden Yards' },
+            teams: {
+              home: { team: { id: 110, name: 'BAL', abbreviation: 'BAL' } },
+              away: { team: { id: 117, name: 'HOU', abbreviation: 'HOU' } },
+            },
+          },
+        ],
+      }],
+    }))
+    const games = await fetchSchedule('2099-07-11')
+    expect(games.length).toBe(1)
+    // Newer gameDate wins on the status tie (both final).
+    expect(games[0].gameId).toBe(824850)
+  })
 })
 
 // ---------------------------------------------------------------------------
@@ -243,6 +280,26 @@ describe('dedupeGamesByMatchup', () => {
     const out = dedupeGamesByMatchup([
       baseGame({ gameId: 1, gameNumber: 1, gameDate: '2026-05-01T17:05Z' }),
       baseGame({ gameId: 2, gameNumber: 2, gameDate: '2026-05-01T22:05Z' }),
+    ])
+    expect(out.length).toBe(2)
+  })
+
+  test('proximity sweep: collapses different-gameNumber entries within 90min', () => {
+    // MLB sometimes mislabels a single rescheduled/resumed game as a DH.
+    // Two same-matchup entries 5 minutes apart cannot be a real DH.
+    const out = dedupeGamesByMatchup([
+      baseGame({ gameId: 1, gameNumber: 1, gameDate: '2026-04-30T16:35:00Z' }),
+      baseGame({ gameId: 2, gameNumber: 2, gameDate: '2026-04-30T16:40:00Z' }),
+    ])
+    expect(out.length).toBe(1)
+    expect(out[0].gameId).toBe(2)
+  })
+
+  test('proximity sweep: respects the 90-min boundary', () => {
+    // Just over 90 min apart → kept as two (treated as a real DH).
+    const out = dedupeGamesByMatchup([
+      baseGame({ gameId: 1, gameNumber: 1, gameDate: '2026-04-30T16:00:00Z' }),
+      baseGame({ gameId: 2, gameNumber: 2, gameDate: '2026-04-30T17:31:00Z' }),
     ])
     expect(out.length).toBe(2)
   })
