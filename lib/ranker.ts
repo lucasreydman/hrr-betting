@@ -121,6 +121,13 @@ export interface PickInputs {
    * Savant data isn't available for this player. Surfaced in the math panel.
    */
   batterStatcast: { barrelPct: number; hardHitPct: number; xwOBA: number } | null
+  /**
+   * Opposing starter's season rates and Statcast snapshot. Used by the
+   * pitcher-quality factor; surfaced in the math panel for context. `null`
+   * when the starter is TBD or stats aren't available.
+   */
+  pitcherSeason: { kPct: number; bbPct: number; hrPer9: number; ip: number } | null
+  pitcherStatcast: { hardHitPctAllowed: number; xwOBAAllowed: number; barrelsAllowedPct: number } | null
 }
 
 export interface Pick {
@@ -504,6 +511,21 @@ export async function rankPicks(date: string): Promise<PicksResponse> {
               barrelPct: batterStatcast.barrelPct,
               hardHitPct: batterStatcast.hardHitPct,
               xwOBA: batterStatcast.xwOBA,
+            }
+          : null,
+        pitcherSeason: opposingPitcherSeasonStats
+          ? {
+              kPct: opposingPitcherSeasonStats.kPct,
+              bbPct: opposingPitcherSeasonStats.bbPct,
+              hrPer9: opposingPitcherSeasonStats.hrPer9,
+              ip: opposingPitcherSeasonStats.ip,
+            }
+          : null,
+        pitcherStatcast: opposingPitcherSavant
+          ? {
+              hardHitPctAllowed: opposingPitcherSavant.hardHitPctAllowed,
+              xwOBAAllowed: opposingPitcherSavant.xwOBAAllowed,
+              barrelsAllowedPct: opposingPitcherSavant.barrelsAllowedPct,
             }
           : null,
       }

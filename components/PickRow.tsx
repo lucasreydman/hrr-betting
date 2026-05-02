@@ -440,6 +440,46 @@ function MathPanel({ pick, localTime }: { pick: Pick; localTime: ReturnType<type
           )}
         </PanelSection>
       )}
+
+      {inputs && (
+        <PanelSection title="Starting pitcher (season)">
+          {inputs.pitcherSeason ? (
+            <>
+              <KV label="K %">
+                {(inputs.pitcherSeason.kPct * 100).toFixed(1)}%
+              </KV>
+              <KV label="BB %">
+                {(inputs.pitcherSeason.bbPct * 100).toFixed(1)}%
+              </KV>
+              <KV label="HR / 9">
+                {inputs.pitcherSeason.hrPer9.toFixed(2)}
+              </KV>
+              <KV label="IP">
+                {inputs.pitcherSeason.ip.toFixed(1)}
+              </KV>
+              {inputs.pitcherStatcast && (
+                inputs.pitcherStatcast.hardHitPctAllowed > 0 ||
+                inputs.pitcherStatcast.xwOBAAllowed > 0
+              ) ? (
+                <>
+                  <KV label="Hard-hit allowed">
+                    {(inputs.pitcherStatcast.hardHitPctAllowed * 100).toFixed(1)}%
+                  </KV>
+                  <KV label="xwOBA allowed">
+                    {inputs.pitcherStatcast.xwOBAAllowed.toFixed(3)}
+                  </KV>
+                </>
+              ) : null}
+            </>
+          ) : (
+            <p className="text-xs text-ink-muted">
+              {pick.opposingPitcher.status === 'tbd'
+                ? 'Opposing starter is TBD — pitcher line not available.'
+                : 'No season stats yet for this starter — pitcher factor neutral.'}
+            </p>
+          )}
+        </PanelSection>
+      )}
       </div>
 
       {/* ── Right column: math producing the score ────────────────────── */}
