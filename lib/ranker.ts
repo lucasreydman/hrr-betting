@@ -108,6 +108,15 @@ export interface PickInputs {
   isOpener: boolean
   /** Whether weather is rated stable (true = ×1.00 confidence, false = ×0.90). */
   weatherStable: boolean
+  /**
+   * The reason behind the stability verdict. Surfaced in the math panel so
+   * the user can see *why* weather is stable (or not):
+   *  · dome        — venue is controlled, weather doesn't enter
+   *  · no forecast — Open-Meteo fetch failed, defaulted to neutral
+   *  · mild        — outdoor with HR multiplier within ±10% of neutral
+   *  · volatile    — outdoor with HR multiplier outside ±10%
+   */
+  weatherStabilityKind: 'dome' | 'no forecast' | 'mild' | 'volatile'
   /** Batter season PA count — drives the sampleSize confidence factor. */
   batterSeasonPa: number
   /** The 9-batter lineup the player is part of (slot + name only). */
@@ -316,6 +325,14 @@ export async function rankPicks(date: string): Promise<PicksResponse> {
       weatherData.controlled ||
       weatherData.failure ||
       Math.abs(weatherResult.hrMult - 1) < 0.10
+    const weatherStabilityKind: PickInputs['weatherStabilityKind'] =
+      weatherData.controlled
+        ? 'dome'
+        : weatherData.failure
+          ? 'no forecast'
+          : Math.abs(weatherResult.hrMult - 1) < 0.10
+            ? 'mild'
+            : 'volatile'
 
     // Pre-compute lineup summaries (one per side).
     const homeLineupSummary: LineupSlotSummary[] = homeLineup.entries.map(e => ({
@@ -506,6 +523,7 @@ export async function rankPicks(date: string): Promise<PicksResponse> {
         scheduleAgeSec,
         isOpener,
         weatherStable,
+        weatherStabilityKind,
         batterSeasonPa,
         lineup: onHome ? homeLineupSummary : awayLineupSummary,
         confidenceFactors,
