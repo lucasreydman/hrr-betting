@@ -122,12 +122,15 @@ export interface PickInputs {
    */
   batterStatcast: { barrelPct: number; hardHitPct: number; xwOBA: number } | null
   /**
-   * Opposing starter's season rates and Statcast snapshot. Used by the
-   * pitcher-quality factor; surfaced in the math panel for context. `null`
-   * when the starter is TBD or stats aren't available.
+   * Opposing starter's season rates and Statcast snapshot. Both feed the
+   * pitcher-quality factor and are surfaced in the math panel. `null` when
+   * the starter is TBD or stats aren't available. Only `hardHitPctAllowed`
+   * is consumed by the factor today; xwOBA / barrel% allowed are fetched
+   * but not yet wired in (would partly double-count hard-hit until weights
+   * are recalibrated against settled history).
    */
   pitcherSeason: { kPct: number; bbPct: number; hrPer9: number; ip: number } | null
-  pitcherStatcast: { hardHitPctAllowed: number; xwOBAAllowed: number; barrelsAllowedPct: number } | null
+  pitcherStatcast: { hardHitPctAllowed: number } | null
 }
 
 export interface Pick {
@@ -522,11 +525,7 @@ export async function rankPicks(date: string): Promise<PicksResponse> {
             }
           : null,
         pitcherStatcast: opposingPitcherSavant
-          ? {
-              hardHitPctAllowed: opposingPitcherSavant.hardHitPctAllowed,
-              xwOBAAllowed: opposingPitcherSavant.xwOBAAllowed,
-              barrelsAllowedPct: opposingPitcherSavant.barrelsAllowedPct,
-            }
+          ? { hardHitPctAllowed: opposingPitcherSavant.hardHitPctAllowed }
           : null,
       }
 

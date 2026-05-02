@@ -457,18 +457,10 @@ function MathPanel({ pick, localTime }: { pick: Pick; localTime: ReturnType<type
               <KV label="IP">
                 {inputs.pitcherSeason.ip.toFixed(1)}
               </KV>
-              {inputs.pitcherStatcast && (
-                inputs.pitcherStatcast.hardHitPctAllowed > 0 ||
-                inputs.pitcherStatcast.xwOBAAllowed > 0
-              ) ? (
-                <>
-                  <KV label="Hard-hit allowed">
-                    {(inputs.pitcherStatcast.hardHitPctAllowed * 100).toFixed(1)}%
-                  </KV>
-                  <KV label="xwOBA allowed">
-                    {inputs.pitcherStatcast.xwOBAAllowed.toFixed(3)}
-                  </KV>
-                </>
+              {inputs.pitcherStatcast && inputs.pitcherStatcast.hardHitPctAllowed > 0 ? (
+                <KV label="Hard-hit allowed">
+                  {(inputs.pitcherStatcast.hardHitPctAllowed * 100).toFixed(1)}%
+                </KV>
               ) : null}
             </>
           ) : (
