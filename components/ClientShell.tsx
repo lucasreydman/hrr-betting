@@ -170,7 +170,7 @@ export function ClientShell({ initialPicks }: { initialPicks: PicksResponse }) {
                 this at fair-typical odds, weighted by data quality.&rdquo; Variance-aware, so
                 longshots get sized down even when their relative edge is huge. The default
                 sort.{' '}
-                <span className="text-tracked">🔥 Tracked</span>
+                <span className="text-tracked">🎯 Tracked</span>
                 {' '}rows clear all rung floors; everything below is &ldquo;Other plays.&rdquo;
               </li>
             </ul>

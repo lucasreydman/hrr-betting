@@ -441,7 +441,7 @@ function MathPanel({ pick, localTime }: { pick: Pick; localTime: ReturnType<type
             {(pick.score * 100).toFixed(1)}
           </span>
           <span className="ml-2 text-[11px] uppercase tracking-wider text-ink-muted">
-            ({isTracked ? '🔥 Tracked' : 'Other play'})
+            ({isTracked ? '🎯 Tracked' : 'Other play'})
           </span>
         </KV>
         <p className="text-[11px] text-ink-muted">
@@ -523,15 +523,15 @@ export function PickRow({ pick, rung }: { pick: Pick; rung?: 1 | 2 | 3 }) {
       >
         {/* Desktop: 10-column grid (bet · batter · pitcher · game · p.typ · p.today · edge · conf · score · caret) */}
         <div className="hidden sm:grid sm:grid-cols-[0.7fr_1.6fr_1.4fr_1.2fr_0.85fr_0.85fr_0.7fr_0.7fr_0.6fr_0.3fr] sm:items-center sm:gap-3">
-          {/* BET — rung badge */}
-          <div className="min-w-0">
+          {/* BET — rung badge + tracked target */}
+          <div className="flex min-w-0 items-center gap-1.5">
             {rung && <RungBadge rung={rung} />}
+            {isTracked && <span className="text-tracked" aria-hidden="true">🎯</span>}
           </div>
 
           {/* BATTER — name + hand + lineup-status-with-slot pill */}
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
-              {isTracked && <span className="text-tracked" aria-hidden="true">🔥</span>}
               <span className={'min-w-0 break-words font-semibold text-ink'}>
                 {pick.player.fullName}
               </span>
@@ -643,11 +643,11 @@ export function PickRow({ pick, rung }: { pick: Pick; rung?: 1 | 2 | 3 }) {
         {/* Mobile: stacked card layout */}
         <div className="sm:hidden">
           <div className="flex flex-wrap items-center gap-2">
-            {isTracked && <span className="text-tracked" aria-hidden="true">🔥</span>}
             <span className="min-w-0 break-words font-semibold text-ink">
               {pick.player.fullName}
             </span>
             {rung && <RungBadge rung={rung} />}
+            {isTracked && <span className="text-tracked" aria-hidden="true">🎯</span>}
           </div>
           <div className="mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs text-ink-muted">
             <span>{pick.player.bats}</span>
