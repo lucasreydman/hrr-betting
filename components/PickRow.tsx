@@ -445,10 +445,9 @@ function MathPanel({ pick, localTime }: { pick: Pick; localTime: ReturnType<type
         <PanelSection title="Starting pitcher (season)">
           {inputs.pitcherSeason ? (
             <>
-              <KV label="K %">
+              <KV label="K % / BB %">
                 {(inputs.pitcherSeason.kPct * 100).toFixed(1)}%
-              </KV>
-              <KV label="BB %">
+                {' / '}
                 {(inputs.pitcherSeason.bbPct * 100).toFixed(1)}%
               </KV>
               <KV label="HR / 9">
