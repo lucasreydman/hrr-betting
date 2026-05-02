@@ -96,9 +96,8 @@ export function ClientShell({ initialPicks }: { initialPicks: PicksResponse }) {
           Hits + Runs + RBIs prop picks ranked by Kelly bet fraction × confidence.
           Slate updates automatically every minute.
         </p>
-        <div className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 font-mono text-sm">
+        <div className="flex flex-wrap items-baseline gap-x-2 font-mono text-sm">
           <span className="text-ink">{prettyDate(date)}</span>
-          <span className="text-ink-muted">{date}</span>
           <span className="text-[11px] uppercase tracking-wider text-ink-muted">slate</span>
         </div>
 
