@@ -397,73 +397,52 @@ function MathPanel({ pick, localTime }: { pick: Pick; localTime: ReturnType<type
 
       {inputs && (
         <PanelSection title="Career vs this pitcher (BvP)">
-          {inputs.bvp && inputs.bvp.ab > 0 ? (
-            <>
-              <KV label="At-bats">{inputs.bvp.ab}</KV>
-              <KV label="Hits / HR">{inputs.bvp.hits} / {inputs.bvp.HR}</KV>
-              <KV label="BB / K">{inputs.bvp.BB} / {inputs.bvp.K}</KV>
-              <KV label="Batting avg">{(inputs.bvp.hits / inputs.bvp.ab).toFixed(3)}</KV>
-            </>
-          ) : (
-            <p className="text-xs text-ink-muted">
-              {pick.opposingPitcher.status === 'tbd'
-                ? 'Opposing starter is TBD — no BvP record yet.'
-                : 'No prior plate appearances vs this pitcher.'}
-            </p>
-          )}
+          <KV label="At-bats">{inputs.bvp?.ab ?? 0}</KV>
+          <KV label="Hits / HR">
+            {inputs.bvp?.hits ?? 0} / {inputs.bvp?.HR ?? 0}
+          </KV>
+          <KV label="BB / K">
+            {inputs.bvp?.BB ?? 0} / {inputs.bvp?.K ?? 0}
+          </KV>
+          <KV label="Batting avg">
+            {(inputs.bvp && inputs.bvp.ab > 0
+              ? inputs.bvp.hits / inputs.bvp.ab
+              : 0
+            ).toFixed(3)}
+          </KV>
         </PanelSection>
       )}
 
       {inputs && (
         <PanelSection title="Batter Statcast (season)">
-          {hasRealStatcast && statcast ? (
-            <>
-              <KV label="Barrel %">
-                {(statcast.barrelPct * 100).toFixed(1)}%
-              </KV>
-              <KV label="Hard-hit %">
-                {(statcast.hardHitPct * 100).toFixed(1)}%
-              </KV>
-              <KV label="xwOBA">
-                {statcast.xwOBA.toFixed(3)}
-              </KV>
-            </>
-          ) : (
-            <p className="text-xs text-ink-muted">
-              No Statcast data this season — batter quality factor neutral (×1.00).
-            </p>
-          )}
+          <KV label="Barrel %">
+            {(((hasRealStatcast && statcast?.barrelPct) || 0) * 100).toFixed(1)}%
+          </KV>
+          <KV label="Hard-hit %">
+            {(((hasRealStatcast && statcast?.hardHitPct) || 0) * 100).toFixed(1)}%
+          </KV>
+          <KV label="xwOBA">
+            {((hasRealStatcast && statcast?.xwOBA) || 0).toFixed(3)}
+          </KV>
         </PanelSection>
       )}
 
       {inputs && (
         <PanelSection title="Starting pitcher (season)">
-          {inputs.pitcherSeason ? (
-            <>
-              <KV label="K % / BB %">
-                {(inputs.pitcherSeason.kPct * 100).toFixed(1)}%
-                {' / '}
-                {(inputs.pitcherSeason.bbPct * 100).toFixed(1)}%
-              </KV>
-              <KV label="HR / 9">
-                {inputs.pitcherSeason.hrPer9.toFixed(2)}
-              </KV>
-              <KV label="IP">
-                {inputs.pitcherSeason.ip.toFixed(1)}
-              </KV>
-              {inputs.pitcherStatcast && inputs.pitcherStatcast.hardHitPctAllowed > 0 ? (
-                <KV label="Hard-hit allowed">
-                  {(inputs.pitcherStatcast.hardHitPctAllowed * 100).toFixed(1)}%
-                </KV>
-              ) : null}
-            </>
-          ) : (
-            <p className="text-xs text-ink-muted">
-              {pick.opposingPitcher.status === 'tbd'
-                ? 'Opposing starter is TBD — pitcher line not available.'
-                : 'No season stats yet for this starter — pitcher factor neutral.'}
-            </p>
-          )}
+          <KV label="K % / BB %">
+            {((inputs.pitcherSeason?.kPct ?? 0) * 100).toFixed(1)}%
+            {' / '}
+            {((inputs.pitcherSeason?.bbPct ?? 0) * 100).toFixed(1)}%
+          </KV>
+          <KV label="HR / 9">
+            {(inputs.pitcherSeason?.hrPer9 ?? 0).toFixed(2)}
+          </KV>
+          <KV label="IP">
+            {(inputs.pitcherSeason?.ip ?? 0).toFixed(1)}
+          </KV>
+          <KV label="Hard-hit allowed">
+            {((inputs.pitcherStatcast?.hardHitPctAllowed ?? 0) * 100).toFixed(1)}%
+          </KV>
         </PanelSection>
       )}
       </div>
