@@ -4,7 +4,7 @@ import type { LockedPickRow, SettledPickRow } from './db'
 import type { Pick, PicksResponse } from './ranker'
 import type { Rung } from './types'
 import { fetchBoxscore } from './mlb-api'
-import { slateDateString } from './date-utils'
+import { slateDateString, shiftIsoDate } from './date-utils'
 
 // ============================================================================
 // Pure lock-trigger logic
@@ -377,31 +377,39 @@ async function settlePicksKv(date: string): Promise<{ settled: number; pending: 
 // ============================================================================
 
 /**
- * Return all settled picks on or after sinceDate, ordered newest-first.
- * Used by app/api/history/route.ts to replace 30 sequential KV gets.
+ * Return settled picks ordered newest-first.
+ *
+ * `sinceDate` is optional. When omitted, returns all settled picks ever
+ * (the page's headline record is all-time, not a rolling window). When
+ * provided, only returns picks on or after that date.
  *
  * Falls back to iterating KV date keys when Supabase is unavailable.
  */
-export async function getSettledPicks(args: { sinceDate: string }): Promise<SettledPickRow[]> {
+export async function getSettledPicks(args: { sinceDate?: string } = {}): Promise<SettledPickRow[]> {
   if (isSupabaseAvailable()) {
     const supabase = getSupabase()!
-    const { data, error } = await supabase
+    let query = supabase
       .from('settled_picks')
       .select('*')
-      .gte('date', args.sinceDate)
       .order('date', { ascending: false })
+    if (args.sinceDate) query = query.gte('date', args.sinceDate)
+    const { data, error } = await query
     if (error) throw new Error(`settled_picks query failed: ${error.message}`)
     return (data ?? []) as SettledPickRow[]
   }
 
-  // KV fallback: walk dates from today's slate back to sinceDate.
+  // KV fallback: walk dates from today's slate back to sinceDate. When no
+  // sinceDate is given, walk back ~10 years (the whole history of the app
+  // could not realistically exceed that, and the in-memory dev fallback
+  // doesn't have a sane "list all keys" path).
   // Anchor on slateDateString() (ET 3AM rollover) instead of UTC today so
   // we don't skip a slate during the late-night ET window when UTC has
   // already rolled but ET hasn't. Anchor cursor at noon UTC and mutate via
   // setUTCDate so DST transitions in any local zone can't shift the cursor
   // off by a day during traversal.
+  const sinceStr = args.sinceDate ?? shiftIsoDate(slateDateString(), -3650)
   const rows: SettledPickRow[] = []
-  const since = new Date(`${args.sinceDate}T00:00:00Z`)
+  const since = new Date(`${sinceStr}T00:00:00Z`)
   const todayStr = slateDateString()
   const cursor = new Date(`${todayStr}T12:00:00Z`)
 

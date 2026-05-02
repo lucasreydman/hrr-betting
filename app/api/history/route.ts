@@ -1,11 +1,10 @@
 import { NextResponse } from 'next/server'
 import { getSettledPicks, computeRollingMetrics, type SettledPick } from '@/lib/tracker'
-import { slateDateString, shiftIsoDate } from '@/lib/date-utils'
 import type { Rung } from '@/lib/types'
 import type { SettledPickRow } from '@/lib/db'
 
 export interface HistoryResponse {
-  rolling30Day: {
+  allTime: {
     overall: { hits: number; total: number; rate: number }
     perRung: Record<Rung, { hits: number; total: number; rate: number; predictedAvg: number; brier: number }>
   }
@@ -46,17 +45,15 @@ function rowToSettledPick(row: SettledPickRow): SettledPick {
 }
 
 export async function GET(): Promise<NextResponse<HistoryResponse>> {
-  // Anchor the rolling window on the slate date (ET, 3 AM rollover) — the
-  // same boundary used everywhere else in the app — so the window doesn't
-  // shift by a day during late-night ET hours when UTC today != slate today.
-  const since = shiftIsoDate(slateDateString(), -30)
-
-  // ONE query (Supabase) or one fallback iteration (KV) — replaces 30 sequential KV gets
-  const rows = await getSettledPicks({ sinceDate: since })
+  // All-time fetch. The headline record reflects every settled pick the
+  // tracker has ever produced, not a rolling 30-day window — at this scale
+  // (single-user app, low pick volume) the all-time number is more useful
+  // and more honest than a window that drops older data.
+  const rows = await getSettledPicks()
 
   // Per-rung aggregations via the pure helper from tracker.ts
   const metricRows = computeRollingMetrics(rows)
-  const perRung: HistoryResponse['rolling30Day']['perRung'] = {
+  const perRung: HistoryResponse['allTime']['perRung'] = {
     1: { hits: 0, total: 0, rate: 0, predictedAvg: 0, brier: 0 },
     2: { hits: 0, total: 0, rate: 0, predictedAvg: 0, brier: 0 },
     3: { hits: 0, total: 0, rate: 0, predictedAvg: 0, brier: 0 },
@@ -93,7 +90,7 @@ export async function GET(): Promise<NextResponse<HistoryResponse>> {
   const recentPicks = rows.slice(0, 50).map(rowToSettledPick)
 
   return NextResponse.json({
-    rolling30Day: {
+    allTime: {
       overall: { hits: allHits, total: allTotal, rate: allTotal > 0 ? allHits / allTotal : 0 },
       perRung,
     },

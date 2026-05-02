@@ -340,7 +340,7 @@ p < 0.5  →  odds = +round(100 × (1 − p) / p)        (underdog)`}
             boxscore loading.
           </li>
           <li>
-            <strong className="text-ink">Settle.</strong> 6 AM ET (10:00 UTC) daily,{' '}
+            <strong className="text-ink">Settle.</strong> 3:15 AM ET (7:15 UTC) daily,{' '}
             <Code>/api/settle</Code> reads the previous slate&apos;s{' '}
             <Code>locked_picks</Code>, fetches each boxscore, and upserts the canonical
             outcome into <Code>settled_picks</Code>. This is the canonical write. The

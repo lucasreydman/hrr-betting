@@ -22,7 +22,7 @@ const LABEL_TONE: Record<CalibrationLabel, string> = {
   'no data': 'text-ink-muted',
 }
 
-export function CalibrationTable({ perRung }: { perRung: HistoryResponse['rolling30Day']['perRung'] }) {
+export function CalibrationTable({ perRung }: { perRung: HistoryResponse['allTime']['perRung'] }) {
   return (
     <div className="overflow-x-auto">
       {/* min-w keeps every column readable inside the scroll container; without

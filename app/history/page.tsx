@@ -36,10 +36,10 @@ export default async function HistoryPage() {
     )
   }
 
-  const { rolling30Day, byDate, recentPicks } = history
-  const wins = rolling30Day.overall.hits
-  const losses = rolling30Day.overall.total - rolling30Day.overall.hits
-  const hasSettled = rolling30Day.overall.total > 0
+  const { allTime, byDate, recentPicks } = history
+  const wins = allTime.overall.hits
+  const losses = allTime.overall.total - allTime.overall.hits
+  const hasSettled = allTime.overall.total > 0
 
   return (
     <main className="mx-auto max-w-5xl space-y-8 px-4 py-6 sm:px-6 sm:py-8">
@@ -47,10 +47,10 @@ export default async function HistoryPage() {
 
       {/* Headline result */}
       <section
-        aria-labelledby="rolling-overall"
+        aria-labelledby="all-time-overall"
         className="rounded-lg border border-border bg-card/30 p-6 sm:p-8"
       >
-        <h2 id="rolling-overall" className="sr-only">Rolling 30-day overall record</h2>
+        <h2 id="all-time-overall" className="sr-only">All-time overall record</h2>
         {hasSettled ? (
           <div className="space-y-1">
             <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
@@ -58,17 +58,17 @@ export default async function HistoryPage() {
                 {wins}–{losses}
               </span>
               <span className="font-mono text-2xl text-ink-muted">
-                {(rolling30Day.overall.rate * 100).toFixed(1)}%
+                {(allTime.overall.rate * 100).toFixed(1)}%
               </span>
             </div>
             <p className="text-sm text-ink-muted">
-              Tracked picks settled in the last 30 days
+              All-time Tracked picks settled
             </p>
           </div>
         ) : (
           <EmptyState
             title="No settled picks yet"
-            description="Once games complete and the 3 AM cron settles them, the rolling record fills in here."
+            description="Once games complete and the daily settle cron writes them, your record fills in here."
           />
         )}
       </section>
@@ -85,7 +85,7 @@ export default async function HistoryPage() {
           </p>
         </div>
         <div className="overflow-hidden rounded-lg border border-border bg-card/20">
-          <CalibrationTable perRung={rolling30Day.perRung} />
+          <CalibrationTable perRung={allTime.perRung} />
         </div>
         <dl className="grid gap-2 rounded-lg border border-border bg-card/10 p-3 text-xs sm:grid-cols-3 sm:p-4">
           <div className="space-y-0.5">
@@ -217,7 +217,7 @@ function PageHeader() {
     <header className="space-y-1">
       <h1 className="text-3xl font-semibold tracking-tight">History</h1>
       <p className="text-sm text-ink-muted">
-        Rolling 30-day Tracked record, per-rung calibration, and recent settled picks.
+        All-time Tracked record, per-rung calibration, and recent settled picks.
       </p>
     </header>
   )
