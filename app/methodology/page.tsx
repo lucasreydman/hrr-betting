@@ -23,9 +23,9 @@ export default function Methodology() {
           weighted by data quality.&rdquo;
         </p>
         <p>
-          Three rungs per player: <Code>1+</Code>, <Code>2+</Code>, <Code>3+ HRR</Code>{' '}
-          where HRR = Hits + Runs + RBIs over the player&apos;s full game. A solo home
-          run alone is +1H +1R +1RBI = 3 HRR.
+          Three rungs per player: <RungTag rung={1} />, <RungTag rung={2} />,{' '}
+          <RungTag rung={3} /> where HRR = Hits + Runs + RBIs over the player&apos;s
+          full game. A solo home run alone is +1H +1R +1RBI = 3 HRR.
         </p>
       </Section>
 
@@ -245,8 +245,16 @@ score = kelly × confidence`}
         </p>
         <ul className="ml-5 list-disc space-y-1 text-sm marker:text-ink-muted">
           <li><Code>confidence ≥ 0.85</Code></li>
-          <li><Code>edge ≥ floor(rung)</Code>: 0.10 / 0.30 / 0.60 for 1+ / 2+ / 3+</li>
-          <li><Code>p̂ today ≥ floor(rung)</Code>: 0.85 / 0.55 / 0.20 for 1+ / 2+ / 3+</li>
+          <li>
+            <Code>edge ≥ floor(rung)</Code>: 0.10 / 0.30 / 0.60 for{' '}
+            <RungTag rung={1} compact /> / <RungTag rung={2} compact /> /{' '}
+            <RungTag rung={3} compact />
+          </li>
+          <li>
+            <Code>p̂ today ≥ floor(rung)</Code>: 0.85 / 0.55 / 0.20 for{' '}
+            <RungTag rung={1} compact /> / <RungTag rung={2} compact /> /{' '}
+            <RungTag rung={3} compact />
+          </li>
         </ul>
         <p className="text-sm text-ink-muted">
           Both the edge and probability floors must clear because each catches a
@@ -385,7 +393,7 @@ p < 0.5  →  odds = +round(100 × (1 − p) / p)        (underdog)`}
           <li>
             <strong className="text-ink">Slate-aligned (24 h, frozen across the slate).</strong>{' '}
             BvP, batter season stats, recent pitcher starts, batter game log,
-            Statcast metrics, bullpen ERA. Cache key includes{' '}
+            Statcast metrics. Cache key includes{' '}
             <Code>slateDateString()</Code> so today&apos;s mid-game ticks can&apos;t
             shift previously-given picks.
           </li>
@@ -395,8 +403,9 @@ p < 0.5  →  odds = +round(100 × (1 − p) / p)        (underdog)`}
             scheduled → live → final) propagate fast.
           </li>
           <li>
-            <strong className="text-ink">Stable post-posting (6 h).</strong> Confirmed
-            lineups, finalised boxscores. Once posted these don&apos;t change.
+            <strong className="text-ink">Slow-changing (6 h).</strong> Confirmed
+            lineups, finalised boxscores, opponent bullpen ERA. Once posted, lineups
+            and boxscores don&apos;t change; bullpen ERA shifts a few times per day.
           </li>
           <li>
             <strong className="text-ink">Page cache (30 s)</strong> for{' '}
@@ -552,6 +561,28 @@ function Code({ children }: { children: React.ReactNode }) {
     <code className="break-words rounded border border-border/60 bg-card/60 px-1 py-0.5 font-mono text-[0.85em] text-accent">
       {children}
     </code>
+  )
+}
+
+/**
+ * Inline rung label colored to match RungBadge in PickRow:
+ *   1+ → sky-300, 2+ → sky-400, 3+ HRR → blue-400.
+ * Default form spells out "X+ HRR"; `compact` drops the "HRR" suffix for
+ * dense list contexts where the label appears next to other rung tokens.
+ */
+function RungTag({ rung, compact = false }: { rung: 1 | 2 | 3; compact?: boolean }) {
+  const cls =
+    rung === 1
+      ? 'border-sky-300/40 bg-sky-300/10 text-sky-300'
+      : rung === 2
+        ? 'border-sky-400/50 bg-sky-400/15 text-sky-400'
+        : 'border-blue-500/60 bg-blue-500/20 text-blue-400'
+  return (
+    <span
+      className={`inline-flex items-center rounded border px-1.5 py-0.5 font-mono text-[0.78em] font-medium uppercase tracking-wider leading-none ${cls}`}
+    >
+      {rung}+{compact ? '' : ' HRR'}
+    </span>
   )
 }
 
