@@ -87,6 +87,33 @@ export default async function HistoryPage() {
         <div className="overflow-hidden rounded-lg border border-border bg-card/20">
           <CalibrationTable perRung={rolling30Day.perRung} />
         </div>
+        <dl className="grid gap-2 rounded-lg border border-border bg-card/10 p-3 text-xs sm:grid-cols-3 sm:p-4">
+          <div className="space-y-0.5">
+            <dt className="font-mono uppercase tracking-wider text-hit">accurate</dt>
+            <dd className="text-ink-muted">
+              Hit rate matches predicted within ±5pp. The model&apos;s probabilities can be
+              trusted as-is.
+            </dd>
+          </div>
+          <div className="space-y-0.5">
+            <dt className="font-mono uppercase tracking-wider text-warn">conservative</dt>
+            <dd className="text-ink-muted">
+              You&apos;re hitting more often than predicted. The model is under-rating the
+              picks it surfaces.
+            </dd>
+          </div>
+          <div className="space-y-0.5">
+            <dt className="font-mono uppercase tracking-wider text-warn">optimistic</dt>
+            <dd className="text-ink-muted">
+              You&apos;re hitting less often than predicted. The model is over-rating the
+              picks it surfaces.
+            </dd>
+          </div>
+        </dl>
+        <p className="text-xs text-ink-muted">
+          The verdict is meaningful once each rung has ≥ 20 settled picks. Below that,
+          treat it as decorative.
+        </p>
       </section>
 
       {/* Daily activity chart */}

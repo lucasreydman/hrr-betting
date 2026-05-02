@@ -1,26 +1,28 @@
 import type { HistoryResponse } from '@/app/api/history/route'
 
-type CalibrationLabel = 'good' | 'underconfident' | 'overconfident' | 'no data'
+type CalibrationLabel = 'accurate' | 'conservative' | 'optimistic' | 'no data'
 
 function classify(rate: number, predictedAvg: number, total: number): CalibrationLabel {
   if (total === 0) return 'no data'
   const delta = rate - predictedAvg
-  if (Math.abs(delta) < 0.05) return 'good'
-  return delta > 0 ? 'underconfident' : 'overconfident'
+  if (Math.abs(delta) < 0.05) return 'accurate'
+  // delta > 0 = hit rate above forecast → model under-predicted = conservative
+  // delta < 0 = hit rate below forecast → model over-predicted = optimistic
+  return delta > 0 ? 'conservative' : 'optimistic'
 }
 
 const LABEL_TONE: Record<CalibrationLabel, string> = {
-  good: 'text-hit',
-  underconfident: 'text-warn',
-  overconfident: 'text-warn',
+  accurate: 'text-hit',
+  conservative: 'text-warn',
+  optimistic: 'text-warn',
   'no data': 'text-ink-muted',
 }
 
 export function CalibrationTable({ perRung }: { perRung: HistoryResponse['rolling30Day']['perRung'] }) {
   return (
     <div className="overflow-x-auto">
-      {/* min-w keeps every column readable inside the scroll container — without
-          it, a 320 px viewport crushes "underconfident" / "overconfident" labels
+      {/* min-w keeps every column readable inside the scroll container; without
+          it, a 320 px viewport crushes the "conservative" / "optimistic" labels
           into 3-line wrapping. */}
       <table className="w-full min-w-[520px] text-sm font-mono">
         <thead>
