@@ -228,9 +228,17 @@ function PitcherBadge({ status }: { status: Pick['opposingPitcher']['status'] })
 }
 
 /** Section header inside the expanded panel. */
-function PanelSection({ title, children }: { title: string; children: React.ReactNode }) {
+function PanelSection({
+  title,
+  children,
+  className = '',
+}: {
+  title: string
+  children: React.ReactNode
+  className?: string
+}) {
   return (
-    <section className="space-y-1">
+    <section className={`space-y-1 ${className}`}>
       <h3 className="text-[10px] font-medium uppercase tracking-wider text-ink-muted">{title}</h3>
       {children}
     </section>
@@ -300,9 +308,9 @@ function MathPanel({ pick, rung, localTime }: { pick: Pick; rung?: 1 | 2 | 3; lo
     !!statcast && (statcast.barrelPct > 0 || statcast.hardHitPct > 0 || statcast.xwOBA > 0)
 
   return (
-    <div className="px-3 py-4 sm:grid sm:grid-cols-2 sm:gap-x-6 sm:px-4">
+    <div className="px-3 py-4 sm:grid sm:grid-cols-2 sm:items-stretch sm:gap-x-6 sm:px-4">
       {/* ── Left column ────────────────────────────────────────────────── */}
-      <div className="space-y-4">
+      <div className="flex flex-col gap-4">
       <PanelSection title="Matchup">
         <KV label="First pitch">
           {localTime ? (
@@ -428,7 +436,7 @@ function MathPanel({ pick, rung, localTime }: { pick: Pick; rung?: 1 | 2 | 3; lo
       )}
 
       {inputs && (
-        <PanelSection title="Starting pitcher (season)">
+        <PanelSection title="Starting pitcher (season)" className="sm:mt-auto">
           <KV label="K % / BB %">
             {((inputs.pitcherSeason?.kPct ?? 0) * 100).toFixed(1)}%
             {' / '}
@@ -448,7 +456,7 @@ function MathPanel({ pick, rung, localTime }: { pick: Pick; rung?: 1 | 2 | 3; lo
       </div>
 
       {/* ── Right column: math producing the score ────────────────────── */}
-      <div className="mt-4 space-y-4 sm:mt-0">
+      <div className="mt-4 flex flex-col gap-4 sm:mt-0">
       {inputs && (
         <PanelSection title="p̂ today factor breakdown">
           <p className="font-mono text-[11px] leading-relaxed text-ink-muted">
@@ -555,7 +563,7 @@ function MathPanel({ pick, rung, localTime }: { pick: Pick; rung?: 1 | 2 | 3; lo
         </PanelSection>
       )}
 
-      <PanelSection title="Score">
+      <PanelSection title="Score" className="sm:mt-auto">
         <p className="font-mono text-[11px] leading-relaxed text-ink-muted">
           score = (p̂<sub>today</sub> − p̂<sub>typical</sub>) ÷ (1 − p̂<sub>typical</sub>) × confidence
           <span className="ml-1 text-ink-muted/70">(Kelly × conf, ×100 for display)</span>
