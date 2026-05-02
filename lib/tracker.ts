@@ -2,7 +2,6 @@ import { kvGet, kvSet } from './kv'
 import { getSupabase, isSupabaseAvailable } from './db'
 import type { LockedPickRow, SettledPickRow } from './db'
 import type { Pick, PicksResponse } from './ranker'
-import { rankPicks } from './ranker'
 import type { Rung } from './types'
 import { fetchBoxscore } from './mlb-api'
 import { slateDateString } from './date-utils'
@@ -168,29 +167,34 @@ function collectTracked(current: PicksResponse): Array<Pick & { rung: Rung }> {
  *
  * Falls back to KV blob write when Supabase is unavailable (local dev / tests).
  */
-export async function snapshotLockedPicks(date: string): Promise<{
+export async function snapshotLockedPicks(args: {
+  date: string
+  /**
+   * Optional pre-computed picks. When omitted, falls back to the
+   * `picks:current:{date}` cache. The lock route is responsible for
+   * supplying a fresh `rankPicks` result when the cache is empty —
+   * keeping that import out of `tracker.ts` avoids pulling the entire
+   * ranker dependency tree into the settle function bundle (which
+   * caused settle to 500 on cold-load before this refactor).
+   */
+  current?: PicksResponse
+}): Promise<{
   locked: number
   newlyLocked: number
   alreadyLocked: boolean
 }> {
-  // CRITICAL: read-or-compute. The picks-current cache has a 30s TTL and is
-  // populated only by /api/picks page hits (not by /api/refresh, which
-  // invalidates without repopulating). On a quiet evening with no live
-  // viewers the cache is almost always empty when /api/lock fires, and the
-  // pre-fix version of this function silently returned 0 — meaning the
-  // entire slate's tracked picks never landed in locked_picks, and the next
-  // morning's settle had nothing to write. Fall back to a fresh rankPicks
-  // call so the cron is self-sufficient regardless of cache temperature.
-  let current = await kvGet<PicksResponse>(`picks:current:${date}`)
-  if (!current) {
-    current = await rankPicks(date)
-  }
+  const { date } = args
+  const current = args.current ?? await kvGet<PicksResponse>(`picks:current:${date}`)
 
   if (!isSupabaseAvailable()) {
     // KV fallback path — same insert-only semantics as the Supabase path
     const lockedKey = `picks:locked:${date}`
     const existing = await kvGet<LockedDay>(lockedKey)
     const alreadyLocked = existing != null
+
+    if (!current) {
+      return { locked: existing?.picks.length ?? 0, newlyLocked: 0, alreadyLocked }
+    }
 
     const tracked = collectTracked(current)
 
@@ -225,6 +229,10 @@ export async function snapshotLockedPicks(date: string): Promise<{
   if (selectErr) throw new Error(`locked_picks select failed: ${selectErr.message}`)
 
   const alreadyLocked = (existingCount ?? 0) > 0
+
+  if (!current) {
+    return { locked: existingCount ?? 0, newlyLocked: 0, alreadyLocked }
+  }
 
   const tracked = collectTracked(current)
   if (tracked.length === 0) {

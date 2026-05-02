@@ -69,7 +69,7 @@ describe('shouldLock', () => {
 
 describe('snapshotLockedPicks (in-memory KV)', () => {
   test('returns 0 when no current picks exist', async () => {
-    const result = await snapshotLockedPicks('2099-12-31')
+    const result = await snapshotLockedPicks({ date: '2099-12-31' })
     expect(result.locked).toBe(0)
     expect(result.newlyLocked).toBe(0)
     expect(result.alreadyLocked).toBe(false)
@@ -106,7 +106,7 @@ describe('snapshotLockedPicks (in-memory KV)', () => {
       rung3: [],
       meta: { gamesTotal: 2, fromCache: false, gameStates: { scheduled: 2, inProgress: 0, final: 0, postponed: 0 } },
     })
-    const first = await snapshotLockedPicks(date)
+    const first = await snapshotLockedPicks({ date })
     expect(first.locked).toBe(1)
     expect(first.newlyLocked).toBe(1)
     expect(first.alreadyLocked).toBe(false)
@@ -122,7 +122,7 @@ describe('snapshotLockedPicks (in-memory KV)', () => {
       rung3: [],
       meta: { gamesTotal: 2, fromCache: false, gameStates: { scheduled: 2, inProgress: 0, final: 0, postponed: 0 } },
     })
-    const second = await snapshotLockedPicks(date)
+    const second = await snapshotLockedPicks({ date })
     expect(second.locked).toBe(2)
     expect(second.newlyLocked).toBe(1)  // only the late pick is new
     expect(second.alreadyLocked).toBe(true)

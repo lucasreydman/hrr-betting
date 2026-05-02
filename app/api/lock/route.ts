@@ -4,6 +4,30 @@ import { fetchLineup } from '@/lib/lineup'
 import { shouldLock, snapshotLockedPicks } from '@/lib/tracker'
 import { verifyCronRequest } from '@/lib/cron-auth'
 import { slateDateString, isValidIsoDate } from '@/lib/date-utils'
+import { kvGet } from '@/lib/kv'
+import { rankPicks, type PicksResponse } from '@/lib/ranker'
+
+/**
+ * Read picks:current cache or fall back to a fresh `rankPicks(date)` call.
+ *
+ * The picks-current cache has a 30s TTL and is populated only by /api/picks
+ * page hits (not by /api/refresh, which invalidates without repopulating).
+ * On a quiet evening with no live viewers the cache is almost always empty
+ * when the lock cron fires — and the pre-fix version of snapshotLockedPicks
+ * silently returned 0, meaning the entire slate's tracked picks never landed
+ * in locked_picks and the next morning's settle had nothing to write.
+ *
+ * This helper lives in the lock route (not in `lib/tracker.ts`) so the
+ * settle function bundle stays small — pulling rankPicks into tracker would
+ * drag the entire ranker dependency tree (mlb-api, factors, weather, sim
+ * baseline reads) into the settle cold-start, which has been observed to
+ * 500 the function before it can even respond.
+ */
+async function readOrComputePicks(date: string): Promise<PicksResponse> {
+  const cached = await kvGet<PicksResponse>(`picks:current:${date}`)
+  if (cached) return cached
+  return rankPicks(date)
+}
 
 export const maxDuration = 10
 
@@ -45,7 +69,8 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   // an empty picks-current cache caused snapshotLockedPicks to bail with 0).
   // Operator-only — same auth as the cron path.
   if (force) {
-    const result = await snapshotLockedPicks(date)
+    const current = await readOrComputePicks(date)
+    const result = await snapshotLockedPicks({ date, current })
     return NextResponse.json({ date, status: 'forced', ...result })
   }
 
@@ -77,6 +102,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ date, status: 'no-lock', games: games.length })
   }
 
-  const result = await snapshotLockedPicks(date)
+  const current = await readOrComputePicks(date)
+  const result = await snapshotLockedPicks({ date, current })
   return NextResponse.json({ date, status: 'locked', ...result })
 }
