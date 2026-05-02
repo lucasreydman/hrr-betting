@@ -108,7 +108,9 @@ export function ClientShell({ initialPicks }: { initialPicks: PicksResponse }) {
         <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">Today&apos;s board</h1>
         <p className="text-sm text-ink-muted">
           Hits + Runs + RBIs prop picks ranked by Kelly bet fraction × confidence.
-          Slate updates automatically every minute.
+          Slate updates automatically every minute. Click the{' '}
+          <span aria-hidden="true" className="font-mono text-ink">▾</span>{' '}
+          on any row for expanded details.
         </p>
         <div className="font-mono text-sm text-ink">
           {prettyDate(date)}
