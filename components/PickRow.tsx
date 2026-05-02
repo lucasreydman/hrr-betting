@@ -186,10 +186,10 @@ function PitcherBadge({ status }: { status: Pick['opposingPitcher']['status'] })
   return (
     <span
       className="inline-flex items-center rounded border border-hit/40 bg-hit/10 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider leading-none text-hit"
-      title="Pitcher confirmed"
-      aria-label="Pitcher confirmed"
+      title="Starting pitcher confirmed"
+      aria-label="Starting pitcher confirmed"
     >
-      CONFIRMED
+      CONFIRMED SP
     </span>
   )
 }
