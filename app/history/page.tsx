@@ -113,10 +113,6 @@ export default async function HistoryPage() {
             </dd>
           </div>
         </dl>
-        <p className="text-xs text-ink-muted">
-          The verdict is meaningful once each rung has ≥ 20 settled picks. Below that,
-          treat it as decorative.
-        </p>
       </section>
 
       {/* Daily activity chart */}
