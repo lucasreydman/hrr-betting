@@ -411,13 +411,25 @@ export async function rankPicks(date: string): Promise<PicksResponse> {
           : 'R',
       }
 
-      // Pitcher throws hand (for handedness factor in computeProbToday)
+      // Opposing pitcher is "confirmed" once MLB has posted the *opposing
+      // team's* lineup card — that's the artifact that officially names the
+      // starting pitcher. The previous gate of `game.status === 'in_progress'`
+      // was too strict: Yahoo / Rotowire / fantasy sites all flip the pitcher
+      // to "Confirmed" the moment the lineup posts (typically 30–90 min before
+      // first pitch), not when the game actually starts. Tying status to the
+      // opposing-side lineup matches that convention.
+      //
+      // Also keeps the in_progress / final fallback so we don't *un*-confirm
+      // a pitcher mid-game in the rare case lineup data flips back.
+      const opposingLineupStatus = (onHome ? awayLineup : homeLineup).status
       const opposingPitcherStatus: 'tbd' | 'probable' | 'confirmed' =
         opposingStarterId <= 0
           ? 'tbd'
           : (game.status === 'in_progress' || game.status === 'final')
             ? 'confirmed'
-            : 'probable'
+            : opposingLineupStatus === 'confirmed'
+              ? 'confirmed'
+              : 'probable'
 
       const batterSeasonPa = batterSeason?.pa ?? 0
 
