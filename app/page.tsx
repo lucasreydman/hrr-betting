@@ -3,7 +3,11 @@ import { rankPicks } from '@/lib/ranker'
 import { slateDateString } from '@/lib/date-utils'
 
 export const metadata = {
-  title: 'Board',
+  // Absolute title — Next.js metadata templates only apply to *child*
+  // segments, not to a page in the same segment as the layout that
+  // defined the template. Spelling it out keeps the home tab consistent
+  // with /history and /methodology which do get templated.
+  title: { absolute: 'HRR Betting — Board' },
 }
 
 // Force dynamic rendering. The page reads upstream MLB data + per-player

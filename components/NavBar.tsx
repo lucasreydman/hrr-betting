@@ -2,6 +2,7 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
+/* eslint-disable @next/next/no-img-element */
 
 interface NavLink {
   href: string
@@ -43,15 +44,14 @@ export function NavBar() {
           paddingRight: 'max(0.75rem, env(safe-area-inset-right, 0px))',
         }}
       >
-        <Link
-          href="/"
-          // min-w-0 + truncate on the inner span so an unexpectedly long
-          // brand string can't push the nav off-screen.
-          className="flex min-w-0 items-center gap-2 rounded text-base font-semibold tracking-tight text-ink hover:text-accent"
-          aria-label="HRR Betting — home"
+        {/* Brand block — static (no longer a home link; the "Board" tab in the
+            nav covers that). min-w-0 + truncate on the inner span keep an
+            unexpectedly long brand from pushing the nav off-screen. */}
+        <div
+          className="flex min-w-0 items-center gap-2 text-base font-semibold tracking-tight text-ink"
+          aria-label="HRR Betting"
         >
           {/* Logo served from app/icon.png via Next.js App Router static route. */}
-          {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src="/icon.png"
             alt=""
@@ -60,12 +60,12 @@ export function NavBar() {
             height={28}
             className="h-7 w-7 shrink-0 rounded-md"
           />
-          <span className="truncate">HRR</span>
+          <span className="truncate">HRR Betting</span>
           <span className="hidden text-ink-muted sm:inline" aria-hidden="true">·</span>
           <span className="hidden truncate text-sm font-normal text-ink-muted sm:inline">
             Hits + Runs + RBIs
           </span>
-        </Link>
+        </div>
 
         <ul className="flex shrink-0 items-center gap-0.5 text-sm sm:gap-1">
           {LINKS.map(link => {
