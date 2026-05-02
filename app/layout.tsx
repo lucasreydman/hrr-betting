@@ -58,7 +58,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             rel="noopener noreferrer"
             className="text-ink-subtle underline decoration-border underline-offset-2 transition-colors hover:text-accent hover:decoration-accent/60"
           >
-            Source on GitHub
+            GitHub
           </a>
         </footer>
       </body>
