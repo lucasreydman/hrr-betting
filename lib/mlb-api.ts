@@ -325,97 +325,52 @@ const STATUS_PRIORITY: Record<Game['status'], number> = {
   postponed: 1,
 }
 
-/** Anything closer than this between two same-matchup gameDates is treated
- *  as a duplicate, not a doubleheader. Real DHs are hours apart (game 1
- *  takes ~3h before game 2 starts). 90 min gives a comfortable margin. */
-const DH_PROXIMITY_MS = 90 * 60 * 1000
-
 /**
  * Collapse multiple schedule entries that describe the same physical game.
  *
- * MLB Stats occasionally returns two `gamePk`s for one matchup — postponement+
- * reschedule artifact, suspended-game resumption, or even a `doubleHeader: 'Y'`
- * tagging on what is really one game (observed: Astros @ Orioles 2026-04-30,
- * gameNumber 1 at 16:35Z and gameNumber 2 at 16:40Z — 5 minutes apart). Without
- * dedupe, both gamePks propagate identical-input picks downstream and the
- * board renders the same play twice.
+ * MLB Stats occasionally returns two `gamePk`s for one matchup — most often
+ * after a postponement+reschedule, after a suspended-game resumption, or
+ * during transient API blips. Without dedupe, both entries propagate
+ * identical-input picks (same player, same opposing pitcher, same factors)
+ * so the board renders the same play twice with only the `gameDate`
+ * differing slightly.
  *
- * Dedupe key: `(homeTeamId, awayTeamId, gameNumber ?? 1)`, *but* if two
- * same-matchup entries land within 90 min of each other we collapse them
- * even when their `gameNumber` differs — no real doubleheader has that
- * tight a turnaround, so this is always a data artifact rather than two
- * games. Two-pass: first the gameNumber-keyed pass, then a proximity
- * sweep on the survivors.
+ * Dedupe key: `(homeTeamId, awayTeamId, gameNumber ?? 1)`. Real
+ * doubleheaders are *not* collapsed: they have distinct `gameNumber`
+ * values (1 and 2) so the composite key keeps them apart. Note that
+ * pre-game, MLB sometimes sets game 2's `gameDate` only minutes after
+ * game 1's (a placeholder updated once game 1 finishes); that closeness
+ * is not a duplication signal — `gameNumber` is.
  *
- * Tiebreakers within either pass: most-progressed status > newer gameDate >
- * higher gamePk. All deterministic so output ordering doesn't depend on
- * input ordering.
+ * Within a collision: prefer (1) the most-progressed status, then (2)
+ * the latest `gameDate` (newest reschedule wins), then (3) the highest
+ * `gamePk` (newest record id wins). Each tiebreaker is deterministic
+ * so the output order doesn't depend on input ordering.
  */
 export function dedupeGamesByMatchup(
   games: Array<Game & { gameNumber?: number }>,
 ): Game[] {
-  type GameWithNum = Game & { gameNumber?: number }
-
-  // `a wins` == returns true when `a` should replace `existing`.
-  const aWinsOver = (a: GameWithNum, b: GameWithNum): boolean => {
-    const ap = STATUS_PRIORITY[a.status] ?? 0
-    const bp = STATUS_PRIORITY[b.status] ?? 0
-    if (ap !== bp) return ap > bp
-    const aDate = Date.parse(a.gameDate)
-    const bDate = Date.parse(b.gameDate)
-    if (aDate !== bDate) return aDate > bDate
-    return a.gameId > b.gameId
-  }
-
-  // Pass 1: collapse exact (teams, gameNumber) matches.
-  const byKey = new Map<string, GameWithNum>()
+  const byKey = new Map<string, Game & { gameNumber?: number }>()
   for (const g of games) {
     const key = `${g.homeTeam.teamId}:${g.awayTeam.teamId}:${g.gameNumber ?? 1}`
     const existing = byKey.get(key)
-    if (!existing || aWinsOver(g, existing)) byKey.set(key, g)
-  }
-
-  // Pass 2: among same-matchup survivors, collapse anything within 90 min of
-  // each other (handles MLB's misleading `doubleHeader: 'Y'` tagging on
-  // resumed/rescheduled games — real DHs are always hours apart).
-  const byMatchup = new Map<string, GameWithNum[]>()
-  for (const g of byKey.values()) {
-    const matchupKey = `${g.homeTeam.teamId}:${g.awayTeam.teamId}`
-    const list = byMatchup.get(matchupKey) ?? []
-    list.push(g)
-    byMatchup.set(matchupKey, list)
-  }
-  const result: GameWithNum[] = []
-  for (const list of byMatchup.values()) {
-    // Sort by gameDate ascending so we can sweep linearly and group adjacents.
-    list.sort((a, b) => Date.parse(a.gameDate) - Date.parse(b.gameDate))
-    let cluster: GameWithNum[] = []
-    const flushCluster = () => {
-      if (cluster.length === 0) return
-      let winner = cluster[0]
-      for (let i = 1; i < cluster.length; i++) {
-        if (aWinsOver(cluster[i], winner)) winner = cluster[i]
-      }
-      result.push(winner)
-      cluster = []
+    if (!existing) {
+      byKey.set(key, g)
+      continue
     }
-    for (const g of list) {
-      if (cluster.length === 0) { cluster.push(g); continue }
-      const prevDate = Date.parse(cluster[cluster.length - 1].gameDate)
-      const curDate = Date.parse(g.gameDate)
-      if (curDate - prevDate <= DH_PROXIMITY_MS) {
-        cluster.push(g)
-      } else {
-        flushCluster()
-        cluster.push(g)
-      }
-    }
-    flushCluster()
+    const a = STATUS_PRIORITY[g.status] ?? 0
+    const b = STATUS_PRIORITY[existing.status] ?? 0
+    if (a > b) { byKey.set(key, g); continue }
+    if (a < b) continue
+    const aDate = Date.parse(g.gameDate)
+    const bDate = Date.parse(existing.gameDate)
+    if (aDate > bDate) { byKey.set(key, g); continue }
+    if (aDate < bDate) continue
+    if (g.gameId > existing.gameId) byKey.set(key, g)
   }
-
   // Strip the temporary `gameNumber` field — it's only needed for the dedupe
   // key, not part of the public Game type.
-  return result.map(g => {
+  return [...byKey.values()].map(g => {
     const out = { ...g }
     delete out.gameNumber
     return out

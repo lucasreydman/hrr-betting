@@ -186,11 +186,12 @@ describe('fetchSchedule', () => {
     expect(games.map(g => g.gameId).sort()).toEqual([900001, 900002])
   })
 
-  test('collapses MLB-mislabelled "doubleheader" entries 5min apart (real anomaly)', async () => {
-    // Observed in production: Astros @ Orioles 2026-04-30 returned gameNumber 1
-    // at 16:35Z and gameNumber 2 at 16:40Z, both with doubleHeader='Y'. 5 min
-    // is not a real doubleheader — the proximity sweep should collapse them
-    // even though gameNumbers differ.
+  test('preserves real doubleheaders even when scheduled minutes apart', async () => {
+    // Real-world: Astros @ Orioles 2026-04-30 had gameNumber 1 at 16:35Z
+    // and gameNumber 2 at 16:40Z, both with doubleHeader='Y'. Both games
+    // genuinely played 9 innings to different outcomes — they are NOT a
+    // duplicate, and must stay as two rows so locked_picks captures both
+    // and tomorrow's settle cron stamps each with its own HIT/MISS.
     mockFetch(() => jsonResp({
       dates: [{
         games: [
@@ -218,9 +219,8 @@ describe('fetchSchedule', () => {
       }],
     }))
     const games = await fetchSchedule('2099-07-11')
-    expect(games.length).toBe(1)
-    // Newer gameDate wins on the status tie (both final).
-    expect(games[0].gameId).toBe(824850)
+    expect(games.length).toBe(2)
+    expect(games.map(g => g.gameId).sort()).toEqual([824848, 824850])
   })
 })
 
@@ -284,22 +284,15 @@ describe('dedupeGamesByMatchup', () => {
     expect(out.length).toBe(2)
   })
 
-  test('proximity sweep: collapses different-gameNumber entries within 90min', () => {
-    // MLB sometimes mislabels a single rescheduled/resumed game as a DH.
-    // Two same-matchup entries 5 minutes apart cannot be a real DH.
+  test('does NOT collapse real doubleheaders even when gameDates are minutes apart', () => {
+    // Real-world: pre-game, MLB sets game 2's gameDate to a placeholder
+    // minutes after game 1's (it's updated once game 1 finishes). A 5-min
+    // gameDate gap is NOT a duplication signal when gameNumber differs —
+    // both games genuinely play to completion (Astros @ Orioles 2026-04-30
+    // is the canonical example: 9 innings each, distinct boxscores).
     const out = dedupeGamesByMatchup([
       baseGame({ gameId: 1, gameNumber: 1, gameDate: '2026-04-30T16:35:00Z' }),
       baseGame({ gameId: 2, gameNumber: 2, gameDate: '2026-04-30T16:40:00Z' }),
-    ])
-    expect(out.length).toBe(1)
-    expect(out[0].gameId).toBe(2)
-  })
-
-  test('proximity sweep: respects the 90-min boundary', () => {
-    // Just over 90 min apart → kept as two (treated as a real DH).
-    const out = dedupeGamesByMatchup([
-      baseGame({ gameId: 1, gameNumber: 1, gameDate: '2026-04-30T16:00:00Z' }),
-      baseGame({ gameId: 2, gameNumber: 2, gameDate: '2026-04-30T17:31:00Z' }),
     ])
     expect(out.length).toBe(2)
   })
