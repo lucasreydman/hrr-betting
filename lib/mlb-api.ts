@@ -1,7 +1,7 @@
 /**
  * lib/mlb-api.ts
  *
- * Unified MLB Stats API adapter for hits-runs-rbis.
+ * Unified MLB Stats API adapter for hrr-betting.
  *
  * All public functions apply a 6-hour KV cache (keyed by inputs) with a
  * live-fetch fallback on miss.  fetchPlayerSlotFrequency uses a 24-hour TTL

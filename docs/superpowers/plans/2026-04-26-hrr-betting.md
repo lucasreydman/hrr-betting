@@ -20,7 +20,7 @@
 ## File Structure (locked)
 
 ```
-hits-runs-rbis/
+hrr-betting/
 ├── app/
 │   ├── api/
 │   │   ├── picks/route.ts                  # reads cached sims, aggregates per-rung
@@ -126,7 +126,7 @@ hits-runs-rbis/
 - [ ] **Step 1: Initialize Next.js project**
 
 ```bash
-cd C:/Users/lucas/dev/hits-runs-rbis
+cd C:/Users/lucas/dev/hrr-betting
 npm init -y
 npm install next@^16 react@^19 react-dom@^19
 npm install -D typescript @types/node @types/react @types/react-dom \

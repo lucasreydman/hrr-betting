@@ -55,7 +55,7 @@ def main():
             if check_overflow(page, label):
                 bad.append(label)
             page.screenshot(
-                path=f"C:/Users/lucas/dev/hits-runs-rbis/.next/methodology-{label}.png",
+                path=f"C:/Users/lucas/dev/hrr-betting/.next/methodology-{label}.png",
                 full_page=True,
             )
             ctx.close()

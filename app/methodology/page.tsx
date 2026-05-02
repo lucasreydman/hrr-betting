@@ -9,8 +9,8 @@ export default function Methodology() {
       <header className="space-y-2">
         <h1 className="text-3xl font-semibold tracking-tight">Methodology</h1>
         <p className="max-w-3xl text-sm text-ink-muted">
-          What the board ranks, how each number is built, and where it comes from in the
-          code. Plain English first; formulas and source files alongside.
+          What the board ranks, how each number is built, and what it means. Plain
+          English first; formulas alongside.
         </p>
       </header>
 
@@ -23,9 +23,10 @@ export default function Methodology() {
           weighted by data quality.&rdquo;
         </p>
         <p>
-          Three rungs per player: <RungTag rung={1} />, <RungTag rung={2} />,{' '}
-          <RungTag rung={3} /> where HRR = Hits + Runs + RBIs over the player&apos;s
-          full game. A solo home run alone is +1H +1R +1RBI = 3 HRR.
+          Three rungs per player: <RungTag rung={1} />,{' '}
+          <RungTag rung={2} />, <RungTag rung={3} />{' '}
+          where HRR = Hits + Runs + RBIs over the player&apos;s full game. A solo
+          home run alone is +1H +1R +1RBI = 3 HRR.
         </p>
       </Section>
 
@@ -44,10 +45,6 @@ export default function Methodology() {
               toward the player&apos;s own career rates when ≥ 200 career PAs exist.
               League averages are used otherwise. The career prior preserves true skill
               differences in early-season samples.
-            </Note>
-            <Note label="Where">
-              <FilePath>lib/p-typical.ts</FilePath> · sim engine{' '}
-              <FilePath>lib/offline-sim/sim.ts</FilePath>
             </Note>
             <Note label="When">
               Recomputed weekly (Sunday 4 AM ET full sweep) and nightly (Mon–Sat 4 AM ET
@@ -76,17 +73,13 @@ oddsTypical   = p̂_typical / (1 − p̂_typical)
 oddsToday     = oddsTypical × factorProduct
 p̂_today       = oddsToday / (1 + oddsToday)`}
             </Formula>
-            <Note label="Where">
-              <FilePath>lib/prob-today.ts</FilePath>
-            </Note>
           </Card>
         </Grid>
       </Section>
 
       <Section heading="The eight factors" eyebrow="What changes p̂ today vs p̂ typical">
         <p className="text-sm text-ink-muted">
-          Each factor is a single multiplier with its own clamp. Hover any row for the
-          source file.
+          Each factor is a single multiplier with its own clamp.
         </p>
         <div className="overflow-hidden rounded-lg border border-border">
           <div className="overflow-x-auto">
@@ -102,49 +95,41 @@ p̂_today       = oddsToday / (1 + oddsToday)`}
                 <FactorRow
                   name="Pitcher"
                   range="0.50 – 2.00"
-                  source="lib/factors/pitcher.ts"
                   desc="Stabilized K%, BB%, HR%, hard-hit% vs league averages combined into a single quality multiplier. TBD starter or fewer than 3 recent starts → 1.0 (neutral)."
                 />
                 <FactorRow
                   name="Park"
                   range="0.70 – 1.30"
-                  source="lib/factors/park.ts"
                   desc="FanGraphs 2025 per-outcome park factors blended into one composite: 45% hits, 20% runs, 20% HR, 10% (1/K so contact-friendly parks help), 5% BB. Per-handedness for hits/HR; switch hitters get the L/R average. Unknown venues → 1.0."
                 />
                 <FactorRow
                   name="Weather"
                   range="0.85 – 1.20"
-                  source="lib/factors/weather.ts"
                   desc="Temp + wind projected onto the home → CF axis, then composed across all HRR-relevant outcomes (1B, 2B, 3B, HR, BB) weighted by HRR contribution. Replaces the older HR-only dampened formula. Domes and failed forecasts → 1.0."
                 />
                 <FactorRow
                   name="Handedness"
                   range="0.97 / 1.00 / 1.03"
-                  source="lib/factors/handedness.ts"
                   desc="Same-side platoon disadvantage 0.97; opposite-side advantage 1.03; switch hitter neutral 1.00."
                 />
                 <FactorRow
                   name="Bullpen"
                   range="0.85 – 1.15"
-                  source="lib/factors/bullpen.ts"
                   desc="Opponent team bullpen ERA stabilized vs league (4.20), scaled by the share of PAs the batter sees against the bullpen for their lineup slot (top of order sees less)."
                 />
                 <FactorRow
                   name="PA count"
                   range="0.85 – 1.15"
-                  source="lib/factors/pa-count.ts"
                   desc="Corrects for slot-specific expected PAs vs league mean (4.20). Top-of-order batters get more swings; bottom-of-order get fewer. Bernoulli scaling on a per-PA HRR rate."
                 />
                 <FactorRow
                   name="BvP"
                   range="0.90 – 1.10"
-                  source="lib/factors/bvp.ts"
                   desc="Batter-vs-pitcher career line shrunk toward league wOBA via empirical Bayes (~600 PA stabilization point). Returns 1.0 (neutral) for under 5 career AB, otherwise nudges based on the wOBA-equivalent of the matchup."
                 />
                 <FactorRow
                   name="Batter quality"
                   range="0.95 – 1.05"
-                  source="lib/factors/batter.ts"
                   desc="Statcast contact profile (barrel%, hard-hit%, xwOBA) ratioed to league averages and dampened by an exponent of 0.25. Heavily damped because pTypical already captures most batter skill; this only nudges when underlying contact disagrees with rates."
                 />
               </tbody>
@@ -169,9 +154,6 @@ p̂_today       = oddsToday / (1 + oddsToday)`}
               don&apos;t produce a misleadingly huge edge. Positive: today is better
               than typical. Negative: today is worse.
             </p>
-            <Note label="Where">
-              <FilePath>lib/edge.ts:computeEdge</FilePath>
-            </Note>
           </Card>
 
           <Card title="Score" subtitle="Kelly bet fraction × confidence">
@@ -222,9 +204,6 @@ score = kelly × confidence`}
             </table>
           </div>
         </div>
-        <Note label="Where">
-          <FilePath>lib/confidence.ts:computeConfidenceBreakdown</FilePath>
-        </Note>
         <p className="text-xs text-ink-muted">
           The BvP factor here scales confidence by sample size; the BvP factor on
           p̂ today (above) actually shifts the probability based on observed wOBA.
@@ -269,11 +248,6 @@ score = kelly × confidence`}
           per-rung quotas (15 / 10 / 5) so 3+ longshots don&apos;t get crowded out by
           high-prob 1+ plays.
         </p>
-        <Note label="Where">
-          <FilePath>lib/ranker.ts:classifyTier</FilePath> ·{' '}
-          <FilePath>lib/constants.ts</FilePath> (floors) ·{' '}
-          <FilePath>components/Board.tsx</FilePath> (universe quotas)
-        </Note>
         <p className="text-xs text-ink-muted">
           The tier floors are placeholders pending ≥30 days of settled history
           to recalibrate against.
@@ -292,9 +266,6 @@ score = kelly × confidence`}
           {`p ≥ 0.5  →  odds = −round(100 × p / (1 − p))      (favourite)
 p < 0.5  →  odds = +round(100 × (1 − p) / p)        (underdog)`}
         </Formula>
-        <Note label="Where">
-          <FilePath>components/PickRow.tsx:americanOdds</FilePath>
-        </Note>
         <p className="text-xs text-ink-muted">
           The app does not ingest sportsbook lines. Implied probabilities and
           line-shopping are not part of the model. The displayed odds are only
@@ -306,10 +277,9 @@ p < 0.5  →  odds = +round(100 × (1 − p) / p)        (underdog)`}
         <p>
           For each plate appearance the simulator samples one of seven outcomes
           (<Code>1B / 2B / 3B / HR / BB / K / OUT</Code>) from the batter&apos;s
-          stabilized rate distribution. The baserunner state machine
-          (<FilePath>lib/offline-sim/baserunner.ts</FilePath>) advances bases and
-          credits runs / RBIs realistically. A HR puts the batter and any baserunners
-          across, a single can score a runner from second, and so on.
+          stabilized rate distribution. A baserunner state machine advances bases
+          and credits runs / RBIs realistically. A HR puts the batter and any
+          baserunners across, a single can score a runner from second, and so on.
         </p>
         <p>
           This per-PA approach captures the HR-trifecta correlation (a solo HR =
@@ -322,10 +292,6 @@ p < 0.5  →  odds = +round(100 × (1 − p) / p)        (underdog)`}
           fundamentally per-PA, so applying it inside the sim lets the effect
           compound through the baserunner state machine instead of being a single
           uniform multiplier on the binary &ldquo;≥ k HRR&rdquo; probability at request time.
-        </Note>
-        <Note label="Where">
-          <FilePath>lib/offline-sim/sim.ts</FilePath> · TTO transformation in{' '}
-          <FilePath>lib/p-typical.ts:applyTto</FilePath>
         </Note>
         <p className="text-xs text-ink-muted">
           Remaining v1 simplifications: 9 innings only (no extras, ~&lt;0.5% impact
@@ -586,31 +552,18 @@ function RungTag({ rung, compact = false }: { rung: 1 | 2 | 3; compact?: boolean
   )
 }
 
-function FilePath({ children }: { children: React.ReactNode }) {
-  return (
-    <code className="break-all rounded bg-card/40 px-1 py-0.5 font-mono text-[0.85em] text-ink">
-      {children}
-    </code>
-  )
-}
-
 function FactorRow({
   name,
   range,
-  source,
   desc,
 }: {
   name: string
   range: string
-  source: string
   desc: string
 }) {
   return (
     <tr className="border-b border-border/40 last:border-b-0 align-top">
-      <td className="px-3 py-2.5">
-        <div className="font-medium text-ink">{name}</div>
-        <div className="mt-1 break-all font-mono text-[10px] text-ink-muted">{source}</div>
-      </td>
+      <td className="px-3 py-2.5 font-medium text-ink">{name}</td>
       <td className="px-3 py-2.5 font-mono text-xs text-ink whitespace-nowrap">{range}</td>
       <td className="px-3 py-2.5 text-xs leading-relaxed sm:text-sm">{desc}</td>
     </tr>

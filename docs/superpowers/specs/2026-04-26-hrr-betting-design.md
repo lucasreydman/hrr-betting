@@ -4,7 +4,7 @@
 **Status:** Approved (brainstorming phase)
 **App:** `hrr-betting.vercel.app`
 **Repo:** `lucasreydman/hrr-betting` (public)
-**Local path:** `C:\Users\lucas\dev\hits-runs-rbis`
+**Local path:** `C:\Users\lucas\dev\hrr-betting`
 **Companion projects** (patterns reused): `bvp-betting`, `bet-yrfi`, `bet-nrfi`
 
 ---
@@ -396,7 +396,7 @@ Mirrors yrfi/nrfi naming patterns:
 ## 8. File structure
 
 ```
-hits-runs-rbis/
+hrr-betting/
 ├── app/
 │   ├── api/
 │   │   ├── picks/route.ts          ← daily picks endpoint (reads cached sim results)

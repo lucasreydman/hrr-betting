@@ -14,7 +14,7 @@ Manual checklist for taking the codebase from "v0.1.0-rc2 on `main`" to "live at
 ### 1a. Link repo
 
 ```bash
-cd C:/Users/lucas/dev/hits-runs-rbis
+cd C:/Users/lucas/dev/hrr-betting
 npx vercel link
 ```
 
@@ -46,7 +46,7 @@ If not done: supabase.com → New Project → name `hrr-betting`, region East US
 The CLI is already installed locally (`devDependency: supabase` in package.json). You need to log in via OAuth and link to your project:
 
 ```bash
-cd C:/Users/lucas/dev/hits-runs-rbis
+cd C:/Users/lucas/dev/hrr-betting
 npx supabase login                                    # browser OAuth — approve in browser
 npx supabase link --project-ref hzfzuemmhjnnlptoyqlg  # paste DB password when prompted
 ```
