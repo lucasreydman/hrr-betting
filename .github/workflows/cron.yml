@@ -46,20 +46,35 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Trigger /api/lock
+        env:
+          DATE_OVERRIDE: ${{ github.event.inputs.date }}
         run: |
+          # Manual dispatches always force-lock so the operator can recover
+          # past slates (e.g. when the lock cron silently dropped picks).
+          # Scheduled runs hit the bare endpoint and let shouldLock decide.
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            URL="${{ secrets.VERCEL_DEPLOY_URL }}/api/lock?force=1"
+            if [ -n "$DATE_OVERRIDE" ]; then URL="$URL&date=$DATE_OVERRIDE"; fi
+          else
+            URL="${{ secrets.VERCEL_DEPLOY_URL }}/api/lock"
+          fi
           curl --silent --show-error --fail \
             -H "x-cron-secret: ${{ secrets.CRON_SECRET }}" \
-            "${{ secrets.VERCEL_DEPLOY_URL }}/api/lock"
+            "$URL"
 
   settle:
     if: github.event_name == 'schedule' && github.event.schedule == '15 7 * * *' || (github.event_name == 'workflow_dispatch' && github.event.inputs.job == 'settle')
     runs-on: ubuntu-latest
     steps:
       - name: Trigger /api/settle
+        env:
+          DATE_OVERRIDE: ${{ github.event.inputs.date }}
         run: |
+          URL="${{ secrets.VERCEL_DEPLOY_URL }}/api/settle"
+          if [ -n "$DATE_OVERRIDE" ]; then URL="$URL?date=$DATE_OVERRIDE"; fi
           curl --silent --show-error --fail \
             -H "x-cron-secret: ${{ secrets.CRON_SECRET }}" \
-            "${{ secrets.VERCEL_DEPLOY_URL }}/api/settle"
+            "$URL"
 
   typical-sim:
     if: |
