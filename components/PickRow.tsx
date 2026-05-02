@@ -9,7 +9,7 @@ function pct(value: number, digits = 1): string {
 }
 
 function signedPct(value: number): string {
-  return `${value >= 0 ? '+' : ''}${(value * 100).toFixed(0)}%`
+  return `${value >= 0 ? '+' : ''}${(value * 100).toFixed(1)}%`
 }
 
 /**
@@ -522,7 +522,7 @@ export function PickRow({ pick, rung }: { pick: Pick; rung?: 1 | 2 | 3 }) {
         className={'w-full cursor-pointer px-3 py-3 text-left transition-colors sm:px-4 ' + rowFill}
       >
         {/* Desktop: 10-column grid (bet · batter · pitcher · game · p.typ · p.today · edge · conf · score · caret) */}
-        <div className="hidden sm:grid sm:grid-cols-[0.7fr_1.6fr_1.4fr_1.2fr_0.85fr_0.85fr_0.7fr_0.7fr_0.6fr_0.3fr] sm:items-center sm:gap-3">
+        <div className="hidden sm:grid sm:grid-cols-[0.7fr_1.55fr_1.35fr_1.15fr_0.85fr_0.85fr_0.8fr_1fr_0.6fr_0.3fr] sm:items-center sm:gap-3">
           {/* BET — rung badge + tracked target */}
           <div className="flex min-w-0 items-center gap-1.5">
             {rung && <RungBadge rung={rung} />}
@@ -611,7 +611,7 @@ export function PickRow({ pick, rung }: { pick: Pick; rung?: 1 | 2 | 3 }) {
           {/* CONF */}
           <div className="text-right">
             <span className={'font-mono text-sm tabular-nums ' + (isTracked ? 'font-semibold text-hit' : 'text-ink')}>
-              {pct(pick.confidence, 0)}
+              {pct(pick.confidence, 1)}
             </span>
           </div>
 
@@ -704,7 +704,7 @@ export function PickRow({ pick, rung }: { pick: Pick; rung?: 1 | 2 | 3 }) {
               </div>
               <div className="flex items-baseline gap-1">
                 <span className="text-ink-muted">Conf</span>
-                <span className={'font-mono tabular-nums ' + (isTracked ? 'font-semibold text-hit' : 'text-ink')}>{pct(pick.confidence, 0)}</span>
+                <span className={'font-mono tabular-nums ' + (isTracked ? 'font-semibold text-hit' : 'text-ink')}>{pct(pick.confidence, 1)}</span>
               </div>
               <div className="flex items-baseline gap-1">
                 <span className="text-ink-muted">Score</span>

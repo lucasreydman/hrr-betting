@@ -240,7 +240,7 @@ export function Board({ picks }: { picks: PickWithRung[] }) {
 
       {/* Column headers — desktop only. Mirrors the 10-column grid in PickRow. */}
       <div
-        className="hidden sm:grid sm:grid-cols-[0.7fr_1.6fr_1.4fr_1.2fr_0.85fr_0.85fr_0.7fr_0.7fr_0.6fr_0.3fr] sm:gap-3 sm:border-b sm:border-border sm:bg-card/30 sm:px-4 sm:py-2"
+        className="hidden sm:grid sm:grid-cols-[0.7fr_1.55fr_1.35fr_1.15fr_0.85fr_0.85fr_0.8fr_1fr_0.6fr_0.3fr] sm:gap-3 sm:border-b sm:border-border sm:bg-card/30 sm:px-4 sm:py-2"
         aria-hidden="true"
       >
         <div className="text-[11px] uppercase tracking-wider text-ink-muted">Bet</div>
@@ -254,7 +254,7 @@ export function Board({ picks }: { picks: PickWithRung[] }) {
           p̂<sub className="text-[9px]">today</sub>
         </div>
         <div className="text-right text-[11px] uppercase tracking-wider text-ink-muted">Edge</div>
-        <div className="text-right text-[11px] uppercase tracking-wider text-ink-muted">Conf</div>
+        <div className="text-right text-[11px] uppercase tracking-wider text-ink-muted">Confidence</div>
         <div className="text-right text-[11px] uppercase tracking-wider text-ink-muted">Score</div>
         <div></div>
       </div>
