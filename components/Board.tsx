@@ -40,6 +40,18 @@ const STATUS_TOOLTIPS: Record<GameStatusFilter, string> = {
   settled: 'Games that have finished (final)',
 }
 
+type BetTypeFilter = 'tracked' | 'other'
+
+const BET_TYPE_LABELS: Record<BetTypeFilter, string> = {
+  tracked: '🔥 Tracked',
+  other: 'Other',
+}
+
+const BET_TYPE_TOOLTIPS: Record<BetTypeFilter, string> = {
+  tracked: 'High-conviction picks that pass the floors (prob/edge/confidence)',
+  other: 'Solid matchups outside the tracked tier',
+}
+
 /** Map a Pick's gameStatus to one of the three filter buckets. */
 function bucketForStatus(status: PickWithRung['gameStatus']): GameStatusFilter {
   if (status === 'in_progress') return 'live'
@@ -66,7 +78,9 @@ export function Board({ picks }: { picks: PickWithRung[] }) {
   const [enabledStatuses, setEnabledStatuses] = useState<Set<GameStatusFilter>>(
     new Set(['upcoming', 'live', 'settled']),
   )
-  const [trackedOnly, setTrackedOnly] = useState(false)
+  const [enabledTypes, setEnabledTypes] = useState<Set<BetTypeFilter>>(
+    new Set(['tracked', 'other']),
+  )
 
   // The "universe" is built per-rung with a guaranteed minimum slot count for
   // each (RUNG_QUOTAS). Tracked plays always make the cut — never capped —
@@ -98,9 +112,9 @@ export function Board({ picks }: { picks: PickWithRung[] }) {
         p =>
           enabledRungs.has(p.rung) &&
           enabledStatuses.has(bucketForStatus(p.gameStatus)) &&
-          (!trackedOnly || p.tier === 'tracked'),
+          enabledTypes.has(p.tier === 'tracked' ? 'tracked' : 'other'),
       ),
-    [universe, enabledRungs, enabledStatuses, trackedOnly],
+    [universe, enabledRungs, enabledStatuses, enabledTypes],
   )
 
   const tracked = useMemo(
@@ -132,6 +146,18 @@ export function Board({ picks }: { picks: PickWithRung[] }) {
         if (next.size > 1) next.delete(s)
       } else {
         next.add(s)
+      }
+      return next
+    })
+  }
+
+  const toggleType = (t: BetTypeFilter) => {
+    setEnabledTypes(prev => {
+      const next = new Set(prev)
+      if (next.has(t)) {
+        if (next.size > 1) next.delete(t)
+      } else {
+        next.add(t)
       }
       return next
     })
@@ -177,19 +203,24 @@ export function Board({ picks }: { picks: PickWithRung[] }) {
               {STATUS_LABELS[s]}
             </button>
           ))}
-          <button
-            type="button"
-            onClick={() => setTrackedOnly(v => !v)}
-            aria-pressed={trackedOnly}
-            className={
-              'ml-2 rounded border px-2 py-0.5 font-mono text-xs tabular-nums transition-colors ' +
-              (trackedOnly
-                ? 'border-tracked/60 bg-tracked/10 text-tracked'
-                : 'border-border bg-card/30 text-ink-muted hover:bg-card/60')
-            }
-          >
-            🔥 Tracked only
-          </button>
+          <span className="ml-2 text-[11px] uppercase tracking-wider text-ink-muted">Bet type</span>
+          {(['tracked', 'other'] as const).map(t => (
+            <button
+              key={t}
+              type="button"
+              onClick={() => toggleType(t)}
+              title={BET_TYPE_TOOLTIPS[t]}
+              aria-pressed={enabledTypes.has(t)}
+              className={
+                'rounded border px-2 py-0.5 font-mono text-xs tabular-nums transition-colors ' +
+                (enabledTypes.has(t)
+                  ? 'border-tracked/60 bg-tracked/10 text-tracked'
+                  : 'border-border bg-card/30 text-ink-muted hover:bg-card/60')
+              }
+            >
+              {BET_TYPE_LABELS[t]}
+            </button>
+          ))}
         </div>
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
           <label className="flex items-center gap-2">
@@ -246,7 +277,7 @@ export function Board({ picks }: { picks: PickWithRung[] }) {
         <div className="p-4 sm:p-6">
           <EmptyState
             title="No picks match these filters"
-            description="Loosen the rung filter or turn off 'Tracked only'."
+            description="Loosen the rung, game, or bet-type filters."
           />
         </div>
       )}
