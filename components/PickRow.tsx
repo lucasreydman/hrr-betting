@@ -281,7 +281,7 @@ function windDirectionLabel(outMph: number): { text: string; tone: 'in' | 'out' 
   return { text: `${outMph.toFixed(1)} mph in`, tone: 'in' }
 }
 
-function MathPanel({ pick, localTime }: { pick: Pick; localTime: ReturnType<typeof useLocalTime> }) {
+function MathPanel({ pick, rung, localTime }: { pick: Pick; rung?: 1 | 2 | 3; localTime: ReturnType<typeof useLocalTime> }) {
   const inputs = pick.inputs
   const isTracked = pick.tier === 'tracked'
 
@@ -579,10 +579,30 @@ function MathPanel({ pick, localTime }: { pick: Pick; localTime: ReturnType<type
             ({isTracked ? '🎯 Tracked' : 'Other play'})
           </span>
         </KV>
-        <p className="text-[11px] leading-relaxed text-ink-muted">
-          Higher score = bigger Kelly bet at fair-typical odds. Variance-aware:
-          longshots get sized down even when relative edge is huge.
-        </p>
+        {rung != null && (
+          <>
+            <KV label={<>Floors <span className="text-ink-muted/70">(for {rung}+)</span></>}>
+              <span className="font-mono text-[11px] text-ink-muted">
+                p̂ ≥ {pct(PROB_FLOORS[rung], 0)} · edge ≥ {(EDGE_FLOORS[rung] * 100).toFixed(0)}% · conf ≥ {pct(CONFIDENCE_FLOOR_TRACKED, 0)}
+              </span>
+            </KV>
+            <KV label="Status">
+              <span className="font-mono text-[11px]">
+                <span className={passesProbFloor(pick.pMatchup, rung) ? 'text-hit' : 'text-warn'}>
+                  p̂ {passesProbFloor(pick.pMatchup, rung) ? '✓' : '✗'}
+                </span>
+                <span className="text-ink-muted"> · </span>
+                <span className={passesEdgeFloor(pick.edge, rung) ? 'text-hit' : 'text-warn'}>
+                  edge {passesEdgeFloor(pick.edge, rung) ? '✓' : '✗'}
+                </span>
+                <span className="text-ink-muted"> · </span>
+                <span className={passesConfidenceFloor(pick.confidence) ? 'text-hit' : 'text-warn'}>
+                  conf {passesConfidenceFloor(pick.confidence) ? '✓' : '✗'}
+                </span>
+              </span>
+            </KV>
+          </>
+        )}
       </PanelSection>
       </div>
     </div>
@@ -901,7 +921,7 @@ export function PickRow({ pick, rung }: { pick: Pick; rung?: 1 | 2 | 3 }) {
       >
         <div className="min-h-0 overflow-hidden">
           <div className="border-t border-border/40 bg-bg-soft/60">
-            <MathPanel pick={pick} localTime={localTime} />
+            <MathPanel pick={pick} rung={rung} localTime={localTime} />
           </div>
         </div>
       </div>
