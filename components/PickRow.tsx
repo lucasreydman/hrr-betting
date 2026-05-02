@@ -259,9 +259,17 @@ function MathPanel({ pick, localTime }: { pick: Pick; localTime: ReturnType<type
   const numerFloored = pick.pMatchup < edgeFloor
   const denomFloored = pick.pTypical < edgeFloor
 
+  // Detect "no real data" Statcast — the parser falls back to 0s on
+  // missing CSV columns, so a record full of zeros is indistinguishable
+  // from a missing record. Treat both the same.
+  const statcast = inputs?.batterStatcast
+  const hasRealStatcast =
+    !!statcast && (statcast.barrelPct > 0 || statcast.hardHitPct > 0 || statcast.xwOBA > 0)
+
   return (
-    <div className="space-y-4 px-3 py-4 sm:grid sm:grid-cols-2 sm:gap-x-6 sm:gap-y-4 sm:space-y-0 sm:px-4 sm:py-4">
-      {/* ── Left column: game context, conditions, lineup ─────────────── */}
+    <div className="px-3 py-4 sm:grid sm:grid-cols-2 sm:gap-x-6 sm:px-4">
+      {/* ── Left column ────────────────────────────────────────────────── */}
+      <div className="space-y-4">
       <PanelSection title="Matchup">
         <KV label="First pitch">
           {localTime ? (
@@ -380,25 +388,29 @@ function MathPanel({ pick, localTime }: { pick: Pick; localTime: ReturnType<type
 
       {inputs && (
         <PanelSection title="Batter Statcast (season)">
-          {inputs.batterStatcast ? (
+          {hasRealStatcast && statcast ? (
             <>
               <KV label="Barrel %">
-                {(inputs.batterStatcast.barrelPct * 100).toFixed(1)}%
+                {(statcast.barrelPct * 100).toFixed(1)}%
               </KV>
               <KV label="Hard-hit %">
-                {(inputs.batterStatcast.hardHitPct * 100).toFixed(1)}%
+                {(statcast.hardHitPct * 100).toFixed(1)}%
               </KV>
               <KV label="xwOBA">
-                {inputs.batterStatcast.xwOBA.toFixed(3)}
+                {statcast.xwOBA.toFixed(3)}
               </KV>
             </>
           ) : (
-            <p className="text-xs text-ink-muted">No Statcast data — batter quality factor neutral (×1.00).</p>
+            <p className="text-xs text-ink-muted">
+              No Statcast data this season — batter quality factor neutral (×1.00).
+            </p>
           )}
         </PanelSection>
       )}
+      </div>
 
       {/* ── Right column: math producing the score ────────────────────── */}
+      <div className="mt-4 space-y-4 sm:mt-0">
       {inputs && (
         <PanelSection title="p̂ today factor breakdown">
           <p className="font-mono text-[11px] leading-relaxed text-ink-muted">
@@ -523,6 +535,7 @@ function MathPanel({ pick, localTime }: { pick: Pick; localTime: ReturnType<type
           longshots get sized down even when relative edge is huge.
         </p>
       </PanelSection>
+      </div>
     </div>
   )
 }
