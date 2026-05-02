@@ -3,6 +3,21 @@
 import { useEffect, useId, useState } from 'react'
 import type { Pick, PickInputs } from '@/lib/ranker'
 import { getTeamNickname } from '@/lib/team-names'
+import { CONFIDENCE_FLOOR_TRACKED, EDGE_FLOORS, PROB_FLOORS } from '@/lib/constants'
+
+/** Per-cell gate-passing helpers. Each returns true when the value clears the
+ *  Tracked-tier floor for its respective metric. Used to colour the desktop
+ *  + mobile cells green-when-passing, white-when-not. Confidence floor is
+ *  shared across rungs; prob and edge floors vary per rung. */
+function passesProbFloor(pMatchup: number, rung?: 1 | 2 | 3): boolean {
+  return rung != null && pMatchup >= PROB_FLOORS[rung]
+}
+function passesEdgeFloor(edge: number, rung?: 1 | 2 | 3): boolean {
+  return rung != null && edge >= EDGE_FLOORS[rung]
+}
+function passesConfidenceFloor(confidence: number): boolean {
+  return confidence >= CONFIDENCE_FLOOR_TRACKED
+}
 
 function pct(value: number, digits = 1): string {
   return `${(value * 100).toFixed(digits)}%`
@@ -678,9 +693,14 @@ export function PickRow({ pick, rung }: { pick: Pick; rung?: 1 | 2 | 3 }) {
             </div>
           </div>
 
-          {/* PROB. TODAY — % over American odds */}
+          {/* PROB. TODAY — % over American odds. Green when ≥ rung's prob floor. */}
           <div className="text-center">
-            <div className={'font-mono text-sm tabular-nums ' + (isTracked ? 'font-semibold text-ink' : 'text-ink')}>
+            <div
+              className={
+                'font-mono text-sm tabular-nums ' +
+                (passesProbFloor(pick.pMatchup, rung) ? 'font-semibold text-hit' : 'text-ink')
+              }
+            >
               {pct(pick.pMatchup, 1)}
             </div>
             <div className="font-mono text-[10px] tabular-nums text-ink-muted">
@@ -688,16 +708,26 @@ export function PickRow({ pick, rung }: { pick: Pick; rung?: 1 | 2 | 3 }) {
             </div>
           </div>
 
-          {/* EDGE */}
+          {/* EDGE — green when ≥ rung's edge floor. */}
           <div className="text-center">
-            <span className={'font-mono text-sm tabular-nums ' + (pick.edge >= 0 ? 'text-accent' : 'text-ink-muted')}>
+            <span
+              className={
+                'font-mono text-sm tabular-nums ' +
+                (passesEdgeFloor(pick.edge, rung) ? 'font-semibold text-hit' : 'text-ink')
+              }
+            >
               {signedPct(pick.edge)}
             </span>
           </div>
 
-          {/* CONF */}
+          {/* CONF — green when ≥ confidence floor (0.85). */}
           <div className="text-center">
-            <span className={'font-mono text-sm tabular-nums ' + (isTracked ? 'font-semibold text-hit' : 'text-ink')}>
+            <span
+              className={
+                'font-mono text-sm tabular-nums ' +
+                (passesConfidenceFloor(pick.confidence) ? 'font-semibold text-hit' : 'text-ink')
+              }
+            >
               {pct(pick.confidence, 1)}
             </span>
           </div>
@@ -780,18 +810,37 @@ export function PickRow({ pick, rung }: { pick: Pick; rung?: 1 | 2 | 3 }) {
             </div>
             <div className="flex justify-between text-xs">
               <span className="text-ink-muted">Today</span>
-              <span className={'font-mono tabular-nums ' + (isTracked ? 'font-semibold text-ink' : 'text-ink')}>
+              <span
+                className={
+                  'font-mono tabular-nums ' +
+                  (passesProbFloor(pick.pMatchup, rung) ? 'font-semibold text-hit' : 'text-ink')
+                }
+              >
                 {pct(pick.pMatchup, 1)} <span className="text-[10px] text-ink-muted">/ {americanOdds(pick.pMatchup)}</span>
               </span>
             </div>
             <div className="mt-1 flex gap-4 text-xs">
               <div className="flex items-baseline gap-1">
                 <span className="text-ink-muted">Edge</span>
-                <span className={'font-mono tabular-nums ' + (pick.edge >= 0 ? 'text-accent' : 'text-ink-muted')}>{signedPct(pick.edge)}</span>
+                <span
+                  className={
+                    'font-mono tabular-nums ' +
+                    (passesEdgeFloor(pick.edge, rung) ? 'font-semibold text-hit' : 'text-ink')
+                  }
+                >
+                  {signedPct(pick.edge)}
+                </span>
               </div>
               <div className="flex items-baseline gap-1">
                 <span className="text-ink-muted">Conf</span>
-                <span className={'font-mono tabular-nums ' + (isTracked ? 'font-semibold text-hit' : 'text-ink')}>{pct(pick.confidence, 1)}</span>
+                <span
+                  className={
+                    'font-mono tabular-nums ' +
+                    (passesConfidenceFloor(pick.confidence) ? 'font-semibold text-hit' : 'text-ink')
+                  }
+                >
+                  {pct(pick.confidence, 1)}
+                </span>
               </div>
               <div className="flex items-baseline gap-1">
                 <span className="text-ink-muted">Score</span>
