@@ -6,16 +6,30 @@ import { Board, type PickWithRung } from './Board'
 import { StatusBanner } from './StatusBanner'
 import { SimWarmingProgress } from './SimWarmingProgress'
 
-/** "Sat, Apr 27" style label — friendlier than ISO at-a-glance. */
+/** "Saturday, May 2nd, 2026" style label — long-form day-of-week, full month
+ *  name, ordinal day, four-digit year. Friendlier than ISO at-a-glance. */
 function prettyDate(date: string): string {
   // Anchor at noon UTC so the formatted weekday/month doesn't drift across timezones.
   const d = new Date(`${date}T12:00:00Z`)
-  return d.toLocaleDateString(undefined, {
-    weekday: 'short',
-    month: 'short',
-    day: 'numeric',
-    timeZone: 'UTC',
-  })
+  const weekday = d.toLocaleDateString(undefined, { weekday: 'long', timeZone: 'UTC' })
+  const month = d.toLocaleDateString(undefined, { month: 'long', timeZone: 'UTC' })
+  const day = d.getUTCDate()
+  const year = d.getUTCFullYear()
+  return `${weekday}, ${month} ${day}${ordinalSuffix(day)}, ${year}`
+}
+
+/** "1st" / "2nd" / "3rd" / "4th" suffix for English ordinals. The 11/12/13
+ *  exception is the only quirk worth handling; everything else follows the
+ *  last-digit pattern. */
+function ordinalSuffix(n: number): string {
+  const lastTwo = n % 100
+  if (lastTwo >= 11 && lastTwo <= 13) return 'th'
+  switch (n % 10) {
+    case 1: return 'st'
+    case 2: return 'nd'
+    case 3: return 'rd'
+    default: return 'th'
+  }
 }
 
 /** How often to re-fetch /api/picks while the tab is visible. The server-side
@@ -96,9 +110,8 @@ export function ClientShell({ initialPicks }: { initialPicks: PicksResponse }) {
           Hits + Runs + RBIs prop picks ranked by Kelly bet fraction × confidence.
           Slate updates automatically every minute.
         </p>
-        <div className="flex flex-wrap items-baseline gap-x-2 font-mono text-sm">
-          <span className="text-ink">{prettyDate(date)}</span>
-          <span className="text-[11px] uppercase tracking-wider text-ink-muted">slate</span>
+        <div className="font-mono text-sm text-ink">
+          {prettyDate(date)}
         </div>
 
       </header>
