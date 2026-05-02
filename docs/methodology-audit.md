@@ -268,13 +268,17 @@ follow-up-fixes commit.
   (2 min) and is the canonical live-state signal — its age is the
   best single proxy for "is the cron hitting us on time?"
 
-### 2. Dead code removed — RESOLVED
+### 2. Dead code removed — RESOLVED (with one reversal)
 
 `lib/per-pa.ts`, `lib/tto.ts`, and their tests deleted. `TTO_MULTIPLIERS`,
 `LG_BARREL_PCT`, `LG_HARD_HIT_PCT`, `LG_WHIFF_PCT` removed from
 `lib/constants.ts`. Comments in `lib/park-factors.ts` and
 `lib/weather-factors.ts` that referenced `computePerPA` updated to
 describe the closed-form factor stage that actually consumes them.
+
+**Note (2026-05-03 follow-up):** `TTO_MULTIPLIERS` was reinstated in
+`lib/constants.ts` once the new `lib/factors/tto.ts` factor was wired
+into `prob-today.ts`. Same data, now actively consumed.
 
 ### 3. Tracked-tier floor recalibration — TOOLING UPGRADED
 
@@ -300,3 +304,57 @@ career PAs exist. Falls back to `LEAGUE_AVG_RATES` otherwise. This
 preserves true skill differences for veterans (a career .280 hitter
 isn't regressed all the way to the .240 league mean by a small
 current-season sample).
+
+---
+
+## Underused signals — wired in 2026-05-03
+
+The previous audit listed five fetched-but-unused data sources. All five
+now contribute to `p̂ today` via dedicated factor functions.
+
+### a. BvP results — RESOLVED
+
+New `lib/factors/bvp.ts` exposes `computeBvpFactor`. Empirical-Bayes
+shrinks observed wOBA-equivalent from career line vs the starter toward
+league wOBA (0.310) using a 600-PA stabilization point. Returns 1.0 for
+< 5 career AB. Bounded [0.90, 1.10]. Consumed by `lib/prob-today.ts`.
+
+### b. Batter Statcast — RESOLVED
+
+New `lib/factors/batter.ts` exposes `computeBatterFactor`. Reads the
+already-existing `getBatterStatcast` from `lib/savant-api.ts` and
+composes barrel% / hard-hit% / xwOBA against league averages, dampened
+by an exponent of 0.25 since `pTypical` already encodes most batter
+skill. Bounded [0.95, 1.05]. Wired into the ranker's per-batter parallel
+fetch block.
+
+### c. TTO multipliers — RESOLVED
+
+New `lib/factors/tto.ts` exposes `computeTtoFactor`. Composes the
+per-outcome `TTO_MULTIPLIERS` (PAs 1, 2, 3) into a single HRR-weighted
+multiplier (~1.08). Applied uniformly — every batter sees the same lift
+since pTypical's offline sim doesn't apply TTO and PAs vs the starter
+are roughly the same shape across slot positions.
+
+### d. Park K and BB factors — RESOLVED
+
+`lib/factors/park.ts:computeParkFactor` was extended from a 3-component
+composite (50% hit + 25% run + 25% HR) to a 5-component composite that
+also weights `(1 / K_factor) × 0.10` and `BB_factor × 0.05`. New
+exports `getKParkFactor` and `getBbParkFactor` in `lib/park-factors.ts`.
+
+### e. Weather effects on hits — RESOLVED
+
+`lib/factors/weather.ts:computeWeatherFactor` now accepts an optional
+`factors: Partial<Record<Outcome, number>>` map. When supplied (always,
+in production), composes weather across all HRR-relevant outcomes
+(1B / 2B / 3B / HR / BB) weighted by HRR contribution. The legacy
+"`1 + 0.6 × (hrMult − 1)`" path is kept as a fallback for any caller
+that doesn't pass the full multiplier map. The new formulation agrees
+with the dampened formula on mild weather and is more conservative at
+extremes.
+
+`computeProbTodayWithBreakdown` now exposes a 9-key `factors` object
+(was 6): pitcher, park, weather, handedness, bullpen, paCount, bvp,
+batter, tto. Consumers that depended on the 6-key shape were updated
+(prob-today tests).

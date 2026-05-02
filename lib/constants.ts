@@ -31,6 +31,20 @@ export const LEAGUE_AVG_RATES: Record<Outcome, number> = {
   OUT: 0.467,
 }
 
+// TTO (times-through-the-order) per-outcome multipliers applied to BATTER rates
+// while facing the starter. Indexed by PA-against-starter (1..4). Values > 1 =
+// batter benefit; < 1 = pitcher benefit. League-avg fallback values grounded
+// in published TTO research (Mitchel Lichtman et al.); will be recalibrated
+// against settled history once enough data exists.
+//
+// Read by lib/factors/tto.ts to compose a single HRR-weighted multiplier.
+export const TTO_MULTIPLIERS: Record<'1' | '2' | '3' | '4', Record<Outcome, number>> = {
+  '1': { '1B': 1.00, '2B': 1.00, '3B': 1.00, HR: 1.00, BB: 1.00, K: 1.00, OUT: 1.00 },
+  '2': { '1B': 1.04, '2B': 1.05, '3B': 1.05, HR: 1.08, BB: 1.03, K: 0.98, OUT: 1.00 },
+  '3': { '1B': 1.10, '2B': 1.15, '3B': 1.15, HR: 1.25, BB: 1.08, K: 0.94, OUT: 1.00 },
+  '4': { '1B': 1.13, '2B': 1.20, '3B': 1.20, HR: 1.35, BB: 1.10, K: 0.92, OUT: 1.00 },
+}
+
 // Period-aware blend weights for stabilized season vs L30 vs L15 rates.
 // Early season favors stabilized (sample is still small); late season favors recent.
 export function blendWeights(month: number): { season: number; l30: number; l15: number } {

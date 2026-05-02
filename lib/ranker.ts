@@ -36,7 +36,7 @@ import { getHrParkFactorForBatter, getParkVenueName } from './park-factors'
 import { fetchWeather, getOutfieldFacingDegrees } from './weather-api'
 import { computeWeatherFactors } from './weather-factors'
 import { fetchBullpenStats } from './bullpen'
-import { getPitcherStatcast } from './savant-api'
+import { getPitcherStatcast, getBatterStatcast } from './savant-api'
 import {
   EDGE_FLOORS,
   PROB_FLOORS,
@@ -350,8 +350,16 @@ export async function rankPicks(date: string): Promise<PicksResponse> {
       lineup.entries.map(entry => ({ entry, lineup, opponent, isHome, sidePassesGates }))
     )
 
-    // P_typical + per-batter BvP + per-batter season stats (for batterSeasonPa).
-    const [pTypicalResults, bvpResults, batterSeasonResults] = await Promise.all([
+    // P_typical + per-batter BvP + per-batter season stats + per-batter Statcast.
+    // All four are independent reads against the slate-aligned cache layer, so
+    // running them in parallel keeps the per-game block close to one round-trip
+    // even with the additional Savant lookup.
+    const [
+      pTypicalResults,
+      bvpResults,
+      batterSeasonResults,
+      batterStatcastResults,
+    ] = await Promise.all([
       Promise.all(playerJobs.map(({ entry }) => getPTypical({ playerId: entry.player.playerId }))),
       Promise.all(playerJobs.map(({ entry, lineup }) => {
         const onHome = lineup === homeLineup
@@ -362,6 +370,9 @@ export async function rankPicks(date: string): Promise<PicksResponse> {
       Promise.all(playerJobs.map(({ entry }) =>
         fetchBatterSeasonStats(entry.player.playerId, season).catch(() => null)
       )),
+      Promise.all(playerJobs.map(({ entry }) =>
+        getBatterStatcast(entry.player.playerId, season).catch(() => null)
+      )),
     ])
 
     for (let i = 0; i < playerJobs.length; i++) {
@@ -369,6 +380,7 @@ export async function rankPicks(date: string): Promise<PicksResponse> {
       const pTypicalResult = pTypicalResults[i]
       const bvp = bvpResults[i]
       const batterSeason = batterSeasonResults[i]
+      const batterStatcast = batterStatcastResults[i]
 
       const player = entry.player
 
@@ -469,9 +481,12 @@ export async function rankPicks(date: string): Promise<PicksResponse> {
             hrMult: weatherResult.hrMult,
             controlled: weatherData.controlled,
             failure: weatherData.failure,
+            factors: weatherResult.factors,
           },
           bullpen: opposingBullpen,
           lineupSlot: entry.slot,
+          bvp,
+          batterStatcast,
         })
         const pMatchup = probTodayResult.probToday  // kept as pMatchup to avoid renaming Pick type
 

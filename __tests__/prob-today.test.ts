@@ -1,4 +1,5 @@
 import { computeProbToday, computeProbTodayWithBreakdown } from '@/lib/prob-today'
+import { computeTtoFactor } from '@/lib/factors/tto'
 
 describe('computeProbToday', () => {
   const baseInputs = {
@@ -9,21 +10,34 @@ describe('computeProbToday', () => {
     weather: { hrMult: 1.0, controlled: true, failure: false },
     bullpen: null,
     lineupSlot: 5,
+    bvp: null,
+    batterStatcast: null,
   }
 
-  it('returns ≈ probTypical with all neutral inputs (odds-ratio composition)', () => {
+  // TTO is a constant ~1.08 multiplier applied uniformly. Hardcoded here so
+  // expected values below stay exact even if the upstream constants ever
+  // shift slightly.
+  const TTO = computeTtoFactor()
+
+  it('returns probTypical × handedness × tto with all-neutral inputs', () => {
     // batterHand R vs pitcherThrows R (same-side) → handedness factor = 0.97;
-    // all other factors are 1.0 for these neutral inputs.
-    // Odds composition: oddsTypical = 0.65/0.35 ≈ 1.857; oddsToday = 1.857 × 0.97 ≈ 1.802;
-    // probToday = 1.802 / 2.802 ≈ 0.6431
+    // TTO factor ≈ 1.08 always applied; everything else 1.0.
+    // Odds composition: oddsTypical = 0.65/0.35; oddsToday = oddsTypical × 0.97 × TTO;
+    // probToday = oddsToday / (1 + oddsToday).
     const today = computeProbToday(baseInputs)
-    expect(today).toBeCloseTo(0.643, 2)
+    const oddsTypical = 0.65 / 0.35
+    const factorProduct = 0.97 * TTO
+    const oddsToday = oddsTypical * factorProduct
+    const expected = oddsToday / (1 + oddsToday)
+    expect(today).toBeCloseTo(expected, 4)
   })
 
-  it('factor product of 1.0 (truly neutral) returns probTypical exactly', () => {
-    // S (switch hitter) makes handedness factor 1.0 across the board.
+  it('switch hitter (handedness 1.0) returns probTypical × tto', () => {
     const today = computeProbToday({ ...baseInputs, batterHand: 'S' })
-    expect(today).toBeCloseTo(baseInputs.probTypical, 5)
+    const oddsTypical = 0.65 / 0.35
+    const oddsToday = oddsTypical * TTO
+    const expected = oddsToday / (1 + oddsToday)
+    expect(today).toBeCloseTo(expected, 4)
   })
 
   it('boost factor lifts probability but never to 1.0', () => {
@@ -57,12 +71,45 @@ describe('computeProbToday', () => {
     expect(today).toBeLessThan(baseInputs.probTypical)
   })
 
-  it('breakdown includes all 6 named factors', () => {
+  it('breakdown includes all 9 named factors', () => {
     const result = computeProbTodayWithBreakdown(baseInputs)
     expect(Object.keys(result.factors).sort()).toEqual(
-      ['bullpen', 'handedness', 'paCount', 'park', 'pitcher', 'weather'],
+      [
+        'batter',
+        'bullpen',
+        'bvp',
+        'handedness',
+        'paCount',
+        'park',
+        'pitcher',
+        'tto',
+        'weather',
+      ],
     )
-    // Same odds-composition expectation as the first test (0.65 → 0.643 with handedness 0.97).
-    expect(result.probToday).toBeCloseTo(0.643, 2)
+  })
+
+  it('positive BvP record nudges probToday up', () => {
+    const noBvp = computeProbToday(baseInputs)
+    const withGoodBvP = computeProbToday({
+      ...baseInputs,
+      bvp: { ab: 30, hits: 14, '1B': 8, '2B': 3, '3B': 0, HR: 3, BB: 4, K: 5 },
+    })
+    expect(withGoodBvP).toBeGreaterThan(noBvp)
+  })
+
+  it('hot batter Statcast nudges probToday up vs no Statcast', () => {
+    const noSc = computeProbToday(baseInputs)
+    const withHotSc = computeProbToday({
+      ...baseInputs,
+      batterStatcast: {
+        batterId: 1,
+        barrelPct: 0.16,
+        hardHitPct: 0.55,
+        xwOBA: 0.420,
+        xISO: 0.250,
+        avgExitVelo: 92,
+      },
+    })
+    expect(withHotSc).toBeGreaterThan(noSc)
   })
 })

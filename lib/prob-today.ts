@@ -4,17 +4,30 @@ import { computeWeatherFactor } from './factors/weather'
 import { computeHandednessFactor } from './factors/handedness'
 import { computeBullpenFactor } from './factors/bullpen'
 import { computePaCountFactor } from './factors/pa-count'
+import { computeBvpFactor } from './factors/bvp'
+import { computeBatterFactor } from './factors/batter'
+import { computeTtoFactor } from './factors/tto'
 import type { BullpenEraStats } from './bullpen'
-import type { Handedness } from './types'
+import type { Handedness, BvPRecord, BatterStatcast, Outcome } from './types'
 
 export interface ProbTodayInputs {
   probTypical: number
   pitcher: PitcherInputs & { throws?: Handedness }
   venueId: number
   batterHand: 'R' | 'L' | 'S'
-  weather: { hrMult: number; controlled: boolean; failure: boolean }
+  weather: {
+    hrMult: number
+    controlled: boolean
+    failure: boolean
+    /** Optional full per-outcome multiplier map. When supplied the weather
+     *  factor uses the HRR-weighted multi-outcome composite; otherwise
+     *  falls back to the dampened HR-only formula. */
+    factors?: Partial<Record<Outcome, number>>
+  }
   bullpen: BullpenEraStats | null
   lineupSlot: number
+  bvp: BvPRecord | null
+  batterStatcast: BatterStatcast | null
 }
 
 export interface ProbTodayBreakdown {
@@ -26,6 +39,9 @@ export interface ProbTodayBreakdown {
     handedness: number
     bullpen: number
     paCount: number
+    bvp: number
+    batter: number
+    tto: number
   }
 }
 
@@ -62,6 +78,9 @@ export function computeProbTodayWithBreakdown(args: ProbTodayInputs): ProbTodayB
     }),
     bullpen: computeBullpenFactor({ bullpen: args.bullpen, lineupSlot: args.lineupSlot }),
     paCount: computePaCountFactor({ probTypical: args.probTypical, slot: args.lineupSlot }),
+    bvp: computeBvpFactor({ bvp: args.bvp }),
+    batter: computeBatterFactor({ statcast: args.batterStatcast }),
+    tto: computeTtoFactor(),
   }
 
   const factorProduct = clamp(
@@ -70,7 +89,10 @@ export function computeProbTodayWithBreakdown(args: ProbTodayInputs): ProbTodayB
       factors.weather *
       factors.handedness *
       factors.bullpen *
-      factors.paCount,
+      factors.paCount *
+      factors.bvp *
+      factors.batter *
+      factors.tto,
     0.25,
     4.0,
   )

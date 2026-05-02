@@ -369,6 +369,19 @@ export function getHrParkFactorForBatter(
   return forBatter(e.HR, bats)
 }
 
+/** Park strikeout factor (handedness-blended). Lower = park suppresses Ks =
+ *  more contact = good for HRR. FanGraphs publishes this without a per-hand
+ *  split because the park effect on K rate is negligibly handed. */
+export function getKParkFactor(venueId: number): number {
+  return PARK_FACTORS_2025[venueId]?.K ?? 1
+}
+
+/** Park walk factor (handedness-blended). Higher = more walks = small lift
+ *  to HRR via the run-scoring channel. */
+export function getBbParkFactor(venueId: number): number {
+  return PARK_FACTORS_2025[venueId]?.BB ?? 1
+}
+
 /** Human-readable venue name; falls back to "Unknown park" for unrecognised IDs. */
 export function getParkVenueName(venueId: number): string {
   return PARK_FACTORS_2025[venueId]?.name ?? 'Unknown park'

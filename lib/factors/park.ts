@@ -1,13 +1,17 @@
 /**
  * Composite HRR park factor for a batter at a venue.
  *
- * Uses available FanGraphs 2025 per-handedness data for 1B/2B/3B/HR to compute:
- *   composite = 0.50 × hitFactor + 0.25 × runFactor + 0.25 × hrFactor
+ * Uses FanGraphs 2025 per-outcome park factors:
+ *   composite =
+ *     0.45 × hitFactor      (1B/2B/3B/HR by handedness)
+ *   + 0.20 × runFactor      (XBH-weighted run proxy)
+ *   + 0.20 × hrFactor       (HR by handedness)
+ *   + 0.10 × (1 / kFactor)  (lower K → more contact → more HRR)
+ *   + 0.05 × bbFactor       (more walks → small lift via runs)
  *
- * Where:
- *   hitFactor = 0.60×1B + 0.25×2B + 0.10×3B + 0.05×HR  (hit-frequency weighted)
- *   runFactor = 0.40×2B + 0.40×3B + 0.20×HR             (XBH-weighted run proxy)
- *   hrFactor  = HR factor per handedness
+ * The K and BB factors are blended in at small weight because their effect
+ * on HRR is real but modest. K is *inverted* (1/K) because a park that
+ * suppresses Ks is good for the batter, not bad.
  *
  * Unknown venues return 1.0 (neutral). Bounded [0.7, 1.3].
  */
@@ -16,6 +20,8 @@ import {
   getHitParkFactorForBatter,
   getRunParkFactor,
   getHrParkFactorForBatter,
+  getKParkFactor,
+  getBbParkFactor,
 } from '../park-factors'
 
 export function computeParkFactor(args: {
@@ -26,7 +32,13 @@ export function computeParkFactor(args: {
   const hit = getHitParkFactorForBatter(args.venueId, args.batterHand)
   const run = getRunParkFactor(args.venueId, args.batterHand)
   const hr = getHrParkFactorForBatter(args.venueId, args.batterHand)
-  const composite = 0.50 * hit + 0.25 * run + 0.25 * hr
+  const kFactor = getKParkFactor(args.venueId)
+  const bb = getBbParkFactor(args.venueId)
+  // Floor the K factor at 0.5 so the inverse can't blow up if a venue ever
+  // gets a tiny K value. In practice FG's K factors live in [0.92, 1.10].
+  const contact = 1 / Math.max(kFactor, 0.5)
+  const composite =
+    0.45 * hit + 0.20 * run + 0.20 * hr + 0.10 * contact + 0.05 * bb
   return clamp(composite)
 }
 

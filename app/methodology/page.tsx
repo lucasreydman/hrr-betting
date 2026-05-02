@@ -70,7 +70,8 @@ export default function Methodology() {
             </Note>
             <Formula>
               {`factorProduct = clamp(pitcher × park × weather × handedness
-                                × bullpen × paCount, 0.25, 4.0)
+                                × bullpen × paCount × bvp × batter × tto,
+                                0.25, 4.0)
 oddsTypical   = p̂_typical / (1 − p̂_typical)
 oddsToday     = oddsTypical × factorProduct
 p̂_today       = oddsToday / (1 + oddsToday)`}
@@ -82,7 +83,7 @@ p̂_today       = oddsToday / (1 + oddsToday)`}
         </Grid>
       </Section>
 
-      <Section heading="The six factors" eyebrow="What changes p̂ today vs p̂ typical">
+      <Section heading="The nine factors" eyebrow="What changes p̂ today vs p̂ typical">
         <p className="text-sm text-ink-muted">
           Each factor is a single multiplier with its own clamp. Hover any row for the
           source file.
@@ -108,13 +109,13 @@ p̂_today       = oddsToday / (1 + oddsToday)`}
                   name="Park"
                   range="0.70 – 1.30"
                   source="lib/factors/park.ts"
-                  desc="FanGraphs 2025 per-handedness park factors blended into one composite: 50% hits, 25% runs, 25% HR. Switch hitters get the L/R average. Unknown venues → 1.0."
+                  desc="FanGraphs 2025 per-outcome park factors blended into one composite: 45% hits, 20% runs, 20% HR, 10% (1/K so contact-friendly parks help), 5% BB. Per-handedness for hits/HR; switch hitters get the L/R average. Unknown venues → 1.0."
                 />
                 <FactorRow
                   name="Weather"
                   range="0.85 – 1.20"
                   source="lib/factors/weather.ts"
-                  desc="Temp + wind projected onto the home → CF axis, dampened by 0.6× since most HRR is singles (less weather-sensitive than HR). Domes and failed forecasts → 1.0."
+                  desc="Temp + wind projected onto the home → CF axis, then composed across all HRR-relevant outcomes (1B, 2B, 3B, HR, BB) weighted by HRR contribution. Replaces the older HR-only dampened formula. Domes and failed forecasts → 1.0."
                 />
                 <FactorRow
                   name="Handedness"
@@ -133,6 +134,24 @@ p̂_today       = oddsToday / (1 + oddsToday)`}
                   range="0.85 – 1.15"
                   source="lib/factors/pa-count.ts"
                   desc="Corrects for slot-specific expected PAs vs league mean (4.20). Top-of-order batters get more swings; bottom-of-order get fewer. Bernoulli scaling on a per-PA HRR rate."
+                />
+                <FactorRow
+                  name="BvP"
+                  range="0.90 – 1.10"
+                  source="lib/factors/bvp.ts"
+                  desc="Batter-vs-pitcher career line shrunk toward league wOBA via empirical Bayes (~600 PA stabilization point). Returns 1.0 (neutral) for under 5 career AB, otherwise nudges based on the wOBA-equivalent of the matchup."
+                />
+                <FactorRow
+                  name="Batter quality"
+                  range="0.95 – 1.05"
+                  source="lib/factors/batter.ts"
+                  desc="Statcast contact profile (barrel%, hard-hit%, xwOBA) ratioed to league averages and dampened by an exponent of 0.25. Heavily damped because pTypical already captures most batter skill; this only nudges when underlying contact disagrees with rates."
+                />
+                <FactorRow
+                  name="TTO"
+                  range="0.95 – 1.15"
+                  source="lib/factors/tto.ts"
+                  desc="Times-through-the-order penalty applied uniformly. Average per-outcome TTO multiplier across PAs 1, 2, 3 (typical PAs vs the starter), HRR-weighted. ~1.08 in practice — a small constant lift the offline pTypical baseline doesn't apply."
                 />
               </tbody>
             </table>
@@ -213,13 +232,15 @@ score = kelly × confidence`}
           <FilePath>lib/confidence.ts:computeConfidenceBreakdown</FilePath>
         </Note>
         <p className="text-xs text-ink-muted">
-          BvP only enters confidence; it doesn&apos;t adjust the per-PA rate
-          distribution. The three signal-derived factors come from the ranker:
-          weather stability flips false when the HR multiplier moves more than ±10%
-          off neutral; opener fires when the listed starter has averaged under 2 IP
-          across recent starts; freshness reads schedule-cache age (the canonical
-          live-state signal, with a short TTL), so confidence ramps down if the cron
-          stops hitting <Code>/api/refresh</Code>.
+          The BvP factor here scales confidence by sample size; the BvP factor on
+          p̂ today (above) actually shifts the probability based on observed wOBA.
+          Both read the same career line, in different ways. The three
+          signal-derived confidence factors come from the ranker: weather stability
+          flips false when the HR multiplier moves more than ±10% off neutral;
+          opener fires when the listed starter has averaged under 2 IP across
+          recent starts; freshness reads schedule-cache age (the canonical
+          live-state signal, with a short TTL), so confidence ramps down if the
+          cron stops hitting <Code>/api/refresh</Code>.
         </p>
       </Section>
 
@@ -412,9 +433,12 @@ p < 0.5  →  odds = +round(100 × (1 − p) / p)        (underdog)`}
           <Card title="Things the model does">
             <ul className="ml-5 list-disc space-y-1 text-sm marker:text-ink-muted">
               <li>20k-iteration per-player Monte Carlo for the typical-matchup baseline</li>
-              <li>Closed-form, sub-millisecond today-adjusted probability via odds-ratio composition of six factors</li>
+              <li>Closed-form, sub-millisecond today-adjusted probability via odds-ratio composition of nine factors</li>
+              <li>Empirical-Bayes shrunken BvP signal that nudges p̂ today on real career history</li>
+              <li>Statcast contact-quality factor for batters (barrel%, hard-hit%, xwOBA)</li>
+              <li>Times-through-the-order penalty across PAs 1–3 against the starter</li>
               <li>Variance-aware Kelly score so longshots don&apos;t dominate the board</li>
-              <li>Stabilization toward league averages so small samples don&apos;t over-fit</li>
+              <li>Stabilization toward career rates (when ≥ 200 career PAs) so small samples don&apos;t over-fit</li>
               <li>Confirmed / partial / estimated lineup tiering with status-aware caching</li>
               <li>Lifecycle integrity from generate → lock → live-settle → daily settle → history</li>
             </ul>
@@ -422,11 +446,10 @@ p < 0.5  →  odds = +round(100 × (1 − p) / p)        (underdog)`}
           <Card title="Things the model doesn&apos;t do">
             <ul className="ml-5 list-disc space-y-1 text-sm marker:text-ink-muted">
               <li>Ingest sportsbook lines or compute book-implied probabilities</li>
-              <li>Apply BvP to per-PA rates (BvP only enters confidence)</li>
               <li>Differentiate starter rates from bullpen rates inside the offline baseline</li>
-              <li>Apply TTO penalties (the closed-form pitcher factor doesn&apos;t break out by times-through-the-order)</li>
               <li>Track L15/L30 rolling form blends in the live ranker</li>
               <li>Project bullpen quality by reliever leverage tier (uses team-aggregate ERA)</li>
+              <li>Apply pitcher-specific TTO ramps (uses a league-average TTO factor; per-pitcher splits would need pitch-level Savant data)</li>
             </ul>
           </Card>
         </Grid>
