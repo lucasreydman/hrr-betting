@@ -9,7 +9,6 @@ export const metadata: Metadata = {
   },
   description:
     'Daily MLB Hits + Runs + RBIs prop ranker with auto-tracked picks and rolling calibration metrics.',
-  icons: { icon: '/favicon.svg' },
 }
 
 export const viewport: Viewport = {
