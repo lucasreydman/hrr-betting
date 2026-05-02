@@ -30,10 +30,37 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           causes content to extend below the actual visible area; 100dvh
           tracks the current visible viewport and resizes as the URL bar
           appears/disappears. */}
-      <body className="min-h-dvh bg-bg font-sans text-ink antialiased">
+      <body className="flex min-h-dvh flex-col bg-bg font-sans text-ink antialiased">
         <a href="#main" className="skip-link">Skip to main content</a>
         <NavBar />
-        <div id="main">{children}</div>
+        {/* flex-1 lets the footer settle at the bottom of short pages
+            (e.g. empty /history) instead of floating mid-viewport. */}
+        <div id="main" className="flex-1">{children}</div>
+        <footer
+          className="mt-8 border-t border-border/60 px-3 py-5 text-center text-xs text-ink-muted sm:px-6"
+          style={{
+            paddingBottom: 'max(1.25rem, env(safe-area-inset-bottom, 0px))',
+          }}
+        >
+          Built by{' '}
+          <a
+            href="https://github.com/lucasreydman"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-ink-subtle underline decoration-border underline-offset-2 transition-colors hover:text-accent hover:decoration-accent/60"
+          >
+            Lucas Reydman
+          </a>
+          {' · '}
+          <a
+            href="https://github.com/lucasreydman/hrr-betting"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-ink-subtle underline decoration-border underline-offset-2 transition-colors hover:text-accent hover:decoration-accent/60"
+          >
+            Source on GitHub
+          </a>
+        </footer>
       </body>
     </html>
   )
