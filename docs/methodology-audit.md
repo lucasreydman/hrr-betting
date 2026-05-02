@@ -319,14 +319,34 @@ shrinks observed wOBA-equivalent from career line vs the starter toward
 league wOBA (0.310) using a 600-PA stabilization point. Returns 1.0 for
 < 5 career AB. Bounded [0.90, 1.10]. Consumed by `lib/prob-today.ts`.
 
-### b. Batter Statcast — RESOLVED
+### b. Batter Statcast — RESOLVED, then fixed (2026-05-03)
 
-New `lib/factors/batter.ts` exposes `computeBatterFactor`. Reads the
-already-existing `getBatterStatcast` from `lib/savant-api.ts` and
-composes barrel% / hard-hit% / xwOBA against league averages, dampened
-by an exponent of 0.25 since `pTypical` already encodes most batter
-skill. Bounded [0.95, 1.05]. Wired into the ranker's per-batter parallel
+First pass: new `lib/factors/batter.ts` exposes `computeBatterFactor`.
+Reads `getBatterStatcast` from `lib/savant-api.ts` and composes
+barrel% / hard-hit% / xwOBA against league averages, dampened by an
+exponent of 0.25 since `pTypical` already encodes most batter skill.
+Bounded [0.95, 1.05]. Wired into the ranker's per-batter parallel
 fetch block.
+
+**Bug found (2026-05-03):** the `lib/savant-api.ts` parser had a TODO
+to verify column names; turned out the live Savant CSV uses `brl_percent`
+/ `ev95percent` / `est_woba` (split across two endpoints), not the
+`barrel_batted_rate` / `hard_hit_percent` / `xwoba` the parser
+expected. Every batter and pitcher Statcast record was silently
+all-zero, meaning:
+
+- The `batter` p̂ today factor was clamped to its `0.95` floor for
+  every player (zeros / league > 0 → near-zero, clamped).
+- The pitcher factor's `hardHit` term was also broken — for any pitcher
+  with a non-zero `bf` count, the stabilization weight pulled the
+  hardHit ratio toward zero, dropping the pitcher quality multiplier
+  and meaningfully suppressing pToday for batters facing those pitchers.
+
+**Fix:** parser updated with real column names. xwOBA now merges from
+the second `expected_statistics` endpoint via `mergeBatterXwobaCsv` /
+`mergePitcherXwobaCsv`. Cache key bumped `savant:*:v1:*` → `v2`. SQL
+migration `20260503000000_clear_savant_v1_cache.sql` flushes the bad
+v1 rows. Tests rewritten against the real column names; 14 / 14 pass.
 
 ### c. TTO multipliers — RESOLVED, then refined
 

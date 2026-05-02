@@ -1,6 +1,8 @@
 import {
   parseSavantBatterCsv,
   parseSavantPitcherCsv,
+  mergeBatterXwobaCsv,
+  mergePitcherXwobaCsv,
   getBatterStatcast,
   getPitcherStatcast,
 } from '@/lib/savant-api'
@@ -9,21 +11,32 @@ import {
 // CSV parsers — pure, no network
 // ---------------------------------------------------------------------------
 
+const BATTER_CONTACT_HEADER =
+  'player_id,attempts,avg_hit_speed,ev95percent,brl_percent'
+const BATTER_XWOBA_HEADER =
+  'player_id,year,pa,bip,ba,est_ba,est_ba_minus_ba_diff,slg,est_slg,est_slg_minus_slg_diff,woba,est_woba'
+const PITCHER_CONTACT_HEADER =
+  'player_id,attempts,avg_hit_speed,ev95percent,brl_percent'
+const PITCHER_XWOBA_HEADER =
+  'player_id,year,pa,bip,ba,est_ba,est_ba_minus_ba_diff,slg,est_slg,est_slg_minus_slg_diff,woba,est_woba'
+
 describe('parseSavantBatterCsv', () => {
-  it('parses a well-formed batter CSV into a typed store', () => {
+  it('parses real Savant column names into a typed store', () => {
     const csv = [
-      'player_id,barrel_batted_rate,hard_hit_percent,xwoba,xiso,avg_exit_velo',
-      '592450,17.5,55.2,0.420,0.290,93.5',
-      '605141,12.0,48.1,0.380,0.220,90.0',
+      BATTER_CONTACT_HEADER,
+      // Aaron Judge: 17.5% barrels, 55.2% hard-hit, 93.5 mph avg EV
+      '592450,250,93.5,55.2,17.5',
+      '605141,200,90.0,48.1,12.0',
     ].join('\n')
     const store = parseSavantBatterCsv(csv)
     expect(store[592450]).toMatchObject({
       batterId: 592450,
-      barrelPct: 0.175,    // 17.5 / 100
-      hardHitPct: 0.552,   // 55.2 / 100
-      xwOBA: 0.420,
-      xISO: 0.290,
+      barrelPct: 0.175,
+      hardHitPct: 0.552,
       avgExitVelo: 93.5,
+      // xwOBA / xISO not yet merged — defaults to 0 until xwoba CSV lands.
+      xwOBA: 0,
+      xISO: 0,
     })
     expect(store[605141].barrelPct).toBeCloseTo(0.120, 6)
     expect(Object.keys(store)).toHaveLength(2)
@@ -31,54 +44,103 @@ describe('parseSavantBatterCsv', () => {
 
   it('skips rows with non-numeric player_id', () => {
     const csv = [
-      'player_id,barrel_batted_rate,hard_hit_percent,xwoba',
-      'NotANumber,12,40,0.350',
-      '592450,15,50,0.400',
+      BATTER_CONTACT_HEADER,
+      'NotANumber,250,93.5,55,17',
+      '592450,250,93.5,50,15',
     ].join('\n')
     const store = parseSavantBatterCsv(csv)
     expect(Object.keys(store)).toEqual(['592450'])
   })
 
-  it('skips rows with non-finite percentages', () => {
+  it('skips rows where the core signals are non-finite', () => {
     const csv = [
-      'player_id,barrel_batted_rate,hard_hit_percent,xwoba',
-      '111,foo,bar,baz',
-      '222,15,50,0.400',
+      BATTER_CONTACT_HEADER,
+      '111,250,foo,bar,baz',
+      '222,250,90,50,15',
     ].join('\n')
     const store = parseSavantBatterCsv(csv)
     expect(Object.keys(store)).toEqual(['222'])
   })
 
-  it('returns empty store for empty CSV', () => {
-    const store = parseSavantBatterCsv('player_id,barrel_batted_rate,hard_hit_percent,xwoba')
-    expect(store).toEqual({})
+  it('returns empty store for header-only CSV', () => {
+    expect(parseSavantBatterCsv(BATTER_CONTACT_HEADER)).toEqual({})
+  })
+})
+
+describe('mergeBatterXwobaCsv', () => {
+  it('merges est_woba and derives xISO into existing batter records', () => {
+    const csv = [
+      BATTER_CONTACT_HEADER,
+      '592450,250,93.5,55.2,17.5',
+    ].join('\n')
+    const store = parseSavantBatterCsv(csv)
+
+    const xwoba = [
+      BATTER_XWOBA_HEADER,
+      '592450,2026,300,200,0.270,0.290,0.020,0.520,0.560,0.040,0.380,0.420',
+    ].join('\n')
+    mergeBatterXwobaCsv(xwoba, store)
+
+    expect(store[592450].xwOBA).toBeCloseTo(0.420, 6)
+    // xISO ≈ est_slg − est_ba = 0.560 − 0.290 = 0.270
+    expect(store[592450].xISO).toBeCloseTo(0.270, 6)
+  })
+
+  it('adds new batters present only in the xwOBA CSV with neutral barrel/hardHit', () => {
+    const store = {}
+    mergeBatterXwobaCsv(
+      [
+        BATTER_XWOBA_HEADER,
+        '700000,2026,300,200,0.270,0.290,0.020,0.520,0.560,0.040,0.380,0.420',
+      ].join('\n'),
+      store,
+    )
+    expect(store[700000]).toMatchObject({
+      batterId: 700000,
+      barrelPct: 0,
+      hardHitPct: 0,
+      xwOBA: 0.420,
+    })
   })
 })
 
 describe('parseSavantPitcherCsv', () => {
-  it('parses a well-formed pitcher CSV into a typed store', () => {
+  it('parses real Savant pitcher CSV column names', () => {
     const csv = [
-      'player_id,barrels_per_pa,hard_hit_percent,xwoba_against,whiff_percent',
-      '543037,7.2,38.0,0.290,33.5',
-      '676440,6.0,42.0,0.310,28.0',
+      PITCHER_CONTACT_HEADER,
+      '543037,300,88.5,38.0,7.2',
+      '676440,250,90.1,42.0,6.0',
     ].join('\n')
     const store = parseSavantPitcherCsv(csv)
     expect(store[543037].pitcherId).toBe(543037)
     expect(store[543037].barrelsAllowedPct).toBeCloseTo(0.072, 6)
     expect(store[543037].hardHitPctAllowed).toBeCloseTo(0.380, 6)
-    expect(store[543037].xwOBAAllowed).toBeCloseTo(0.290, 6)
-    expect(store[543037].whiffPct).toBeCloseTo(0.335, 6)
+    // xwOBAAllowed defaults to 0 until merged.
+    expect(store[543037].xwOBAAllowed).toBe(0)
     expect(Object.keys(store)).toHaveLength(2)
   })
 
   it('skips rows with non-finite percentages', () => {
     const csv = [
-      'player_id,barrels_per_pa,hard_hit_percent,xwoba_against,whiff_percent',
-      '111,foo,bar,baz,qux',
-      '222,7,40,0.300,30',
+      PITCHER_CONTACT_HEADER,
+      '111,300,foo,bar,baz',
+      '222,300,88,40,7',
     ].join('\n')
     const store = parseSavantPitcherCsv(csv)
     expect(Object.keys(store)).toEqual(['222'])
+  })
+})
+
+describe('mergePitcherXwobaCsv', () => {
+  it('merges est_woba into existing pitcher records as xwOBAAllowed', () => {
+    const store = parseSavantPitcherCsv(
+      [PITCHER_CONTACT_HEADER, '543037,300,88.5,38,7.2'].join('\n'),
+    )
+    mergePitcherXwobaCsv(
+      [PITCHER_XWOBA_HEADER, '543037,2026,400,300,0.220,0.230,0.010,0.350,0.340,-0.010,0.290,0.295'].join('\n'),
+      store,
+    )
+    expect(store[543037].xwOBAAllowed).toBeCloseTo(0.295, 6)
   })
 })
 
@@ -90,30 +152,33 @@ describe('savant store loaders (mocked fetch)', () => {
   let fetchSpy: jest.SpyInstance
   afterEach(() => {
     fetchSpy?.mockRestore()
-    jest.resetModules()  // clear in-memory KV between tests
+    jest.resetModules()
   })
 
   function mockBatterCsv(rows: number) {
-    // Need ≥ MIN_REASONABLE_SAVANT_ROWS (50) rows for the store to be cached & returned.
-    const lines = ['player_id,barrel_batted_rate,hard_hit_percent,xwoba,xiso,avg_exit_velo']
+    const contactLines = [BATTER_CONTACT_HEADER]
+    const xwobaLines = [BATTER_XWOBA_HEADER]
     for (let i = 0; i < rows; i++) {
       const id = 600000 + i
-      lines.push(`${id},${10 + (i % 10)},${40 + (i % 8)},0.${300 + (i % 50)},0.${150 + (i % 80)},${90 + (i % 5)}`)
+      contactLines.push(`${id},250,${90 + (i % 5)},${40 + (i % 8)},${10 + (i % 10)}`)
+      xwobaLines.push(`${id},2099,300,200,0.27,0.28,0.01,0.45,0.46,0.01,0.36,0.37`)
     }
-    fetchSpy = jest.spyOn(global, 'fetch').mockResolvedValue({
-      ok: true,
-      text: async () => lines.join('\n'),
-    } as Response)
+    fetchSpy = jest.spyOn(global, 'fetch').mockImplementation(async (url: string | URL) => {
+      const u = url.toString()
+      const body =
+        u.includes('expected_statistics') ? xwobaLines.join('\n') : contactLines.join('\n')
+      return { ok: true, text: async () => body } as Response
+    })
   }
 
-  it('getBatterStatcast returns a parsed entry for a known batter', async () => {
+  it('getBatterStatcast returns a parsed entry for a known batter, with xwOBA merged', async () => {
     mockBatterCsv(60)
-    // Use a year that hasn't been pulled before to avoid kv cache hits from prior tests
     const sc = await getBatterStatcast(600005, 2099)
     expect(sc).not.toBeNull()
     expect(sc?.batterId).toBe(600005)
     expect(sc?.barrelPct).toBeGreaterThanOrEqual(0)
     expect(sc?.barrelPct).toBeLessThanOrEqual(1)
+    expect(sc?.xwOBA).toBeGreaterThan(0)  // merge worked
   })
 
   it('getBatterStatcast returns null for an unknown batter ID', async () => {
@@ -122,27 +187,31 @@ describe('savant store loaders (mocked fetch)', () => {
     expect(sc).toBeNull()
   })
 
-  it('getBatterStatcast returns null when CSV has too few rows (likely a Savant outage)', async () => {
-    mockBatterCsv(5)  // below MIN_REASONABLE_SAVANT_ROWS = 50
+  it('getBatterStatcast returns null when CSV has too few rows (Savant outage)', async () => {
+    mockBatterCsv(5)
     const sc = await getBatterStatcast(600003, 2097)
     expect(sc).toBeNull()
   })
 
   it('getPitcherStatcast returns a parsed entry for a known pitcher', async () => {
-    const lines = ['player_id,barrels_per_pa,hard_hit_percent,xwoba_against,whiff_percent']
+    const contactLines = [PITCHER_CONTACT_HEADER]
+    const xwobaLines = [PITCHER_XWOBA_HEADER]
     for (let i = 0; i < 60; i++) {
       const id = 700000 + i
-      lines.push(`${id},${5 + (i % 6)},${38 + (i % 7)},0.${290 + (i % 40)},${28 + (i % 8)}`)
+      contactLines.push(`${id},300,${88 + (i % 4)},${38 + (i % 7)},${5 + (i % 6)}`)
+      xwobaLines.push(`${id},2096,400,300,0.22,0.23,0.01,0.35,0.34,-0.01,0.29,0.30`)
     }
-    fetchSpy = jest.spyOn(global, 'fetch').mockResolvedValue({
-      ok: true,
-      text: async () => lines.join('\n'),
-    } as Response)
+    fetchSpy = jest.spyOn(global, 'fetch').mockImplementation(async (url: string | URL) => {
+      const u = url.toString()
+      const body =
+        u.includes('expected_statistics') ? xwobaLines.join('\n') : contactLines.join('\n')
+      return { ok: true, text: async () => body } as Response
+    })
     const sc = await getPitcherStatcast(700010, 2096)
     expect(sc).not.toBeNull()
     expect(sc?.pitcherId).toBe(700010)
-    expect(sc?.whiffPct).toBeGreaterThanOrEqual(0)
-    expect(sc?.whiffPct).toBeLessThanOrEqual(1)
+    expect(sc?.hardHitPctAllowed).toBeGreaterThan(0)
+    expect(sc?.xwOBAAllowed).toBeGreaterThan(0)
   })
 
   it('returns null gracefully on Savant fetch failure', async () => {
