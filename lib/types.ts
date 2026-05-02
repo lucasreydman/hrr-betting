@@ -67,11 +67,6 @@ export interface BatterStats {
   vsL?: OutcomeRates
 }
 
-export interface BullpenStats {
-  highLeverage: { fip: number; kPct: number; bbPct: number; hrPer9: number; vsR: OutcomeRates; vsL: OutcomeRates }
-  rest:         { fip: number; kPct: number; bbPct: number; hrPer9: number; vsR: OutcomeRates; vsL: OutcomeRates }
-}
-
 export interface StartLine { gameDate: string; ip: number }
 
 export interface GameLogEntry {

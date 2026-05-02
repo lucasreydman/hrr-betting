@@ -40,8 +40,10 @@ export default function Methodology() {
               A 20,000-iteration Monte Carlo simulates a full 9-inning game with the
               target batter at lineup slot 4 and 17 league-average teammates and
               opponents. The batter&apos;s outcome rates come from full-season counts,
-              regressed toward league averages via empirical stabilization
-              (Russell Carleton sample sizes).
+              regressed via empirical stabilization (Russell Carleton sample sizes)
+              toward the player&apos;s own career rates when ≥ 200 career PAs exist —
+              league averages otherwise. Career prior preserves true skill differences
+              in early-season samples.
             </Note>
             <Note label="Where">
               <FilePath>lib/p-typical.ts</FilePath> · sim engine{' '}
@@ -212,9 +214,12 @@ score = kelly × confidence`}
         </Note>
         <p className="text-xs text-ink-muted">
           BvP only enters confidence — it doesn&apos;t adjust the per-PA rate
-          distribution today. Three factors (weather stability, opener, freshness) are
-          currently passed as constants by the ranker and effectively neutral until
-          their input signals are wired up.
+          distribution. The three signal-derived factors come from the ranker:
+          weather stability flips false when the HR multiplier moves more than ±10%
+          off neutral; opener fires when the listed starter has averaged under 2 IP
+          across recent starts; freshness reads schedule-cache age (the canonical
+          live-state signal — short TTL, ramps confidence down if the cron stops
+          hitting <Code>/api/refresh</Code>).
         </p>
       </Section>
 
@@ -419,10 +424,9 @@ p < 0.5  →  odds = +round(100 × (1 − p) / p)        (underdog)`}
               <li>Ingest sportsbook lines or compute book-implied probabilities</li>
               <li>Apply BvP to per-PA rates (BvP only enters confidence)</li>
               <li>Differentiate starter rates from bullpen rates inside the offline baseline</li>
-              <li>Apply TTO penalties at request time (tables exist in code, not wired)</li>
-              <li>Detect openers automatically (the confidence flag is hardcoded false)</li>
-              <li>Use career rates as the stabilization prior (uses league averages)</li>
+              <li>Apply TTO penalties (the closed-form pitcher factor doesn&apos;t break out by times-through-the-order)</li>
               <li>Track L15/L30 rolling form blends in the live ranker</li>
+              <li>Project bullpen quality by reliever leverage tier (uses team-aggregate ERA)</li>
             </ul>
           </Card>
         </Grid>

@@ -78,9 +78,49 @@ async function main() {
     console.log()
   }
 
-  console.log('Done. Adjust floors in lib/constants.ts based on bucket analysis.')
-  console.log('Sweet spot: pick the EDGE bucket where actual hit rate first crosses')
-  console.log('your target threshold (e.g. 70% for Tracked) and use that as the floor.\n')
+  // Floor recommendations. Heuristic: for each rung, find the lowest EDGE
+  // bucket whose actual hit rate clears the rung's hit-rate target. The
+  // bucket's lower bound becomes the recommended EDGE_FLOOR. Skip rungs
+  // with insufficient data (n < 30) so noisy buckets don't move floors.
+  console.log('=== Floor recommendations ===')
+  console.log('(Heuristic — review before applying. Need n ≥ 30 per rung.)\n')
+
+  const totalDays = countDistinctDates(rows)
+  if (totalDays < 30) {
+    console.log(`Only ${totalDays} settled days. Wait for ≥ 30 before changing floors.\n`)
+    return
+  }
+
+  // Per-rung target hit rate (Tracked tier should clear this in real backtests).
+  const HIT_RATE_TARGET: Record<Rung, number> = { 1: 0.80, 2: 0.55, 3: 0.30 }
+
+  for (const rung of [1, 2, 3] as Rung[]) {
+    const rungRows = rows.filter(r => r.rung === rung && r.outcome !== 'PENDING')
+    if (rungRows.length < 30) {
+      console.log(`Rung ${rung}+: only ${rungRows.length} settled picks — skipping recommendation.`)
+      continue
+    }
+    const target = HIT_RATE_TARGET[rung]
+    const buckets = bucketByEdge(rungRows).filter(b => b.count >= 10)
+    const eligibleBuckets: Array<{ floor: number; bucket: BucketStats }> = []
+    for (const b of buckets) {
+      const lowerBound = parseFloat(b.label.match(/(\d+\.\d+)/)?.[1] ?? '0')
+      if (b.hitRate >= target) eligibleBuckets.push({ floor: lowerBound, bucket: b })
+    }
+    if (eligibleBuckets.length === 0) {
+      console.log(`Rung ${rung}+: no EDGE bucket clears ${(target * 100).toFixed(0)}% target — keep current floor or raise it.`)
+      continue
+    }
+    // Pick the lowest qualifying floor (most permissive while still hitting target).
+    const best = eligibleBuckets.reduce((a, b) => a.floor < b.floor ? a : b)
+    console.log(
+      `Rung ${rung}+: recommend EDGE_FLOORS[${rung}] = ${best.floor.toFixed(2)} ` +
+      `(bucket "${best.bucket.label}" hit ${(best.bucket.hitRate * 100).toFixed(1)}% over ${best.bucket.count} picks)`,
+    )
+  }
+  console.log()
+  console.log('Apply manually in lib/constants.ts after sanity-checking the bucket counts.')
+  console.log('Re-deploy and re-track for another 30 days before tuning further.\n')
 }
 
 function countDistinctDates(rows: SettledPickRow[]): number {

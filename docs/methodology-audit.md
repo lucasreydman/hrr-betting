@@ -38,7 +38,7 @@ page. Every claim on that page must be traceable to a row in this doc.
 - **Iterations**: `ITERATIONS = 20_000`
 - **Method**: per-player Monte Carlo via `simSinglePlayerHRR` from `lib/offline-sim/sim.ts`
 - **Sim**: 9 innings, 18-batter game, target placed at lineup slot 4 (mid-order); other 17 batters drive league-average outcomes
-- **Rate prior**: full-season `outcomeRates` from `fetchBatterSeasonStats`, stabilized via `stabilizeRates(observed, LEAGUE_AVG_RATES, pa)` — **prior is league average**, not career
+- **Rate prior**: full-season `outcomeRates` from `fetchBatterSeasonStats`, stabilized via `stabilizeRates(observed, prior, pa)` — prior is the player's **career outcomeRates** when `fetchBatterCareerStats` returns ≥ 200 PAs, otherwise `LEAGUE_AVG_RATES`
 - **Output**: `atLeast[k] = P(HRR ≥ k)` for k ∈ {0,1,2,3,4}
 - **Cache**: key `typical:v1:{playerId}`, TTL 14 days
 - **Cron warm**: Sunday 4 AM ET full sweep; Mon–Sat 4 AM ET slate-batter sweep
@@ -103,16 +103,16 @@ page. Every claim on that page must be traceable to a row in this doc.
 - **File**: `lib/confidence.ts:computeConfidenceBreakdown`
 - Product of 8 multiplicative factors:
 
-| Factor | Source | Range |
-|---|---|---|
-| `lineup` | `lineupStatus` | confirmed 1.00 / partial 0.85 / estimated 0.70 |
-| `bvp` | career AB vs starter | linear 0.90 → 1.00 over 0–20 AB |
-| `pitcherStart` | recent starts available | 0.90 at ≤3 → 1.00 at ≥10 |
-| `weather` | `weatherStable` boolean | stable 1.00 / volatile 0.90 |
-| `time` | minutes to first pitch | 1.00 ≤ 90 min → 0.95 ≥ 240 min |
-| `opener` | `isOpener` boolean | normal 1.00 / opener 0.90 |
-| `sampleSize` | batter season PA | 0.85 at 0 PA → 1.00 at ≥200 PA |
-| `dataFreshness` | maxCacheAgeSec | 1.00 ≤ 5 min → 0.90 ≥ 30 min |
+| Factor | Source | Signal | Range |
+|---|---|---|---|
+| `lineup` | `lineupStatus` from `fetchLineup` | three-tier | confirmed 1.00 / partial 0.85 / estimated 0.70 |
+| `bvp` | career AB vs starter from `fetchBvP` | sample size | 0.90 at 0 AB → 1.00 at ≥20 AB |
+| `pitcherStart` | recent starts count | sample size | 0.90 at ≤3 → 1.00 at ≥10 |
+| `weather` | derived in ranker: `controlled \|\| failure \|\| abs(hrMult-1) < 0.10` | stability boolean | stable 1.00 / volatile 0.90 |
+| `time` | minutes to first pitch | continuous | 1.00 ≤ 90 min → 0.95 ≥ 240 min |
+| `opener` | derived in ranker: `recentStarts ≥ 3 && avgIp < 2.0` | boolean | normal 1.00 / opener 0.90 |
+| `sampleSize` | batter season PA | continuous | 0.85 at 0 PA → 1.00 at ≥200 PA |
+| `dataFreshness` | `getScheduleAgeSec(date)` schedule-cache age | continuous | 1.00 ≤ 5 min → 0.90 ≥ 30 min |
 
 ### Hard gates
 
@@ -175,20 +175,21 @@ page. Every claim on that page must be traceable to a row in this doc.
 
 ---
 
-## Inconsistencies between prior UI copy and actual code
+## Inconsistencies that were in the original page
 
-Each row needs the methodology page rewritten to match.
+All resolved by the methodology rewrite + follow-up commits. Kept here
+as a record so the next audit knows what was intentionally fixed.
 
-| Old claim (existing methodology page) | Reality |
+| Old claim | Resolution |
 |---|---|
-| "1,000 iterations per game" | 20,000 iterations, **per player**, offline only. Request time is closed-form. |
-| "Regression target is the player's career rate" | Code uses `LEAGUE_AVG_RATES` as the prior in `stabilizeRates`. Career rates aren't read anywhere in production. |
-| "Per-PA distribution = batter × pitcher_rate / lg × park × weather × tto" | `computePerPA` exists in `lib/per-pa.ts` but is **not called from production**. The offline sim feeds raw stabilized batter rates straight into the engine; pitcher / park / weather / TTO never enter the per-PA layer. They enter at the closed-form factor stage at request time. |
-| "Bullpen leverage tier — high-leverage vs rest, weighted by PA index" | The live `computeBullpenFactor` uses **team season ERA × slot share**, not tier-of-relief rates. The tier-rate fetcher exists (`lib/mlb-api.ts:fetchBullpenStats` returns `highLeverage`/`rest`) but isn't wired into the request-time factor. |
-| "TTO penalty applied per outcome" | `TTO_MULTIPLIERS` exist in `constants.ts` but no code path applies them today. |
-| "Display floor SCORE ≥ 0.10" | Actual `DISPLAY_FLOOR_SCORE = 0.05`. |
-| "Confidence depends on weather stability and opener risk" | These multipliers exist in `computeConfidence` but the ranker passes constants: `weatherStable: true`, `isOpener: false`, `maxCacheAgeSec: 0`. Until those are wired to real signals, these factors are inert. |
-| "Career BvP feeds the per-PA rate" | Career BvP only feeds the `bvp` confidence multiplier (0.90–1.00 ramp on AB). It's not in any per-PA rate path. |
+| "1,000 iterations per game" | Page now says 20,000, per-player, offline only. |
+| "Regression target is career rate" | Was wrong before; **now true** after the follow-up wired career rates as the prior when ≥ 200 PAs exist. |
+| "Per-PA distribution = batter × pitcher_rate / lg × park × weather × tto" | The dead `computePerPA` was deleted. Page describes the actual closed-form factor stage. |
+| "Bullpen leverage tier" | Tier code deleted. Page describes the team-aggregate-ERA × slot-share factor that actually runs. |
+| "TTO penalty applied per outcome" | `TTO_MULTIPLIERS` deleted. Page lists "no TTO" under model limits. |
+| "Display floor SCORE ≥ 0.10" | Page corrected to 0.05. |
+| "Confidence depends on weather stability and opener risk" | Three confidence factors are now real signals (weather hrMult deviation, recent-start avg IP, schedule-cache age). |
+| "Career BvP feeds the per-PA rate" | Page is explicit: BvP enters confidence only. |
 
 ---
 
@@ -249,10 +250,53 @@ Render: /history
 - `app/methodology/page.tsx` — full rewrite from this map
 - `docs/methodology-audit.md` — this file
 
-## Recommended follow-up fixes (not in this PR)
+## Recommended follow-up fixes — status
 
-1. Wire `weatherStable`, `isOpener`, `maxCacheAgeSec` to real signals in the ranker so the corresponding confidence factors stop being constants.
-2. Decide whether `lib/per-pa.ts` (and the `TTO_MULTIPLIERS` it would consume) should be wired into the offline sim's rate construction, or removed.
-3. Tune the placeholder tracked-tier floors once 30+ days of settled history exists (`npm run recalibrate`).
-4. Bullpen factor: either wire the `highLeverage` / `rest` tier rates into the request-time factor, or remove them from the data layer.
-5. Consider using batter career rates (when available) as the `stabilizeRates` prior instead of league average — would preserve true skill differences in the baseline.
+All five resolved on 2026-05-02. Diff lives in commit message of the
+follow-up-fixes commit.
+
+### 1. Wire confidence signals (was: three inert factors) — RESOLVED
+
+- `weatherStable`: now derived from the weather result —
+  `controlled || failure || abs(hrMult - 1) < 0.10`. Domes / failed
+  forecasts treated as stable; mid-temp / light-wind games stable;
+  high-impact weather flips to volatile.
+- `isOpener`: now derived from recent-starts IP — fires when the listed
+  starter has ≥ 3 recent starts averaging under 2 IP per outing.
+- `maxCacheAgeSec`: now reads schedule-cache age via the new
+  `getScheduleAgeSec(date)` helper. Schedule has the shortest TTL
+  (2 min) and is the canonical live-state signal — its age is the
+  best single proxy for "is the cron hitting us on time?"
+
+### 2. Dead code removed — RESOLVED
+
+`lib/per-pa.ts`, `lib/tto.ts`, and their tests deleted. `TTO_MULTIPLIERS`,
+`LG_BARREL_PCT`, `LG_HARD_HIT_PCT`, `LG_WHIFF_PCT` removed from
+`lib/constants.ts`. Comments in `lib/park-factors.ts` and
+`lib/weather-factors.ts` that referenced `computePerPA` updated to
+describe the closed-form factor stage that actually consumes them.
+
+### 3. Tracked-tier floor recalibration — TOOLING UPGRADED
+
+Cannot tune values yet (≥ 30 days of settled history is the gating
+condition and we are not there). `scripts/recalibrate.ts` now prints
+specific recommended `EDGE_FLOORS[rung]` values when sufficient data
+exists, instead of leaving the operator to eyeball the bucket table.
+Re-run quarterly.
+
+### 4. Bullpen tier rates removed — RESOLVED
+
+`getBullpenTiers`, `weightForPA`, and `fetchTeamBullpenStats` deleted —
+they were dead code (only the team-aggregate ERA path is used by the
+request-time factor in `lib/factors/bullpen.ts`). The `BullpenStats`
+type was removed from `lib/types.ts` and the corresponding tests pruned.
+
+### 5. Career rates as stabilization prior — RESOLVED
+
+New `fetchBatterCareerStats(playerId)` in `lib/mlb-api.ts` (30-day TTL,
+defensively cached even on null). `lib/p-typical.ts:computeTypicalOffline`
+uses career outcome rates as the prior in `stabilizeRates` when ≥ 200
+career PAs exist. Falls back to `LEAGUE_AVG_RATES` otherwise. This
+preserves true skill differences for veterans (a career .280 hitter
+isn't regressed all the way to the .240 league mean by a small
+current-season sample).

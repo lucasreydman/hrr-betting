@@ -25,7 +25,6 @@ import type {
   PlayerGameStats,
   PitcherStats,
   BatterStats,
-  BullpenStats,
   OutcomeRates,
   StartLine,
   GameLogEntry,
@@ -292,15 +291,6 @@ interface RawGameLogPitcherStat {
   }
 }
 
-type RelieverStats = {
-  id: number
-  appearances: number
-  ip: number
-  fip: number
-  kPct: number
-  bbPct: number
-  hrPer9: number
-}
 
 // ---------------------------------------------------------------------------
 // Status mapping helpers
@@ -437,7 +427,28 @@ export async function fetchSchedule(date: string): Promise<Game[]> {
   const games = dedupeGamesByMatchup(mapped)
 
   await kvSet(cacheKey, games, TTL_SCHEDULE)
+  // Sibling meta key for `getScheduleAgeSec` — lets the ranker derive the
+  // confidence dataFreshness factor from how stale the live-state cache is.
+  // Same TTL so it expires lockstep with the data.
+  await kvSet(`${cacheKey}:meta`, { writtenAt: Date.now() }, TTL_SCHEDULE)
   return games
+}
+
+/**
+ * Returns how long ago the schedule for `date` was last successfully fetched
+ * from MLB, in seconds. Returns `null` when no record exists (e.g. the cache
+ * was just flushed and no fetch has happened yet) — callers should treat
+ * that as "unknown freshness", not "stale".
+ *
+ * Used by `lib/ranker.ts` to feed the `dataFreshness` confidence factor.
+ * The schedule is the canonical "live state" cache: it has the shortest TTL
+ * (2 min) and drives lineup / probables / status updates downstream, so its
+ * age is the best single proxy for "is the cron hitting us on time?"
+ */
+export async function getScheduleAgeSec(date: string): Promise<number | null> {
+  const meta = await kvGet<{ writtenAt: number }>(`hrr:schedule:v4:${date}:meta`)
+  if (!meta || typeof meta.writtenAt !== 'number') return null
+  return Math.max(0, Math.round((Date.now() - meta.writtenAt) / 1000))
 }
 
 // ---------------------------------------------------------------------------
@@ -1083,6 +1094,69 @@ function fallbackBatterStats(batterId: number): BatterStats {
 }
 
 // ---------------------------------------------------------------------------
+// Public: fetchBatterCareerStats
+// ---------------------------------------------------------------------------
+
+/**
+ * Fetch a batter's career hitting stats and derive outcome rates.
+ *
+ * Used by `lib/p-typical.ts:computeTypicalOffline` as the prior in
+ * `stabilizeRates`. Career rates are a better prior than league averages
+ * because they preserve true skill differences (e.g. a career .280 hitter
+ * doesn't get regressed all the way to the .240 league mean by a small
+ * current-season sample).
+ *
+ * Returns null when the player has no career data (rookies, missing rows,
+ * HTTP failure). Callers should fall back to league averages in that case.
+ *
+ * 30-day KV cache: career rates only meaningfully shift over many seasons,
+ * and the offline cron will re-warm the cache during its weekly sweep
+ * regardless. Long TTL keeps this off the request path.
+ */
+export async function fetchBatterCareerStats(
+  batterId: number,
+): Promise<{ pa: number; outcomeRates: OutcomeRates } | null> {
+  const cacheKey = `hrr:batter:career:${batterId}`
+  const cached = await kvGet<{ pa: number; outcomeRates: OutcomeRates } | { __null: true }>(cacheKey)
+  if (cached) return '__null' in cached ? null : cached
+
+  const url = `${MLB_BASE}/people/${batterId}/stats?stats=career&group=hitting`
+  const res = await fetch(url, { cache: 'no-store' })
+
+  if (!res.ok) {
+    // Cache the null with a short TTL so a transient failure doesn't pin us
+    // to fallback for 30 days.
+    await kvSet(cacheKey, { __null: true }, 5 * 60)
+    return null
+  }
+
+  const data: RawStatsResponse<RawBatterStat> = await res.json()
+  const stat: RawBatterStat | null = data.stats?.[0]?.splits?.[0]?.stat ?? null
+
+  if (!stat || stat.plateAppearances === 0) {
+    await kvSet(cacheKey, { __null: true }, 30 * 24 * 60 * 60)
+    return null
+  }
+
+  const result = {
+    pa: stat.plateAppearances,
+    outcomeRates: ratesFromCounts({
+      pa:           stat.plateAppearances,
+      hits:         stat.hits,
+      doubles:      stat.doubles,
+      triples:      stat.triples,
+      homeRuns:     stat.homeRuns,
+      baseOnBalls:  stat.baseOnBalls,
+      strikeOuts:   stat.strikeOuts,
+      hitByPitch:   stat.hitByPitch,
+    }),
+  }
+
+  await kvSet(cacheKey, result, 30 * 24 * 60 * 60)  // 30 days
+  return result
+}
+
+// ---------------------------------------------------------------------------
 // Public: fetchBatterGameLog
 // ---------------------------------------------------------------------------
 
@@ -1141,211 +1215,6 @@ export async function fetchBatterGameLog(
 
   await kvSet(cacheKey, entries, TTL_24H)
   return entries
-}
-
-// ---------------------------------------------------------------------------
-// Public: fetchTeamBullpenStats
-// ---------------------------------------------------------------------------
-
-/**
- * Fetch aggregate bullpen stats for a team, split into high-leverage and rest tiers.
- *
- * ## Leverage-tier classification
- *
- * MLB Stats API does not expose per-reliever leverage index (pLI) directly.
- * Baseball Savant does, but Savant integration is deferred to a later task.
- *
- * v1 uses the following proxy (in priority order):
- *
- * 1. **FIP proxy (primary):** Among relievers with ≥10 appearances, rank by FIP ascending.
- *    Top 3–4 pitchers by FIP = high-leverage tier.
- *    Rationale: managers tend to deploy their best relievers in high-leverage spots.
- *
- * This intentionally avoids the inning-count proxy because MLB Stats season game-log
- * endpoints don't surface per-game leverage states — that would require iterating
- * every game log entry, which is prohibitively expensive.
- *
- * When Savant integration (next task) is available, replace with pLI threshold ≥ 1.2.
- *
- * 6-hour KV cache.
- */
-export async function fetchTeamBullpenStats(
-  teamId: number,
-  season?: number,
-): Promise<BullpenStats> {
-  const s = season ?? currentSeason()
-  // Slate-aligned: bullpen aggregates tick after each game; freezing per slate
-  // keeps mid-game changes from shifting previously-given plays.
-  const cacheKey = `hrr:bullpen:${teamId}:${s}:${slateDateString()}`
-  const cached = await kvGet<BullpenStats>(cacheKey)
-  if (cached) return cached
-
-  const url = `${MLB_BASE}/teams/${teamId}/stats?stats=season&group=pitching&season=${s}&sportId=1`
-  const res = await fetch(url, { cache: 'no-store' })
-
-  if (!res.ok) {
-    const result = fallbackBullpenStats()
-    await kvSet(cacheKey, result, TTL_24H)
-    return result
-  }
-
-  const data = await res.json() as {
-    stats?: Array<{
-      splits?: Array<{
-        player?: { id: number; fullName?: string }
-        stat: {
-          gamesPlayed?: number
-          gamesStarted?: number
-          homeRuns?: number
-          baseOnBalls?: number
-          hitByPitch?: number
-          strikeOuts?: number
-          inningsPitched?: string
-          battersFaced?: number
-        }
-      }>
-    }>
-  }
-
-  const splits = data.stats?.[0]?.splits ?? []
-
-  const relievers: RelieverStats[] = splits
-    .filter(split => {
-      const st = split.stat
-      const starts = st.gamesStarted ?? 0
-      const games  = st.gamesPlayed  ?? 0
-      // Reliever = more relief appearances than starts, ≥10 total appearances
-      return (games - starts) >= 10 && starts < games * 0.5
-    })
-    .map(split => {
-      const st  = split.stat
-      const ip  = parseIP(st.inningsPitched ?? '0')
-      const bf  = st.battersFaced ?? 0
-      const hr  = st.homeRuns     ?? 0
-      const bb  = st.baseOnBalls  ?? 0
-      const hbp = st.hitByPitch   ?? 0
-      const so  = st.strikeOuts   ?? 0
-      return {
-        id:          split.player?.id ?? 0,
-        appearances: st.gamesPlayed ?? 0,
-        ip,
-        fip:    calcFip(hr, bb, hbp, so, ip),
-        kPct:   bf > 0 ? so / bf : LEAGUE_AVG_K_PCT,
-        bbPct:  bf > 0 ? bb / bf : LEAGUE_AVG_BB_PCT,
-        hrPer9: ip > 0 ? (hr * 9) / ip : LEAGUE_AVG_HR_PER9,
-      }
-    })
-    .sort((a, b) => a.fip - b.fip)  // ascending FIP: best pitchers first
-
-  if (relievers.length === 0) {
-    const result = fallbackBullpenStats()
-    await kvSet(cacheKey, result, TTL_24H)
-    return result
-  }
-
-  const highLevN = Math.min(4, Math.max(3, Math.ceil(relievers.length * 0.25)))
-  const highLev  = relievers.slice(0, highLevN)
-  const rest     = relievers.slice(highLevN)
-
-  function aggregateTier(tier: RelieverStats[]): BullpenStats['highLeverage'] {
-    if (tier.length === 0) {
-      return {
-        fip:    LEAGUE_AVG_FIP,
-        kPct:   LEAGUE_AVG_K_PCT,
-        bbPct:  LEAGUE_AVG_BB_PCT,
-        hrPer9: LEAGUE_AVG_HR_PER9,
-        vsR:    { ...LEAGUE_AVG_OUTCOME_RATES },
-        vsL:    { ...LEAGUE_AVG_OUTCOME_RATES },
-      }
-    }
-    // IP-weighted averages
-    const totalIp = tier.reduce((acc, r) => acc + r.ip, 0)
-    const w = (stat: keyof RelieverStats) =>
-      totalIp > 0
-        ? tier.reduce((acc, r) => acc + (r[stat] as number) * r.ip, 0) / totalIp
-        : (tier.reduce((acc, r) => acc + (r[stat] as number), 0) / tier.length)
-
-    const fip    = w('fip')
-    const kPct   = w('kPct')
-    const bbPct  = w('bbPct')
-    const hrPer9 = w('hrPer9')
-
-    // v1: vsR/vsL splits not available from this endpoint without per-split calls.
-    // Derive approximate splits by applying league-average L/R adjustments.
-    // Savant integration (next task) will replace with real splits.
-    const vsR = buildApproxSplit(fip, kPct, bbPct, hrPer9, 'R')
-    const vsL = buildApproxSplit(fip, kPct, bbPct, hrPer9, 'L')
-    return { fip, kPct, bbPct, hrPer9, vsR, vsL }
-  }
-
-  const result: BullpenStats = {
-    highLeverage: aggregateTier(highLev),
-    rest:         aggregateTier(rest.length > 0 ? rest : relievers),
-  }
-
-  await kvSet(cacheKey, result, TTL_24H)
-  return result
-}
-
-/**
- * Build approximate vs-R / vs-L outcome rates from aggregate stats.
- * Uses league-average platoon adjustments as a rough proxy until Savant splits are available.
- *
- * League-average platoon factors (rough 2023 empirical):
- *  vs-R batters: K slightly higher, BB slightly lower, HR slightly lower
- *  vs-L batters: K slightly lower, BB slightly higher, HR slightly higher
- */
-function buildApproxSplit(
-  _fip:   number,
-  kPct:   number,
-  bbPct:  number,
-  hrPer9: number,
-  hand:   'R' | 'L',
-): OutcomeRates {
-  const kAdj    = hand === 'R' ?  0.01 : -0.01
-  const bbAdj   = hand === 'R' ? -0.005 : 0.005
-  const hrAdj   = hand === 'R' ? -0.002 : 0.002
-
-  const adjK    = Math.max(0, kPct  + kAdj)
-  const adjBB   = Math.max(0, bbPct + bbAdj)
-  const adjHR   = Math.max(0, (hrPer9 / 9) + hrAdj)
-
-  // Rough hit rate: overall OBP minus BB minus HBP ≈ BABIP component
-  const hitRate   = 0.240  // approximate league-avg hit/PA
-  const singlesR  = hitRate - adjHR - 0.046 - 0.005  // subtract 2B, 3B, HR rates
-  const outR      = Math.max(0, 1 - adjK - adjBB - adjHR - hitRate)
-
-  const rates: OutcomeRates = {
-    '1B': Math.max(0, singlesR),
-    '2B': 0.046,
-    '3B': 0.005,
-    HR:   adjHR,
-    BB:   adjBB,
-    K:    adjK,
-    OUT:  outR,
-  }
-
-  // Normalise so rates sum to 1
-  const sum = Object.values(rates).reduce((a, b) => a + b, 0)
-  if (sum > 0) {
-    for (const key of Object.keys(rates) as (keyof OutcomeRates)[]) {
-      rates[key] /= sum
-    }
-  }
-
-  return rates
-}
-
-function fallbackBullpenStats(): BullpenStats {
-  const tier = {
-    fip:    LEAGUE_AVG_FIP,
-    kPct:   LEAGUE_AVG_K_PCT,
-    bbPct:  LEAGUE_AVG_BB_PCT,
-    hrPer9: LEAGUE_AVG_HR_PER9,
-    vsR:    { ...LEAGUE_AVG_OUTCOME_RATES },
-    vsL:    { ...LEAGUE_AVG_OUTCOME_RATES },
-  }
-  return { highLeverage: tier, rest: { ...tier } }
 }
 
 // ---------------------------------------------------------------------------

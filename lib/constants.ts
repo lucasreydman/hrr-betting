@@ -20,7 +20,7 @@ export const STABILIZATION_PA: Record<string, number> = {
 }
 
 // Approximate league-average outcome rates per PA (recalibrate from real data later).
-// Used as the log-5 baseline in lib/per-pa.ts.
+// Used as the prior in stabilizeRates and as the offline-sim's league-avg lineup.
 export const LEAGUE_AVG_RATES: Record<Outcome, number> = {
   '1B': 0.143,
   '2B': 0.045,
@@ -29,17 +29,6 @@ export const LEAGUE_AVG_RATES: Record<Outcome, number> = {
   BB: 0.085,
   K: 0.225,
   OUT: 0.467,
-}
-
-// TTO (times-through-the-order) multipliers applied to BATTER outcome rates while
-// facing the starter. Values > 1 = batter benefit; < 1 = pitcher benefit. League-avg
-// fallback when pitcher-specific Statcast splits are unavailable.
-// Outcome keys must match the `Outcome` type.
-export const TTO_MULTIPLIERS: Record<'1' | '2' | '3' | '4', Record<Outcome, number>> = {
-  '1': { '1B': 1.00, '2B': 1.00, '3B': 1.00, HR: 1.00, BB: 1.00, K: 1.00, OUT: 1.00 },
-  '2': { '1B': 1.04, '2B': 1.05, '3B': 1.05, HR: 1.08, BB: 1.03, K: 0.98, OUT: 1.00 },
-  '3': { '1B': 1.10, '2B': 1.15, '3B': 1.15, HR: 1.25, BB: 1.08, K: 0.94, OUT: 1.00 },
-  '4': { '1B': 1.13, '2B': 1.20, '3B': 1.20, HR: 1.35, BB: 1.10, K: 0.92, OUT: 1.00 },
 }
 
 // Period-aware blend weights for stabilized season vs L30 vs L15 rates.
@@ -69,11 +58,6 @@ export const DISPLAY_FLOOR_SCORE = 0.05
 
 // Minimum confidence for a pick to be Tracked.
 export const CONFIDENCE_FLOOR_TRACKED = 0.85
-
-// League-average Statcast metrics used as denominators for log-5 ratios.
-export const LG_BARREL_PCT = 0.075
-export const LG_HARD_HIT_PCT = 0.395
-export const LG_WHIFF_PCT = 0.245
 
 // League-average pitcher rates (recalibration target). 2025 MLB averages.
 export const LG_K_PCT = 0.225 // K / BF

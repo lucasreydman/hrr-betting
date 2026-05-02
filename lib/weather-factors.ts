@@ -35,7 +35,9 @@ export function neutralWeather(): Record<Outcome, number> {
 }
 
 export interface WeatherFactorsResult {
-  /** 7-outcome multiplier map ready to feed into computePerPA. */
+  /** 7-outcome multiplier map. Currently unused at request time (the
+   *  closed-form path consumes `hrMult` directly via `lib/factors/weather.ts`)
+   *  but kept available for any per-PA consumer that may be reintroduced. */
   factors: Record<Outcome, number>
   /**
    * Signed wind-speed component along the home → CF axis, in mph.

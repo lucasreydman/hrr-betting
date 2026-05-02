@@ -29,6 +29,7 @@ import {
   fetchBvP,
   fetchPeople,
   fetchBoxscore,
+  getScheduleAgeSec,
 } from './mlb-api'
 import { fetchLineup } from './lineup'
 import { getHrParkFactorForBatter, getParkVenueName } from './park-factors'
@@ -213,6 +214,11 @@ export async function rankPicks(date: string): Promise<PicksResponse> {
   const gamesTotal = games.length
   const season = parseInt(date.slice(0, 4), 10)
 
+  // Schedule cache age — feeds the confidence `dataFreshness` factor below.
+  // null means "unknown freshness" (no meta record yet); we pass 0 in that
+  // case so the factor is neutral, not penalising for missing telemetry.
+  const scheduleAgeSec = (await getScheduleAgeSec(date)) ?? 0
+
   // Separate accumulators per rung (avoids adding `rung` to the public Pick type)
   const rung1Picks: Pick[] = []
   const rung2Picks: Pick[] = []
@@ -264,6 +270,22 @@ export async function rankPicks(date: string): Promise<PicksResponse> {
       controlled: weatherData.controlled,
       failure: weatherData.failure,
     }
+
+    // Weather is "stable" (predictable impact) when:
+    //  · the venue is controlled (dome / closed roof) — weather doesn't enter
+    //  · the forecast fetch failed — we treat it as neutral, not volatile,
+    //    so a missing forecast can't penalise confidence twice (factor=1.0
+    //    *and* a confidence ding would be double-counting)
+    //  · OR the resulting HR multiplier is within ±10% of neutral — typical
+    //    mid-temp / light-wind games where the model's adjustment is small
+    //    and forecast-vs-actual divergence is unlikely to swing the outcome
+    //
+    // A 1.20× HR multiplier (Wrigley out-wind on a hot day) flips this to
+    // false: the per-pitch impact is large, so forecast volatility matters.
+    const weatherStable =
+      weatherData.controlled ||
+      weatherData.failure ||
+      Math.abs(weatherResult.hrMult - 1) < 0.10
 
     // Pre-compute lineup summaries (one per side).
     const homeLineupSummary: LineupSlotSummary[] = homeLineup.entries.map(e => ({
@@ -352,12 +374,22 @@ export async function rankPicks(date: string): Promise<PicksResponse> {
 
       // Per-side pitcher context
       const onHome = lineup === homeLineup
-      const opposingStarterStartCount = onHome ? awayPitcherStarts.length : homePitcherStarts.length
+      const opposingStarts = onHome ? awayPitcherStarts : homePitcherStarts
+      const opposingStarterStartCount = opposingStarts.length
       const opposingStarterId = onHome ? probables.away : probables.home
       const opposingPitcherSeasonStats = onHome ? awayPitcherSeasonStats : homePitcherSeasonStats
       const opposingPitcherSavant = onHome ? awayPitcherSavant : homePitcherSavant
       // Home batters face away bullpen, away batters face home bullpen.
       const opposingBullpen = onHome ? homeBullpenStats : awayBullpenStats
+
+      // Opener detection: a "starter" who routinely throws < 2 IP per outing
+      // is an opener — the bullpen will work most of the game and the
+      // confidence factor should ding accordingly. Need ≥ 3 starts to make
+      // the call; fewer than that and we already neutralise pitcherFactor.
+      const avgIp = opposingStarts.length > 0
+        ? opposingStarts.reduce((acc, s) => acc + (s.ip || 0), 0) / opposingStarts.length
+        : 0
+      const isOpener = opposingStarts.length >= 3 && avgIp < 2.0
 
       // Build PitcherInputs — fall back to league-average rates when data unavailable.
       // This gives pitcherFactor = 1.0 (conservative, not a crash).
@@ -393,11 +425,11 @@ export async function rankPicks(date: string): Promise<PicksResponse> {
         lineupStatus: lineup.status,
         bvpAB: bvp?.ab ?? 0,
         pitcherStartCount: opposingStarterStartCount,
-        weatherStable: true,
-        isOpener: false,
+        weatherStable,
+        isOpener,
         timeToFirstPitchMin,
         batterSeasonPa,
-        maxCacheAgeSec: 0,  // neutral — cache ages not tracked per-call
+        maxCacheAgeSec: scheduleAgeSec,
       })
 
       const inputs: PickInputs = {

@@ -8,9 +8,9 @@
  *  - All values are FanGraphs' "halved" form (100 = neutral, applied to a
  *    full-season line). Stored here on the 1.00 scale (i.e. divided by 100).
  *
- * The model applies these per-outcome inside `computePerPA` (`lib/per-pa.ts`)
- * after the log-5 + Statcast layer, then renormalises so all 7 outcomes sum
- * to 1.
+ * Read at request time by `lib/factors/park.ts` to build a single composite
+ * park multiplier (50% hit, 25% run, 25% HR), which then enters the
+ * closed-form `probToday` factor product.
  *
  * Switch hitters get the average of L and R per hit-type — pragmatic v1
  * choice; a finer model would weight by the pitcher's handedness for that PA.

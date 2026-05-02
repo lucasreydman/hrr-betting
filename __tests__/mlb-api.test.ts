@@ -16,7 +16,6 @@ import {
   fetchPitcherRecentStarts,
   fetchBatterSeasonStats,
   fetchBatterGameLog,
-  fetchTeamBullpenStats,
   fetchBvP,
   fetchPlayerSlotFrequency,
   dedupeGamesByMatchup,
@@ -585,42 +584,6 @@ describe('fetchBoxscore', () => {
     }))
     const box = await fetchBoxscore(806007)
     expect(box.status).toBe('scheduled')
-  })
-})
-
-// ---------------------------------------------------------------------------
-// fetchTeamBullpenStats
-// ---------------------------------------------------------------------------
-
-describe('fetchTeamBullpenStats', () => {
-  test('returns highLeverage and rest tiers from team stats', async () => {
-    // Need ≥ 1 reliever (≥ 10 appearances, < 50% starts) for tiering
-    const splits = Array.from({ length: 8 }, (_, i) => ({
-      player: { id: 700000 + i, fullName: `Reliever ${i}` },
-      stat: {
-        gamesPlayed: 50, gamesStarted: 0,
-        homeRuns: 5 + i, baseOnBalls: 20, hitByPitch: 1, strikeOuts: 60,
-        inningsPitched: '50.0', battersFaced: 200,
-      },
-    }))
-    mockFetch(() => jsonResp({ stats: [{ splits }] }))
-    const bullpen = await fetchTeamBullpenStats(807001, 2099)
-    expect(bullpen.highLeverage).toMatchObject({
-      fip: expect.any(Number),
-      kPct: expect.any(Number),
-      bbPct: expect.any(Number),
-      hrPer9: expect.any(Number),
-    })
-    expect(bullpen.rest).toMatchObject({ fip: expect.any(Number) })
-    // High-leverage tier should have lower FIP than rest (sorted ascending by FIP).
-    expect(bullpen.highLeverage.fip).toBeLessThanOrEqual(bullpen.rest.fip)
-  })
-
-  test('falls back gracefully when no relievers qualify', async () => {
-    mockFetch(() => jsonResp({ stats: [{ splits: [] }] }))
-    const bullpen = await fetchTeamBullpenStats(807002, 2099)
-    expect(bullpen.highLeverage).toMatchObject({ fip: expect.any(Number) })
-    expect(bullpen.rest).toMatchObject({ fip: expect.any(Number) })
   })
 })
 

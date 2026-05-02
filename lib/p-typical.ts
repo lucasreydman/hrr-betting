@@ -14,7 +14,7 @@
 
 import { kvGet } from './kv'
 import { simSinglePlayerHRR } from './offline-sim/sim'
-import { fetchBatterSeasonStats } from './mlb-api'
+import { fetchBatterSeasonStats, fetchBatterCareerStats } from './mlb-api'
 import { LEAGUE_AVG_RATES } from './constants'
 import { stabilizeRates } from './stabilization'
 import type { BatterSimContext, BatterHRRDist } from './offline-sim/sim'
@@ -76,9 +76,28 @@ export async function computeTypicalOffline(args: {
     return makeFallback(args.playerId)
   }
 
+  // Use career rates as the stabilization prior when available — preserves
+  // true skill differences (a career .280 hitter shouldn't get regressed all
+  // the way to the .240 league mean by a small current-season sample).
+  // Fall back to league average for rookies / missing data.
+  // Run-time isolation: a network failure on the career fetch must not
+  // sabotage the typical compute, so it's defensively try/catch'd.
+  let prior: OutcomeRates = LEAGUE_AVG_RATES
+  try {
+    const career = await fetchBatterCareerStats(args.playerId)
+    if (career && career.pa >= 200) {
+      // 200 PA threshold = career sample large enough to be a meaningfully
+      // better prior than league average. Below that, the career rates
+      // themselves are still noisy and league avg is the safer prior.
+      prior = career.outcomeRates
+    }
+  } catch {
+    // Stick with league avg
+  }
+
   const targetRates: OutcomeRates = stabilizeRates(
     batterSeason.outcomeRates,
-    LEAGUE_AVG_RATES,
+    prior,
     batterSeason.pa,
   )
 
