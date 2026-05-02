@@ -1,7 +1,9 @@
 import { CalibrationTable } from '@/components/CalibrationTable'
 import { HistoryChart } from '@/components/HistoryChart'
 import { EmptyState } from '@/components/EmptyState'
+import { SettledPicksTable } from '@/components/SettledPicksTable'
 import { headers } from 'next/headers'
+import Link from 'next/link'
 import type { HistoryResponse } from './../api/history/route'
 
 async function getHistory(): Promise<HistoryResponse | null> {
@@ -36,9 +38,10 @@ export default async function HistoryPage() {
     )
   }
 
-  const { allTime, byDate, recentPicks } = history
+  const { allTime, byDate, recentPicks, totalSettledCount } = history
   const wins = allTime.overall.hits
   const losses = allTime.overall.total - allTime.overall.hits
+  const olderCount = Math.max(0, totalSettledCount - recentPicks.length)
   const hasSettled = allTime.overall.total > 0
 
   return (
@@ -145,66 +148,32 @@ export default async function HistoryPage() {
         </div>
       </section>
 
-      {/* Recent picks */}
+      {/* Recent picks (last 3 slate days) */}
       <section aria-labelledby="recent-picks" className="space-y-3">
-        <h2 id="recent-picks" className="text-xl font-semibold tracking-tight">
-          Recent settled picks
-        </h2>
+        <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+          <h2 id="recent-picks" className="text-xl font-semibold tracking-tight">
+            Recent settled picks
+          </h2>
+          <p className="text-xs text-ink-muted">From the last 3 slate days.</p>
+        </div>
 
         {recentPicks.length === 0 ? (
           <EmptyState
-            title="Nothing settled yet"
-            description="The most recent 30 settled picks will show here as soon as the daily 3 AM cron runs."
+            title="Nothing settled in the last 3 days"
+            description="Settled picks from the last 3 slate days will show here. The full archive is on the show-all page."
           />
         ) : (
-          <div className="overflow-hidden rounded-lg border border-border bg-card/20">
-            <div className="overflow-x-auto">
-              {/* min-w keeps the 6 columns readable on narrow viewports inside
-                  the horizontal-scroll wrapper. */}
-              <table className="w-full min-w-[640px] text-sm font-mono">
-                <thead>
-                  <tr className="border-b border-border bg-card/50 text-xs uppercase tracking-wider text-ink-muted">
-                    <th scope="col" className="px-3 py-2 text-left">Date</th>
-                    <th scope="col" className="px-3 py-2 text-left">Player</th>
-                    <th scope="col" className="px-3 py-2 text-right">Rung</th>
-                    <th scope="col" className="px-3 py-2 text-right">Pred</th>
-                    <th scope="col" className="px-3 py-2 text-right">Actual</th>
-                    <th scope="col" className="px-3 py-2 text-right">Outcome</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {recentPicks.slice(0, 30).map((p, i) => (
-                    <tr
-                      key={`${p.gameId}-${p.player.playerId}-${p.rung}-${i}`}
-                      className="border-b border-border/50 last:border-b-0 hover:bg-card/40"
-                    >
-                      <td className="px-3 py-2 text-ink-muted whitespace-nowrap">{p.date}</td>
-                      <td className="px-3 py-2 text-ink">{p.player.fullName}</td>
-                      <td className="px-3 py-2 text-right">{p.rung}+</td>
-                      <td className="px-3 py-2 text-right">{(p.pMatchup * 100).toFixed(0)}%</td>
-                      <td className="px-3 py-2 text-right">{p.actualHRR ?? '—'}</td>
-                      <td
-                        className={
-                          'px-3 py-2 text-right font-semibold ' +
-                          (p.outcome === 'HIT'
-                            ? 'text-hit'
-                            : p.outcome === 'MISS'
-                              ? 'text-miss'
-                              : 'text-ink-muted')
-                        }
-                      >
-                        {/* Glyph + label so the outcome is legible without colour
-                            (red/green colour-blindness affects ~8% of men). */}
-                        <span aria-hidden="true" className="mr-1">
-                          {p.outcome === 'HIT' ? '✓' : p.outcome === 'MISS' ? '✗' : '·'}
-                        </span>
-                        {p.outcome}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+          <SettledPicksTable picks={recentPicks} />
+        )}
+
+        {olderCount > 0 && (
+          <div className="flex justify-end">
+            <Link
+              href="/history/all"
+              className="inline-flex items-center gap-1 rounded border border-border bg-card/40 px-3 py-1.5 font-mono text-xs text-ink hover:bg-card/70"
+            >
+              View all {totalSettledCount} settled picks →
+            </Link>
           </div>
         )}
       </section>

@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server'
 import { getSettledPicks, computeRollingMetrics, type SettledPick } from '@/lib/tracker'
+import { slateDateString, shiftIsoDate } from '@/lib/date-utils'
+import { rowToSettledPick } from '@/lib/history-shared'
 import type { Rung } from '@/lib/types'
-import type { SettledPickRow } from '@/lib/db'
 
 export interface HistoryResponse {
   allTime: {
@@ -9,39 +10,10 @@ export interface HistoryResponse {
     perRung: Record<Rung, { hits: number; total: number; rate: number; predictedAvg: number; brier: number }>
   }
   byDate: Array<{ date: string; pickCount: number; hits: number; miss: number; pending: number }>
+  /** Settled picks from the most recent 3 slate dates (today + previous 2). */
   recentPicks: SettledPick[]
-}
-
-function rowToSettledPick(row: SettledPickRow): SettledPick {
-  return {
-    player: {
-      playerId: row.player_id,
-      fullName: row.player_name,
-      team: row.player_team,
-      // teamId 0 = sentinel for settled history rows that predate the teamId schema.
-      teamId: 0,
-      bats: row.player_bats,
-    },
-    // isHome false = sentinel; UI falls back to abbreviation for teamId=0 picks.
-    isHome: false,
-    opponent: { teamId: row.opponent_team_id, abbrev: row.opponent_abbrev },
-    // Settled history doesn't carry the opposing-pitcher metadata; use 'confirmed'
-    // since the game is settled. Future schema migration can add these columns.
-    opposingPitcher: { id: 0, name: 'unknown', status: 'confirmed' },
-    gameId: row.game_id,
-    rung: row.rung,
-    date: row.date,
-    lineupSlot: row.lineup_slot,
-    lineupStatus: row.lineup_status,
-    pMatchup: row.p_matchup,
-    pTypical: row.p_typical,
-    edge: row.edge,
-    confidence: row.confidence,
-    score: row.score,
-    tier: 'tracked',
-    outcome: row.outcome,
-    actualHRR: row.actual_hrr ?? undefined,
-  }
+  /** Total settled-pick count across all time, for the "show all" link. */
+  totalSettledCount: number
 }
 
 export async function GET(): Promise<NextResponse<HistoryResponse>> {
@@ -86,8 +58,14 @@ export async function GET(): Promise<NextResponse<HistoryResponse>> {
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([date, stats]) => ({ date, ...stats }))
 
-  // Most recent 50 picks (rows already come sorted by date desc from getSettledPicks)
-  const recentPicks = rows.slice(0, 50).map(rowToSettledPick)
+  // "Recent" = last 3 slate dates (today + 2 previous). slateDateString() − 2
+  // is the cutoff: a pick from that date or later qualifies. Rows beyond
+  // that live on the dedicated /history/all archive page; the dashboard
+  // stays small so it stays fast to skim.
+  const recentCutoff = shiftIsoDate(slateDateString(), -2)
+  const recentPicks = rows
+    .filter(r => r.date >= recentCutoff)
+    .map(rowToSettledPick)
 
   return NextResponse.json({
     allTime: {
@@ -96,5 +74,6 @@ export async function GET(): Promise<NextResponse<HistoryResponse>> {
     },
     byDate,
     recentPicks,
+    totalSettledCount: rows.length,
   })
 }
