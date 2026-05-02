@@ -5,10 +5,10 @@ export const metadata = {
 
 export default function Methodology() {
   return (
-    <main className="mx-auto w-full max-w-4xl space-y-8 px-4 py-6 sm:px-6 sm:py-8">
+    <main className="mx-auto w-full max-w-7xl space-y-8 px-4 py-6 sm:px-6 sm:py-8">
       <header className="space-y-2">
         <h1 className="text-3xl font-semibold tracking-tight">Methodology</h1>
-        <p className="max-w-2xl text-sm text-ink-muted">
+        <p className="max-w-3xl text-sm text-ink-muted">
           What the board ranks, how each number is built, and where it comes from in the
           code. Plain English first; formulas and source files alongside.
         </p>
