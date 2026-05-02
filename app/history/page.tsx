@@ -6,6 +6,10 @@ import { headers } from 'next/headers'
 import Link from 'next/link'
 import type { HistoryResponse } from './../api/history/route'
 
+export const metadata = {
+  title: 'History',
+}
+
 async function getHistory(): Promise<HistoryResponse | null> {
   // Use absolute URL for server-side fetch in Vercel
   const headersList = await headers()

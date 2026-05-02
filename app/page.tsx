@@ -2,6 +2,10 @@ import { ClientShell } from '@/components/ClientShell'
 import { rankPicks } from '@/lib/ranker'
 import { slateDateString } from '@/lib/date-utils'
 
+export const metadata = {
+  title: 'Board',
+}
+
 // Force dynamic rendering. The page reads upstream MLB data + per-player
 // probTypical cache; on a cold cache, getPTypical() runs ~10s lazy-backfill
 // sims per player, which would time out static-page generation during build.

@@ -50,7 +50,16 @@ export function NavBar() {
           className="flex min-w-0 items-center gap-2 rounded text-base font-semibold tracking-tight text-ink hover:text-accent"
           aria-label="HRR Betting — home"
         >
-          <span aria-hidden="true" className="shrink-0 text-tracked">●</span>
+          {/* Logo served from app/icon.png via Next.js App Router static route. */}
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="/icon.png"
+            alt=""
+            aria-hidden="true"
+            width={28}
+            height={28}
+            className="h-7 w-7 shrink-0 rounded-md"
+          />
           <span className="truncate">HRR</span>
           <span className="hidden text-ink-muted sm:inline" aria-hidden="true">·</span>
           <span className="hidden truncate text-sm font-normal text-ink-muted sm:inline">

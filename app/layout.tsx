@@ -5,7 +5,7 @@ import './globals.css'
 export const metadata: Metadata = {
   title: {
     default: 'HRR Betting',
-    template: '%s — HRR Betting',
+    template: 'HRR Betting — %s',
   },
   description:
     'Daily MLB Hits + Runs + RBIs prop ranker with auto-tracked picks and rolling calibration metrics.',
