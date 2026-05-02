@@ -2,6 +2,7 @@ import { kvGet, kvSet } from './kv'
 import { getSupabase, isSupabaseAvailable } from './db'
 import type { LockedPickRow, SettledPickRow } from './db'
 import type { Pick, PicksResponse } from './ranker'
+import { rankPicks } from './ranker'
 import type { Rung } from './types'
 import { fetchBoxscore } from './mlb-api'
 import { slateDateString } from './date-utils'
@@ -172,17 +173,24 @@ export async function snapshotLockedPicks(date: string): Promise<{
   newlyLocked: number
   alreadyLocked: boolean
 }> {
-  const current = await kvGet<PicksResponse>(`picks:current:${date}`)
+  // CRITICAL: read-or-compute. The picks-current cache has a 30s TTL and is
+  // populated only by /api/picks page hits (not by /api/refresh, which
+  // invalidates without repopulating). On a quiet evening with no live
+  // viewers the cache is almost always empty when /api/lock fires, and the
+  // pre-fix version of this function silently returned 0 — meaning the
+  // entire slate's tracked picks never landed in locked_picks, and the next
+  // morning's settle had nothing to write. Fall back to a fresh rankPicks
+  // call so the cron is self-sufficient regardless of cache temperature.
+  let current = await kvGet<PicksResponse>(`picks:current:${date}`)
+  if (!current) {
+    current = await rankPicks(date)
+  }
 
   if (!isSupabaseAvailable()) {
     // KV fallback path — same insert-only semantics as the Supabase path
     const lockedKey = `picks:locked:${date}`
     const existing = await kvGet<LockedDay>(lockedKey)
     const alreadyLocked = existing != null
-
-    if (!current) {
-      return { locked: existing?.picks.length ?? 0, newlyLocked: 0, alreadyLocked }
-    }
 
     const tracked = collectTracked(current)
 
@@ -217,10 +225,6 @@ export async function snapshotLockedPicks(date: string): Promise<{
   if (selectErr) throw new Error(`locked_picks select failed: ${selectErr.message}`)
 
   const alreadyLocked = (existingCount ?? 0) > 0
-
-  if (!current) {
-    return { locked: existingCount ?? 0, newlyLocked: 0, alreadyLocked }
-  }
 
   const tracked = collectTracked(current)
   if (tracked.length === 0) {

@@ -6,8 +6,11 @@ name: Cron — sim/lock/settle
 
 on:
   schedule:
-    # Settle: daily at 10:00 UTC (6 AM ET, well past the 3 AM ET rollover).
-    - cron: '0 10 * * *'
+    # Settle: 7:15 UTC (3:15 AM ET, just after the slate rollover at 3 AM ET).
+    # Earlier than this risks a late-night PT game still being in_progress;
+    # later means yesterday's results don't appear in /history until well into
+    # the next day. 3:15 AM ET is the smallest safe gap.
+    - cron: '15 7 * * *'
 
     # Typical-sim: full population Sunday 4 AM ET, slate-batter Mon-Sat 4 AM ET.
     - cron: '0 8 * * 0'       # Sunday 4 AM ET — full-population typical
@@ -39,7 +42,7 @@ on:
 
 jobs:
   lock:
-    if: github.event_name == 'schedule' && github.event.schedule != '0 10 * * *' && github.event.schedule != '0 8 * * 0' && github.event.schedule != '0 8 * * 1-6' && github.event.schedule != '*/2 17-23 * * *' && github.event.schedule != '*/2 0-7 * * *' || (github.event_name == 'workflow_dispatch' && github.event.inputs.job == 'lock')
+    if: github.event_name == 'schedule' && github.event.schedule != '15 7 * * *' && github.event.schedule != '0 8 * * 0' && github.event.schedule != '0 8 * * 1-6' && github.event.schedule != '*/2 17-23 * * *' && github.event.schedule != '*/2 0-7 * * *' || (github.event_name == 'workflow_dispatch' && github.event.inputs.job == 'lock')
     runs-on: ubuntu-latest
     steps:
       - name: Trigger /api/lock
@@ -49,7 +52,7 @@ jobs:
             "${{ secrets.VERCEL_DEPLOY_URL }}/api/lock"
 
   settle:
-    if: github.event_name == 'schedule' && github.event.schedule == '0 10 * * *' || (github.event_name == 'workflow_dispatch' && github.event.inputs.job == 'settle')
+    if: github.event_name == 'schedule' && github.event.schedule == '15 7 * * *' || (github.event_name == 'workflow_dispatch' && github.event.inputs.job == 'settle')
     runs-on: ubuntu-latest
     steps:
       - name: Trigger /api/settle

@@ -31,12 +31,23 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
   }
 
-  const dateParam = new URL(req.url).searchParams.get('date')
+  const url = new URL(req.url)
+  const dateParam = url.searchParams.get('date')
   if (dateParam !== null && !isValidIsoDate(dateParam)) {
     return NextResponse.json({ error: 'invalid date — expected YYYY-MM-DD' }, { status: 400 })
   }
   const date = dateParam ?? slateDateString()
+  const force = url.searchParams.get('force') === '1'
   const now = Date.now()
+
+  // ?force=1 bypasses the shouldLock gate and snapshots immediately. Used to
+  // recover slates whose lock cron silently dropped picks (e.g. the bug where
+  // an empty picks-current cache caused snapshotLockedPicks to bail with 0).
+  // Operator-only — same auth as the cron path.
+  if (force) {
+    const result = await snapshotLockedPicks(date)
+    return NextResponse.json({ date, status: 'forced', ...result })
+  }
 
   const games = await fetchSchedule(date)
   if (games.length === 0) {
