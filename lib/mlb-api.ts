@@ -301,9 +301,23 @@ function mapGameStatus(raw: RawScheduleGame): Game['status'] {
   const detail = raw.status.detailedState
   if (SKIP_STATES.has(detail)) return 'postponed'
   if (state === 'Final') return 'final'
+  // MLB's abstractGameState flips to "Live" the moment a game enters Pre-Game
+  // / Warmup, even though first pitch hasn't happened and linescore.currentInning
+  // is just a "Top of 1st" placeholder. Treat those as 'scheduled' so the UI
+  // renders the countdown instead of a fake "LIVE · TOP 1" badge. Only the
+  // actually-playing detailedState values map to in_progress.
+  if (PRE_GAME_DETAILED_STATES.has(detail)) return 'scheduled'
   if (state === 'Live') return 'in_progress'
   return 'scheduled'
 }
+
+/** Detailed-state values where abstractGameState reports "Live" but the game
+ *  hasn't actually started. */
+const PRE_GAME_DETAILED_STATES = new Set([
+  'Pre-Game',
+  'Warmup',
+  'Scheduled',
+])
 
 // Status priority used by `dedupeGamesByMatchup`. Higher wins so we keep the
 // "most progressed" record when MLB returns multiple entries for the same

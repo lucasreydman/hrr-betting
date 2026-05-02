@@ -120,6 +120,59 @@ describe('fetchSchedule', () => {
     expect(games).toEqual([])
   })
 
+  test('detailedState=Warmup with abstractGameState=Live maps to scheduled, not in_progress', async () => {
+    // MLB flips abstractGameState to "Live" the moment a game enters Pre-Game
+    // / Warmup, even though first pitch hasn't happened and linescore is a
+    // "Top of 1st" placeholder. We must NOT render a "LIVE · TOP 1" badge in
+    // that state. Real-world: 2026-05-02 Guardians @ Athletics 4:05 PM EDT
+    // showed Warmup with linescore.currentInning=1 at 3:48 PM EDT.
+    mockFetch(() => jsonResp({
+      dates: [{
+        games: [
+          {
+            gamePk: 825014,
+            gameDate: '2026-05-02T20:05:00Z',
+            status: { detailedState: 'Warmup', abstractGameState: 'Live' },
+            venue: { id: 10, name: 'Sutter Health Park' },
+            teams: {
+              home: { team: { id: 133, name: 'Athletics', abbreviation: 'OAK' } },
+              away: { team: { id: 114, name: 'Cleveland Guardians', abbreviation: 'CLE' } },
+            },
+            linescore: { currentInning: 1, inningHalf: 'Top' },
+          },
+        ],
+      }],
+    }))
+    const games = await fetchSchedule('2099-07-12')
+    expect(games.length).toBe(1)
+    expect(games[0].status).toBe('scheduled')
+    // Inning info should NOT be set when status is scheduled.
+    expect(games[0].inning).toBeUndefined()
+  })
+
+  test('detailedState=In Progress maps to in_progress with inning info populated', async () => {
+    mockFetch(() => jsonResp({
+      dates: [{
+        games: [
+          {
+            gamePk: 999999,
+            gameDate: '2026-05-02T20:05:00Z',
+            status: { detailedState: 'In Progress', abstractGameState: 'Live' },
+            venue: { id: 10, name: 'Sutter Health Park' },
+            teams: {
+              home: { team: { id: 133, name: 'OAK', abbreviation: 'OAK' } },
+              away: { team: { id: 114, name: 'CLE', abbreviation: 'CLE' } },
+            },
+            linescore: { currentInning: 5, inningHalf: 'Bottom' },
+          },
+        ],
+      }],
+    }))
+    const games = await fetchSchedule('2099-07-13')
+    expect(games[0].status).toBe('in_progress')
+    expect(games[0].inning).toEqual({ half: 'bot', number: 5 })
+  })
+
   test('collapses MLB-side duplicate matchup entries (different gamePk, same teams)', async () => {
     // Real-world artifact: MLB Stats returns two gamePks for the same physical
     // game, gameDates differing by minutes (typically 5). Both must collapse
