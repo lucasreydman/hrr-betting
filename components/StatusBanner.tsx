@@ -99,16 +99,16 @@ export function StatusBanner({ refreshedAt, meta, totalTracked, onRefresh }: Sta
         aria-label="Slate status"
       >
         <StatChip
-          label="Tracked bets"
-          value={`${totalTracked}`}
-          tone="tracked"
-          ariaLabel={`${totalTracked} tracked picks across all rungs`}
-        />
-        <StatChip
           label="Games today"
           value={`${meta.gamesTotal}`}
           tone="neutral"
           ariaLabel={`${meta.gamesTotal} games on slate`}
+        />
+        <StatChip
+          label="Tracked bets"
+          value={`${totalTracked}`}
+          tone="tracked"
+          ariaLabel={`${totalTracked} tracked picks across all rungs`}
         />
         {showProgress && (
           <StatChip
