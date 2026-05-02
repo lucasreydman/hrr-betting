@@ -443,23 +443,30 @@ export async function rankPicks(date: string): Promise<PicksResponse> {
           : 'R',
       }
 
-      // Opposing pitcher is "confirmed" once MLB has posted the *opposing
-      // team's* lineup card — that's the artifact that officially names the
-      // starting pitcher. The previous gate of `game.status === 'in_progress'`
-      // was too strict: Yahoo / Rotowire / fantasy sites all flip the pitcher
-      // to "Confirmed" the moment the lineup posts (typically 30–90 min before
-      // first pitch), not when the game actually starts. Tying status to the
-      // opposing-side lineup matches that convention.
+      // Opposing pitcher is "confirmed" when any of these signals fire:
+      //   1. Game is in_progress / final — pitcher has actually started
+      //   2. The pitcher's own team has posted their lineup card (manager
+      //      filed a batting order against the announced pitcher → locked in)
+      //   3. The opposing team has posted their lineup card (manager
+      //      committed to facing this specific pitcher → locked in)
+      //   4. The game is in Pre-Game / Warmup state (within ~30 min of first
+      //      pitch, late changes don't happen)
       //
-      // Also keeps the in_progress / final fallback so we don't *un*-confirm
-      // a pitcher mid-game in the rare case lineup data flips back.
-      const opposingLineupStatus = (onHome ? awayLineup : homeLineup).status
+      // Why so many signals: MLB Stats API doesn't expose a beat-reporter-
+      // grade "confirmed" flag like Yahoo or Rotowire. Lineup posting is the
+      // strongest signal we have, but it lags real-world confirmation by
+      // 30–60 min. Using either lineup card + the imminent-game state
+      // closes most of the gap.
+      const homeLineupConfirmed = homeLineup.status === 'confirmed'
+      const awayLineupConfirmed = awayLineup.status === 'confirmed'
+      const eitherLineupConfirmed = homeLineupConfirmed || awayLineupConfirmed
+      const gameImminent = timeToFirstPitchMin <= 30
       const opposingPitcherStatus: 'tbd' | 'probable' | 'confirmed' =
         opposingStarterId <= 0
           ? 'tbd'
-          : (game.status === 'in_progress' || game.status === 'final')
+          : game.status === 'in_progress' || game.status === 'final'
             ? 'confirmed'
-            : opposingLineupStatus === 'confirmed'
+            : eitherLineupConfirmed || gameImminent
               ? 'confirmed'
               : 'probable'
 
