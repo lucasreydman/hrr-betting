@@ -51,22 +51,22 @@ export default async function HistoryPage() {
       {/* Headline result */}
       <section
         aria-labelledby="all-time-overall"
-        className="rounded-lg border border-border bg-card/30 p-6 sm:p-8"
+        className="rounded-lg border border-border bg-card/30 px-5 py-4 sm:px-7 sm:py-5"
       >
         <h2 id="all-time-overall" className="sr-only">All-time overall record</h2>
         {hasSettled ? (
-          <div className="space-y-1">
-            <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
-              <span className="font-mono text-5xl font-bold tracking-tight text-ink sm:text-6xl">
-                {wins}–{losses}
-              </span>
-              <span className="font-mono text-2xl text-ink-muted">
-                {(allTime.overall.rate * 100).toFixed(1)}%
-              </span>
-            </div>
-            <p className="text-sm text-ink-muted">
-              All-time Tracked picks settled
-            </p>
+          <div className="flex flex-wrap items-end justify-between gap-x-8 gap-y-3">
+            <dl className="flex flex-wrap items-end gap-x-8 gap-y-3 sm:gap-x-12">
+              <Stat label="Record" value={`${wins}–${losses}`} size="lg" />
+              <Stat
+                label="Hit rate"
+                value={`${(allTime.overall.rate * 100).toFixed(1)}%`}
+              />
+              <Stat label="Settled picks" value={`${allTime.overall.total}`} />
+            </dl>
+            <span className="text-[11px] uppercase tracking-wider text-ink-muted">
+              All-time Tracked
+            </span>
           </div>
         ) : (
           <EmptyState
@@ -189,5 +189,30 @@ function PageHeader() {
         All-time Tracked record, per-rung calibration, and recent settled picks.
       </p>
     </header>
+  )
+}
+
+function Stat({
+  label,
+  value,
+  size = 'md',
+}: {
+  label: string
+  value: string
+  size?: 'md' | 'lg'
+}) {
+  const valueClass =
+    size === 'lg'
+      ? 'text-4xl font-bold sm:text-5xl'
+      : 'text-2xl sm:text-3xl'
+  return (
+    <div className="space-y-0.5">
+      <dt className="text-[11px] uppercase tracking-wider text-ink-muted">
+        {label}
+      </dt>
+      <dd className={`font-mono tabular-nums leading-none text-ink ${valueClass}`}>
+        {value}
+      </dd>
+    </div>
   )
 }
