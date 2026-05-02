@@ -1,6 +1,6 @@
 export const metadata = {
   title: 'Methodology',
-  description: 'How the HRR Betting model actually works — every factor, every formula, traced to the code.',
+  description: 'How the HRR Betting model actually works. Every factor, every formula, traced to the code.',
 }
 
 export default function Methodology() {
@@ -16,7 +16,7 @@ export default function Methodology() {
 
       <Section heading="What the board ranks" eyebrow="Overview">
         <p>
-          Every row is a single prop bet — one batter, one rung. The board ranks every
+          Every row is a single prop bet: one batter, one rung. The board ranks every
           (player, rung) combination from the day&apos;s slate by{' '}
           <Code>Score</Code>, a Kelly bet fraction × confidence number that answers
           &ldquo;how much would Kelly bet on this at the model&apos;s fair-typical odds,
@@ -34,16 +34,16 @@ export default function Methodology() {
           <Card title="p̂ typical" subtitle="Offline baseline">
             <p>
               The player&apos;s baseline probability of clearing the rung in their{' '}
-              <em>typical</em> matchup — what the line should price purely from skill.
+              <em>typical</em> matchup. This is what the line should price purely from skill.
             </p>
             <Note label="How it&apos;s computed">
               A 20,000-iteration Monte Carlo simulates a full 9-inning game with the
               target batter at lineup slot 4 and 17 league-average teammates and
               opponents. The batter&apos;s outcome rates come from full-season counts,
               regressed via empirical stabilization (Russell Carleton sample sizes)
-              toward the player&apos;s own career rates when ≥ 200 career PAs exist —
-              league averages otherwise. Career prior preserves true skill differences
-              in early-season samples.
+              toward the player&apos;s own career rates when ≥ 200 career PAs exist.
+              League averages are used otherwise. The career prior preserves true skill
+              differences in early-season samples.
             </Note>
             <Note label="Where">
               <FilePath>lib/p-typical.ts</FilePath> · sim engine{' '}
@@ -51,21 +51,21 @@ export default function Methodology() {
             </Note>
             <Note label="When">
               Recomputed weekly (Sunday 4 AM ET full sweep) and nightly (Mon–Sat 4 AM ET
-              slate-batter sweep). Cached 14 days. The request path only reads cache —
-              never recomputes — so it stays sub-millisecond.
+              slate-batter sweep). Cached 14 days. The request path only reads cache and
+              never recomputes, so it stays sub-millisecond.
             </Note>
           </Card>
 
           <Card title="p̂ today" subtitle="Closed-form, request-time">
             <p>
               The probability after applying today&apos;s matchup factors. Computed on
-              every page load — no per-game simulation at request time.
+              every page load. There is no per-game simulation at request time.
             </p>
             <Note label="How it&apos;s computed">
               Odds-ratio composition. Convert <Code>p̂ typical</Code> to odds, multiply
               by the product of all factors (clamped overall), convert back to
               probability. This keeps the result bounded below 1 no matter how many
-              factors compound — the standard fix for &ldquo;multiplying probabilities
+              factors compound. It is the standard fix for &ldquo;multiplying probabilities
               breaks past 0.5.&rdquo;
             </Note>
             <Formula>
@@ -139,8 +139,8 @@ p̂_today       = oddsToday / (1 + oddsToday)`}
           </div>
         </div>
         <p className="text-xs text-ink-muted">
-          The factor product is clamped to <Code>[0.25, 4.0]</Code> as a safety rail —
-          one outlier input (e.g. a weird pitcher line from a tiny sample) can&apos;t
+          The factor product is clamped to <Code>[0.25, 4.0]</Code> as a safety rail.
+          One outlier input (e.g. a weird pitcher line from a tiny sample) can&apos;t
           drive a 6× swing on its own.
         </p>
       </Section>
@@ -174,8 +174,8 @@ score = kelly × confidence`}
             <Note label="Why Kelly, not relative edge">
               Relative edge scales with rarity, so 3+ HRR longshots (typical ≈ 10%)
               trivially produce huge edges and would dominate the board. Kelly&apos;s
-              <Code>(1 − p̂ typical)</Code> denominator flips the bias — high-prob
-              plays where you can win a lot of bets get rewarded, longshot variance
+              <Code>(1 − p̂ typical)</Code> denominator flips the bias. High-probability
+              plays where you can win a lot of bets get rewarded, and longshot variance
               gets sized down.
             </Note>
           </Card>
@@ -213,13 +213,13 @@ score = kelly × confidence`}
           <FilePath>lib/confidence.ts:computeConfidenceBreakdown</FilePath>
         </Note>
         <p className="text-xs text-ink-muted">
-          BvP only enters confidence — it doesn&apos;t adjust the per-PA rate
+          BvP only enters confidence; it doesn&apos;t adjust the per-PA rate
           distribution. The three signal-derived factors come from the ranker:
           weather stability flips false when the HR multiplier moves more than ±10%
           off neutral; opener fires when the listed starter has averaged under 2 IP
           across recent starts; freshness reads schedule-cache age (the canonical
-          live-state signal — short TTL, ramps confidence down if the cron stops
-          hitting <Code>/api/refresh</Code>).
+          live-state signal, with a short TTL), so confidence ramps down if the cron
+          stops hitting <Code>/api/refresh</Code>.
         </p>
       </Section>
 
@@ -230,8 +230,8 @@ score = kelly × confidence`}
         </p>
         <ul className="ml-5 list-disc space-y-1 text-sm marker:text-ink-muted">
           <li><Code>confidence ≥ 0.85</Code></li>
-          <li><Code>edge ≥ floor(rung)</Code> — 0.10 / 0.30 / 0.60 for 1+ / 2+ / 3+</li>
-          <li><Code>p̂ today ≥ floor(rung)</Code> — 0.85 / 0.55 / 0.20</li>
+          <li><Code>edge ≥ floor(rung)</Code>: 0.10 / 0.30 / 0.60 for 1+ / 2+ / 3+</li>
+          <li><Code>p̂ today ≥ floor(rung)</Code>: 0.85 / 0.55 / 0.20 for 1+ / 2+ / 3+</li>
         </ul>
         <p className="text-sm text-ink-muted">
           Both the edge and probability floors must clear because each catches a
@@ -274,19 +274,19 @@ p < 0.5  →  odds = +round(100 × (1 − p) / p)        (underdog)`}
         </Note>
         <p className="text-xs text-ink-muted">
           The app does not ingest sportsbook lines. Implied probabilities and
-          line-shopping are not part of the model — only the model&apos;s own
-          probabilities translated into displayed odds.
+          line-shopping are not part of the model. The displayed odds are only
+          the model&apos;s own probabilities translated into a moneyline.
         </p>
       </Section>
 
       <Section heading="Per-PA outcome model" eyebrow="Inside the offline sim">
         <p>
-          For each plate appearance the simulator samples one of seven outcomes —{' '}
-          <Code>1B / 2B / 3B / HR / BB / K / OUT</Code> — from the batter&apos;s
+          For each plate appearance the simulator samples one of seven outcomes
+          (<Code>1B / 2B / 3B / HR / BB / K / OUT</Code>) from the batter&apos;s
           stabilized rate distribution. The baserunner state machine
           (<FilePath>lib/offline-sim/baserunner.ts</FilePath>) advances bases and
-          credits runs / RBIs realistically — a HR puts the batter and any baserunners
-          across, a single can score a runner from second, etc.
+          credits runs / RBIs realistically. A HR puts the batter and any baserunners
+          across, a single can score a runner from second, and so on.
         </p>
         <p>
           This per-PA approach captures the HR-trifecta correlation (a solo HR =
@@ -298,7 +298,7 @@ p < 0.5  →  odds = +round(100 × (1 − p) / p)        (underdog)`}
         </Note>
         <p className="text-xs text-ink-muted">
           v1 simplifications: 9 innings only (no extras, ~&lt;0.5% impact on rung
-          probabilities); no pitcher / park / weather / TTO inside the sim — those
+          probabilities); no pitcher / park / weather / TTO inside the sim. Those
           enter at the closed-form factor stage when computing today&apos;s probability.
         </p>
       </Section>
@@ -306,9 +306,9 @@ p < 0.5  →  odds = +round(100 × (1 − p) / p)        (underdog)`}
       <Section heading="Slate lifecycle" eyebrow="From compute to history">
         <ol className="ml-5 list-decimal space-y-2 text-sm marker:text-ink-muted">
           <li>
-            <strong className="text-ink">Slate boundary.</strong> ET, 3 AM rollover —
-            the standard DFS / sportsbook convention. A late-night PT game that
-            finishes past midnight ET still belongs to the same slate.
+            <strong className="text-ink">Slate boundary.</strong> ET, 3 AM rollover.
+            This is the standard DFS / sportsbook convention. A late-night PT game
+            that finishes past midnight ET still belongs to the same slate.
           </li>
           <li>
             <strong className="text-ink">Compute.</strong> Sunday and Mon–Sat 4 AM ET
@@ -324,8 +324,8 @@ p < 0.5  →  odds = +round(100 × (1 − p) / p)        (underdog)`}
           <li>
             <strong className="text-ink">Lock.</strong> Every 5 minutes during slate
             hours, <Code>/api/lock</Code> snapshots Tracked picks into the{' '}
-            <Code>locked_picks</Code> table once a game&apos;s lock window opens —
-            confirmed lineup ≤90 min before first pitch, or ≤30 min regardless.
+            <Code>locked_picks</Code> table once a game&apos;s lock window opens
+            (confirmed lineup ≤ 90 min before first pitch, or ≤ 30 min regardless).
             Insert-only: existing rows never change, but new Tracked picks added later
             in the slate (e.g. a 9 PM start whose lineup confirmed after the early
             cron) still land.
@@ -343,37 +343,37 @@ p < 0.5  →  odds = +round(100 × (1 − p) / p)        (underdog)`}
             <strong className="text-ink">Settle.</strong> 6 AM ET (10:00 UTC) daily,{' '}
             <Code>/api/settle</Code> reads the previous slate&apos;s{' '}
             <Code>locked_picks</Code>, fetches each boxscore, and upserts the canonical
-            outcome into <Code>settled_picks</Code>. This is the canonical write — the
-            live-board stamping is a UX preview; the daily settle is what feeds
+            outcome into <Code>settled_picks</Code>. This is the canonical write. The
+            live-board stamping is just a UX preview; the daily settle is what feeds{' '}
             <Code>/history</Code>.
           </li>
         </ol>
       </Section>
 
-      <Section heading="Caching — what&apos;s frozen and what isn&apos;t" eyebrow="So given picks don't shift mid-game">
+      <Section heading="Caching: what&apos;s frozen and what isn&apos;t" eyebrow="So given picks don't shift mid-game">
         <p>
           Once a play is given, its inputs shouldn&apos;t change just because a stat
           ticked during the game. The cache layout enforces that:
         </p>
         <ul className="ml-5 list-disc space-y-1.5 text-sm marker:text-ink-muted">
           <li>
-            <strong className="text-ink">Slate-aligned (24 h, frozen across the slate)</strong>{' '}
-            — BvP, batter season stats, recent pitcher starts, batter game log,
+            <strong className="text-ink">Slate-aligned (24 h, frozen across the slate).</strong>{' '}
+            BvP, batter season stats, recent pitcher starts, batter game log,
             Statcast metrics, bullpen ERA. Cache key includes{' '}
             <Code>slateDateString()</Code> so today&apos;s mid-game ticks can&apos;t
             shift previously-given picks.
           </li>
           <li>
-            <strong className="text-ink">Live state (2 min)</strong> — schedule, partial
+            <strong className="text-ink">Live state (2 min).</strong> Schedule, partial
             and estimated lineups. Game-status transitions (probable → confirmed,
             scheduled → live → final) propagate fast.
           </li>
           <li>
-            <strong className="text-ink">Stable post-posting (6 h)</strong> — confirmed
+            <strong className="text-ink">Stable post-posting (6 h).</strong> Confirmed
             lineups, finalised boxscores. Once posted these don&apos;t change.
           </li>
           <li>
-            <strong className="text-ink">Page cache (30 s)</strong> —{' '}
+            <strong className="text-ink">Page cache (30 s)</strong> for{' '}
             <Code>picks:current:&#123;date&#125;</Code>. Covers a normal client poll
             interval without overloading the function on burst refreshes.
           </li>
@@ -383,27 +383,27 @@ p < 0.5  →  odds = +round(100 × (1 − p) / p)        (underdog)`}
       <Section heading="Data sources" eyebrow="Where the numbers come from">
         <ul className="ml-5 list-disc space-y-1.5 text-sm marker:text-ink-muted">
           <li>
-            <ExtLink href="https://statsapi.mlb.com/">MLB Stats API</ExtLink> — schedule,
+            <ExtLink href="https://statsapi.mlb.com/">MLB Stats API</ExtLink> for schedule,
             lineups, batter season stats, batter game log, recent pitcher starts,
-            BvP, boxscores, team bullpen stats
+            BvP, boxscores, and team bullpen stats.
           </li>
           <li>
             <ExtLink href="https://baseballsavant.mlb.com/">Baseball Savant</ExtLink>{' '}
-            — Statcast pitcher metrics (hard-hit% allowed)
+            for Statcast pitcher metrics (hard-hit% allowed).
           </li>
           <li>
             <ExtLink href="https://www.fangraphs.com/tools/guts">FanGraphs Guts!</ExtLink>{' '}
-            — 2025 per-handedness park factors (1B / 2B / 3B / HR by L vs R)
+            for 2025 per-handedness park factors (1B / 2B / 3B / HR by L vs R).
           </li>
           <li>
-            <ExtLink href="https://open-meteo.com/">Open-Meteo</ExtLink> — temperature,
-            wind speed and direction at each stadium
+            <ExtLink href="https://open-meteo.com/">Open-Meteo</ExtLink> for temperature,
+            wind speed, and wind direction at each stadium.
           </li>
         </ul>
         <p className="text-xs text-ink-muted">
           All sources are free and require no API key. Weather endpoints have a
-          fallback to neutral when the fetch fails — weather can never penalise a pick
-          when the data is missing.
+          fallback to neutral when the fetch fails, so weather can never penalise a
+          pick when the data is missing.
         </p>
       </Section>
 
@@ -433,7 +433,7 @@ p < 0.5  →  odds = +round(100 × (1 − p) / p)        (underdog)`}
         <p className="text-sm text-ink-muted">
           The tracked-tier floors are placeholders pending ≥30 days of settled history.
           Treat <em>Score</em> as an internal ordering, not a calibrated bankroll
-          fraction — until floors are tuned, it&apos;s a relative ranking, not a
+          fraction. Until floors are tuned, it&apos;s a relative ranking, not a
           guarantee.
         </p>
       </Section>
@@ -442,7 +442,7 @@ p < 0.5  →  odds = +round(100 × (1 − p) / p)        (underdog)`}
 }
 
 // ---------------------------------------------------------------------------
-// Layout primitives — small, responsive, no fixed widths.
+// Layout primitives. Small, responsive, no fixed widths.
 // ---------------------------------------------------------------------------
 
 function Section({
