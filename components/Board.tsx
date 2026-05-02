@@ -26,6 +26,16 @@ const RUNG_TOOLTIPS: Record<1 | 2 | 3, string> = {
   3: '3+ HRR · floor: prob ≥ 20%, edge ≥ 60%',
 }
 
+// Rung chip colors when enabled — mirror the per-rung blue scale used by
+// the row-level RungBadge in PickRow so the filter chip and the on-row pill
+// read as the same visual identity. Literal strings (not template) so
+// Tailwind's static class extractor picks them up.
+const RUNG_CHIP_ON: Record<1 | 2 | 3, string> = {
+  1: 'border-sky-300/60 bg-sky-300/15 text-sky-300',
+  2: 'border-sky-400/60 bg-sky-400/15 text-sky-400',
+  3: 'border-blue-500/60 bg-blue-500/20 text-blue-400',
+}
+
 type GameStatusFilter = 'upcoming' | 'live' | 'settled'
 
 const STATUS_LABELS: Record<GameStatusFilter, string> = {
@@ -178,11 +188,11 @@ export function Board({ picks }: { picks: PickWithRung[] }) {
               className={
                 'rounded border px-2 py-0.5 font-mono text-xs tabular-nums transition-colors ' +
                 (enabledRungs.has(r)
-                  ? 'border-tracked/60 bg-tracked/10 text-tracked'
+                  ? RUNG_CHIP_ON[r]
                   : 'border-border bg-card/30 text-ink-muted hover:bg-card/60')
               }
             >
-              {r}+
+              {r}+ HRR
             </button>
           ))}
           <span className="ml-2 text-[11px] uppercase tracking-wider text-ink-muted">Game</span>
