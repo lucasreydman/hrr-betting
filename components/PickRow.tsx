@@ -260,8 +260,8 @@ function MathPanel({ pick, localTime }: { pick: Pick; localTime: ReturnType<type
   const denomFloored = pick.pTypical < edgeFloor
 
   return (
-    <div className="space-y-3 px-3 py-3 sm:grid sm:grid-cols-2 sm:gap-x-6 sm:gap-y-3 sm:space-y-0 sm:px-4 sm:py-3">
-      {/* ── Left column: game / context inputs ─────────────────────────── */}
+    <div className="space-y-4 px-3 py-4 sm:grid sm:grid-cols-2 sm:gap-x-6 sm:gap-y-4 sm:space-y-0 sm:px-4 sm:py-4">
+      {/* ── Left column: game context, conditions, lineup ─────────────── */}
       <PanelSection title="Matchup">
         <KV label="First pitch">
           {localTime ? (
@@ -282,6 +282,18 @@ function MathPanel({ pick, localTime }: { pick: Pick; localTime: ReturnType<type
             <KV label={<>Park HR <span className="text-ink-muted/70">({pick.player.bats})</span></>}>
               <FactorCell factor={inputs.parkHrFactor} />
             </KV>
+            <KV label="Pitcher hand">
+              <span className="text-ink">{pick.opposingPitcher.throws ?? '—'}</span>
+              <span className="ml-1 text-[10px] uppercase tracking-wider text-ink-muted">vs {pick.player.bats}</span>
+            </KV>
+            <KV label={<>Pitcher form <span className="text-ink-muted/70">(avg IP)</span></>}>
+              <span className="text-ink">{inputs.pitcherAvgIp.toFixed(1)} IP</span>
+              {inputs.isOpener && (
+                <span className="ml-2 rounded border border-warn/40 bg-warn/10 px-1.5 py-0.5 text-[9px] uppercase tracking-wider text-warn">
+                  opener
+                </span>
+              )}
+            </KV>
           </>
         )}
       </PanelSection>
@@ -294,9 +306,7 @@ function MathPanel({ pick, localTime }: { pick: Pick; localTime: ReturnType<type
             <p className="text-xs text-ink-muted">Forecast unavailable — weather defaulted to neutral.</p>
           ) : (
             <>
-              <KV label="Temperature">
-                {inputs.weather.tempF}°F
-              </KV>
+              <KV label="Temperature">{inputs.weather.tempF}°F</KV>
               <KV label="Wind">
                 {inputs.weather.windSpeedMph} mph from {compassPoint(inputs.weather.windFromDegrees)}
               </KV>
@@ -311,6 +321,11 @@ function MathPanel({ pick, localTime }: { pick: Pick; localTime: ReturnType<type
               </KV>
               <KV label="Weather HR">
                 <FactorCell factor={inputs.weather.hrMult} />
+              </KV>
+              <KV label="Stability rating">
+                <span className={inputs.weatherStable ? 'text-hit' : 'text-warn'}>
+                  {inputs.weatherStable ? 'stable' : 'volatile'}
+                </span>
               </KV>
             </>
           )}
@@ -331,9 +346,7 @@ function MathPanel({ pick, localTime }: { pick: Pick; localTime: ReturnType<type
                   }
                 >
                   <span className="w-4 shrink-0 text-right tabular-nums">{b.slot}.</span>
-                  <span className="min-w-0 truncate">
-                    {b.fullName}
-                  </span>
+                  <span className="min-w-0 truncate">{b.fullName}</span>
                   {here && (
                     <span className="ml-auto text-[10px] uppercase tracking-wider text-tracked">this pick</span>
                   )}
@@ -351,15 +364,9 @@ function MathPanel({ pick, localTime }: { pick: Pick; localTime: ReturnType<type
           {inputs.bvp && inputs.bvp.ab > 0 ? (
             <>
               <KV label="At-bats">{inputs.bvp.ab}</KV>
-              <KV label="Hits / HR">
-                {inputs.bvp.hits} / {inputs.bvp.HR}
-              </KV>
-              <KV label="BB / K">
-                {inputs.bvp.BB} / {inputs.bvp.K}
-              </KV>
-              <KV label="Avg">
-                {(inputs.bvp.hits / inputs.bvp.ab).toFixed(3)}
-              </KV>
+              <KV label="Hits / HR">{inputs.bvp.hits} / {inputs.bvp.HR}</KV>
+              <KV label="BB / K">{inputs.bvp.BB} / {inputs.bvp.K}</KV>
+              <KV label="Batting avg">{(inputs.bvp.hits / inputs.bvp.ab).toFixed(3)}</KV>
             </>
           ) : (
             <p className="text-xs text-ink-muted">
@@ -371,16 +378,74 @@ function MathPanel({ pick, localTime }: { pick: Pick; localTime: ReturnType<type
         </PanelSection>
       )}
 
+      {inputs && (
+        <PanelSection title="Batter Statcast (season)">
+          {inputs.batterStatcast ? (
+            <>
+              <KV label="Barrel %">
+                {(inputs.batterStatcast.barrelPct * 100).toFixed(1)}%
+              </KV>
+              <KV label="Hard-hit %">
+                {(inputs.batterStatcast.hardHitPct * 100).toFixed(1)}%
+              </KV>
+              <KV label="xwOBA">
+                {inputs.batterStatcast.xwOBA.toFixed(3)}
+              </KV>
+            </>
+          ) : (
+            <p className="text-xs text-ink-muted">No Statcast data — batter quality factor neutral (×1.00).</p>
+          )}
+        </PanelSection>
+      )}
+
       {/* ── Right column: math producing the score ────────────────────── */}
+      {inputs && (
+        <PanelSection title="p̂ today factor breakdown">
+          <p className="font-mono text-[11px] leading-relaxed text-ink-muted">
+            p̂<sub>today</sub> = odds(p̂<sub>typical</sub>) × Π factors → probability. TTO is baked into p̂<sub>typical</sub>.
+          </p>
+          <KV label="Pitcher quality">
+            <FactorCell factor={inputs.probTodayFactors.pitcher} />
+          </KV>
+          <KV label="Park composite">
+            <FactorCell factor={inputs.probTodayFactors.park} />
+          </KV>
+          <KV label="Weather (HRR-weighted)">
+            <FactorCell factor={inputs.probTodayFactors.weather} />
+          </KV>
+          <KV label="Handedness">
+            <FactorCell factor={inputs.probTodayFactors.handedness} />
+          </KV>
+          <KV label="Opp. bullpen">
+            <FactorCell factor={inputs.probTodayFactors.bullpen} />
+          </KV>
+          <KV label={<>PA count <span className="text-ink-muted/70">(slot {pick.lineupSlot})</span></>}>
+            <FactorCell factor={inputs.probTodayFactors.paCount} />
+          </KV>
+          <KV label={<>BvP <span className="text-ink-muted/70">({inputs.bvp?.ab ?? 0} AB)</span></>}>
+            <FactorCell factor={inputs.probTodayFactors.bvp} />
+          </KV>
+          <KV label="Batter quality">
+            <FactorCell factor={inputs.probTodayFactors.batter} />
+          </KV>
+          <KV label="= p̂ today">
+            <span className="font-semibold text-ink">{pct(pick.pMatchup, 2)}</span>
+            <span className="ml-2 text-[11px] text-ink-muted">
+              from {pct(pick.pTypical, 2)} typical
+            </span>
+          </KV>
+        </PanelSection>
+      )}
+
       <PanelSection title="Edge">
         <p className="font-mono text-[11px] text-ink-muted">
-          edge = max(P_matchup, 1%) ÷ max(P_typical, 1%) − 1
+          edge = max(p̂_today, 1%) ÷ max(p̂_typical, 1%) − 1
         </p>
-        <KV label={<>P matchup <span className="text-ink-muted/70">— this game</span></>}>
+        <KV label={<>p̂ today <span className="text-ink-muted/70">— this game</span></>}>
           {pct(pick.pMatchup, 2)}
           {numerFloored && <span className="ml-1 text-warn">→ floor {pct(edgeFloor, 0)}</span>}
         </KV>
-        <KV label={<>P typical <span className="text-ink-muted/70">— player baseline</span></>}>
+        <KV label={<>p̂ typical <span className="text-ink-muted/70">— player baseline</span></>}>
           {pct(pick.pTypical, 2)}
           {denomFloored && <span className="ml-1 text-warn">→ floor {pct(edgeFloor, 0)}</span>}
         </KV>
@@ -397,36 +462,42 @@ function MathPanel({ pick, localTime }: { pick: Pick; localTime: ReturnType<type
       {inputs && (
         <PanelSection title="Confidence">
           <p className="font-mono text-[11px] text-ink-muted">
-            confidence = product of 6 factors
+            confidence = product of 8 factors
           </p>
           <KV label={<>Lineup <span className="text-ink-muted/70">({pick.lineupStatus})</span></>}>
             <MultCell value={inputs.confidenceFactors.lineup} />
           </KV>
-          <KV label={<>BvP <span className="text-ink-muted/70">({inputs.bvp?.ab ?? 0} AB)</span></>}>
+          <KV label={<>BvP sample <span className="text-ink-muted/70">({inputs.bvp?.ab ?? 0} AB)</span></>}>
             <MultCell value={inputs.confidenceFactors.bvp} />
           </KV>
           <KV label={<>Pitcher sample <span className="text-ink-muted/70">({inputs.pitcherStartCount} starts)</span></>}>
             <MultCell value={inputs.confidenceFactors.pitcherStart} />
           </KV>
-          <KV label="Weather stable">
+          <KV label={<>Weather <span className="text-ink-muted/70">({inputs.weatherStable ? 'stable' : 'volatile'})</span></>}>
             <MultCell value={inputs.confidenceFactors.weather} />
           </KV>
           <KV label={<>Time to pitch <span className="text-ink-muted/70">({inputs.timeToFirstPitchMin} min)</span></>}>
             <MultCell value={inputs.confidenceFactors.time} />
           </KV>
-          <KV label="Opener">
+          <KV label={<>Opener <span className="text-ink-muted/70">({inputs.isOpener ? 'yes' : 'no'})</span></>}>
             <MultCell value={inputs.confidenceFactors.opener} />
           </KV>
+          <KV label={<>Batter sample <span className="text-ink-muted/70">({inputs.batterSeasonPa} PA)</span></>}>
+            <MultCell value={inputs.confidenceFactors.sampleSize} />
+          </KV>
+          <KV label={<>Data freshness <span className="text-ink-muted/70">({inputs.scheduleAgeSec}s)</span></>}>
+            <MultCell value={inputs.confidenceFactors.dataFreshness} />
+          </KV>
           <KV label="= Confidence">
-            <span className="text-ink">{pct(pick.confidence, 0)}</span>
+            <span className="font-semibold text-ink">{pct(pick.confidence, 1)}</span>
           </KV>
         </PanelSection>
       )}
 
       <PanelSection title="Score">
-        <p className="font-mono text-[11px] text-ink-muted">
+        <p className="font-mono text-[11px] leading-relaxed text-ink-muted">
           score = (p̂<sub>today</sub> − p̂<sub>typical</sub>) ÷ (1 − p̂<sub>typical</sub>) × confidence
-          <span className="ml-1 text-ink-muted/70">(Kelly bet fraction × conf, ×100 for display)</span>
+          <span className="ml-1 text-ink-muted/70">(Kelly × conf, ×100 for display)</span>
         </p>
         <KV label="Kelly fraction">
           <span className="text-ink">
@@ -436,15 +507,18 @@ function MathPanel({ pick, localTime }: { pick: Pick; localTime: ReturnType<type
             ({pct(pick.pMatchup, 1)} − {pct(pick.pTypical, 1)}) ÷ {pct(1 - pick.pTypical, 1)}
           </span>
         </KV>
+        <KV label="× Confidence">
+          <span className="text-ink">{pct(pick.confidence, 1)}</span>
+        </KV>
         <KV label="= Score">
-          <span className={isTracked ? 'font-semibold text-tracked' : 'text-ink'}>
+          <span className={isTracked ? 'font-semibold text-tracked' : 'font-semibold text-ink'}>
             {(pick.score * 100).toFixed(1)}
           </span>
           <span className="ml-2 text-[11px] uppercase tracking-wider text-ink-muted">
             ({isTracked ? '🎯 Tracked' : 'Other play'})
           </span>
         </KV>
-        <p className="text-[11px] text-ink-muted">
+        <p className="text-[11px] leading-relaxed text-ink-muted">
           Higher score = bigger Kelly bet at fair-typical odds. Variance-aware:
           longshots get sized down even when relative edge is huge.
         </p>

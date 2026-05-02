@@ -19,7 +19,7 @@
 import { computeEdge, computeScore } from './edge'
 import { computeConfidenceBreakdown, passesHardGates, type ConfidenceFactors } from './confidence'
 import { getPTypical } from './p-typical'
-import { computeProbTodayWithBreakdown } from './prob-today'
+import { computeProbTodayWithBreakdown, type ProbTodayBreakdown } from './prob-today'
 import {
   fetchSchedule,
   fetchProbablePitchers,
@@ -89,18 +89,38 @@ export interface PickInputs {
   weather: PickWeather
   /**
    * Career batter-vs-pitcher line vs *this* opposing starter. `null` when the
-   * starter is TBD or the matchup has never been recorded. Drives the BvP
-   * confidence factor (0.90–1.00 ramp on `ab`).
+   * starter is TBD or the matchup has never been recorded. Drives both the
+   * BvP confidence factor and the BvP probToday factor.
    */
   bvp: BvPRecord | null
   /** Number of the starter's recent starts available for the IP CDF. */
   pitcherStartCount: number
+  /**
+   * Avg innings-pitched per recent start for the opposing starter. Used by
+   * the Opener heuristic and surfaced in the math panel for transparency.
+   */
+  pitcherAvgIp: number
   /** Minutes from now until first pitch. Drives the time-to-pitch confidence factor. */
   timeToFirstPitchMin: number
+  /** Schedule-cache age in seconds — drives the dataFreshness confidence factor. */
+  scheduleAgeSec: number
+  /** Whether the model classified the listed starter as an opener. */
+  isOpener: boolean
+  /** Whether weather is rated stable (true = ×1.00 confidence, false = ×0.90). */
+  weatherStable: boolean
+  /** Batter season PA count — drives the sampleSize confidence factor. */
+  batterSeasonPa: number
   /** The 9-batter lineup the player is part of (slot + name only). */
   lineup: LineupSlotSummary[]
   /** Per-factor breakdown of the confidence multiplier. Product = `confidence`. */
   confidenceFactors: ConfidenceFactors
+  /** Per-factor breakdown of the closed-form probToday multiplier product. */
+  probTodayFactors: ProbTodayBreakdown['factors']
+  /**
+   * Batter Statcast snapshot used by the batter-quality factor. `null` when
+   * Savant data isn't available for this player. Surfaced in the math panel.
+   */
+  batterStatcast: { barrelPct: number; hardHitPct: number; xwOBA: number } | null
 }
 
 export interface Pick {
@@ -456,16 +476,29 @@ export async function rankPicks(date: string): Promise<PicksResponse> {
         maxCacheAgeSec: scheduleAgeSec,
       })
 
-      const inputs: PickInputs = {
+      // Per-batter shared inputs. probTodayFactors is added per-rung below.
+      const baseInputs: Omit<PickInputs, 'probTodayFactors'> = {
         venueId: game.venueId,
         venueName: venueName !== 'Unknown park' ? venueName : game.venueName,
         parkHrFactor: getHrParkFactorForBatter(game.venueId, player.bats),
         weather: pickWeather,
         bvp,
         pitcherStartCount: opposingStarterStartCount,
+        pitcherAvgIp: avgIp,
         timeToFirstPitchMin,
+        scheduleAgeSec,
+        isOpener,
+        weatherStable,
+        batterSeasonPa,
         lineup: onHome ? homeLineupSummary : awayLineupSummary,
         confidenceFactors,
+        batterStatcast: batterStatcast
+          ? {
+              barrelPct: batterStatcast.barrelPct,
+              hardHitPct: batterStatcast.hardHitPct,
+              xwOBA: batterStatcast.xwOBA,
+            }
+          : null,
       }
 
       for (const rung of [1, 2, 3] as Rung[]) {
@@ -488,6 +521,7 @@ export async function rankPicks(date: string): Promise<PicksResponse> {
           bvp,
           batterStatcast,
         })
+        const inputs: PickInputs = { ...baseInputs, probTodayFactors: probTodayResult.factors }
         const pMatchup = probTodayResult.probToday  // kept as pMatchup to avoid renaming Pick type
 
         const edge = computeEdge({ pMatchup, pTypical: pTyp })
