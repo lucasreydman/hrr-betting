@@ -580,28 +580,21 @@ function MathPanel({ pick, rung, localTime }: { pick: Pick; rung?: 1 | 2 | 3; lo
           </span>
         </KV>
         {rung != null && (
-          <>
-            <KV label={<>Floors <span className="text-ink-muted/70">(for {rung}+)</span></>}>
-              <span className="font-mono text-[11px] text-ink-muted">
-                p̂ ≥ {pct(PROB_FLOORS[rung], 0)} · edge ≥ {(EDGE_FLOORS[rung] * 100).toFixed(0)}% · conf ≥ {pct(CONFIDENCE_FLOOR_TRACKED, 0)}
+          <KV label={<>Floors <span className="text-ink-muted/70">(for {rung}+)</span></>}>
+            <span className="font-mono text-[11px]">
+              <span className={passesProbFloor(pick.pMatchup, rung) ? 'text-hit' : 'text-warn'}>
+                p̂ ≥ {pct(PROB_FLOORS[rung], 0)} {passesProbFloor(pick.pMatchup, rung) ? '✓' : '✗'}
               </span>
-            </KV>
-            <KV label="Status">
-              <span className="font-mono text-[11px]">
-                <span className={passesProbFloor(pick.pMatchup, rung) ? 'text-hit' : 'text-warn'}>
-                  p̂ {passesProbFloor(pick.pMatchup, rung) ? '✓' : '✗'}
-                </span>
-                <span className="text-ink-muted"> · </span>
-                <span className={passesEdgeFloor(pick.edge, rung) ? 'text-hit' : 'text-warn'}>
-                  edge {passesEdgeFloor(pick.edge, rung) ? '✓' : '✗'}
-                </span>
-                <span className="text-ink-muted"> · </span>
-                <span className={passesConfidenceFloor(pick.confidence) ? 'text-hit' : 'text-warn'}>
-                  conf {passesConfidenceFloor(pick.confidence) ? '✓' : '✗'}
-                </span>
+              <span className="text-ink-muted"> · </span>
+              <span className={passesEdgeFloor(pick.edge, rung) ? 'text-hit' : 'text-warn'}>
+                edge ≥ {(EDGE_FLOORS[rung] * 100).toFixed(0)}% {passesEdgeFloor(pick.edge, rung) ? '✓' : '✗'}
               </span>
-            </KV>
-          </>
+              <span className="text-ink-muted"> · </span>
+              <span className={passesConfidenceFloor(pick.confidence) ? 'text-hit' : 'text-warn'}>
+                conf ≥ {pct(CONFIDENCE_FLOOR_TRACKED, 0)} {passesConfidenceFloor(pick.confidence) ? '✓' : '✗'}
+              </span>
+            </span>
+          </KV>
         )}
       </PanelSection>
       </div>
