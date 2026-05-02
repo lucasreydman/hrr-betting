@@ -1,5 +1,4 @@
 import { computeProbToday, computeProbTodayWithBreakdown } from '@/lib/prob-today'
-import { computeTtoFactor } from '@/lib/factors/tto'
 
 describe('computeProbToday', () => {
   const baseInputs = {
@@ -14,30 +13,21 @@ describe('computeProbToday', () => {
     batterStatcast: null,
   }
 
-  // TTO is a constant ~1.08 multiplier applied uniformly. Hardcoded here so
-  // expected values below stay exact even if the upstream constants ever
-  // shift slightly.
-  const TTO = computeTtoFactor()
-
-  it('returns probTypical × handedness × tto with all-neutral inputs', () => {
+  it('returns probTypical × handedness with all-neutral inputs', () => {
     // batterHand R vs pitcherThrows R (same-side) → handedness factor = 0.97;
-    // TTO factor ≈ 1.08 always applied; everything else 1.0.
-    // Odds composition: oddsTypical = 0.65/0.35; oddsToday = oddsTypical × 0.97 × TTO;
-    // probToday = oddsToday / (1 + oddsToday).
+    // every other factor is 1.0 with these neutral inputs (TTO is now baked
+    // into pTypical inside the offline sim, not applied at request time).
+    // Odds composition: oddsTypical = 0.65/0.35; oddsToday = oddsTypical × 0.97;
+    // probToday = oddsToday / (1 + oddsToday) ≈ 0.6431.
     const today = computeProbToday(baseInputs)
-    const oddsTypical = 0.65 / 0.35
-    const factorProduct = 0.97 * TTO
-    const oddsToday = oddsTypical * factorProduct
-    const expected = oddsToday / (1 + oddsToday)
-    expect(today).toBeCloseTo(expected, 4)
+    expect(today).toBeCloseTo(0.643, 2)
   })
 
-  it('switch hitter (handedness 1.0) returns probTypical × tto', () => {
+  it('switch hitter with neutral inputs returns probTypical exactly', () => {
+    // S → handedness = 1.0; all factors at 1.0 → factor product = 1.0 → odds-ratio
+    // composition is the identity: probToday === probTypical.
     const today = computeProbToday({ ...baseInputs, batterHand: 'S' })
-    const oddsTypical = 0.65 / 0.35
-    const oddsToday = oddsTypical * TTO
-    const expected = oddsToday / (1 + oddsToday)
-    expect(today).toBeCloseTo(expected, 4)
+    expect(today).toBeCloseTo(baseInputs.probTypical, 5)
   })
 
   it('boost factor lifts probability but never to 1.0', () => {
@@ -50,8 +40,6 @@ describe('computeProbToday', () => {
         bf: 1000, recentStarts: 30,
       },
     })
-    // probTypical 0.7 with a strong-positive matchup → boosted but bounded;
-    // odds-ratio composition keeps it well below 1.0 even when factors compound.
     expect(today).toBeGreaterThan(baseInputs.probTypical)
     expect(today).toBeLessThan(0.95)
   })
@@ -71,7 +59,7 @@ describe('computeProbToday', () => {
     expect(today).toBeLessThan(baseInputs.probTypical)
   })
 
-  it('breakdown includes all 9 named factors', () => {
+  it('breakdown includes all 8 named factors (TTO is now in the sim, not here)', () => {
     const result = computeProbTodayWithBreakdown(baseInputs)
     expect(Object.keys(result.factors).sort()).toEqual(
       [
@@ -82,7 +70,6 @@ describe('computeProbToday', () => {
         'paCount',
         'park',
         'pitcher',
-        'tto',
         'weather',
       ],
     )

@@ -70,7 +70,7 @@ export default function Methodology() {
             </Note>
             <Formula>
               {`factorProduct = clamp(pitcher × park × weather × handedness
-                                × bullpen × paCount × bvp × batter × tto,
+                                × bullpen × paCount × bvp × batter,
                                 0.25, 4.0)
 oddsTypical   = p̂_typical / (1 − p̂_typical)
 oddsToday     = oddsTypical × factorProduct
@@ -83,7 +83,7 @@ p̂_today       = oddsToday / (1 + oddsToday)`}
         </Grid>
       </Section>
 
-      <Section heading="The nine factors" eyebrow="What changes p̂ today vs p̂ typical">
+      <Section heading="The eight factors" eyebrow="What changes p̂ today vs p̂ typical">
         <p className="text-sm text-ink-muted">
           Each factor is a single multiplier with its own clamp. Hover any row for the
           source file.
@@ -146,12 +146,6 @@ p̂_today       = oddsToday / (1 + oddsToday)`}
                   range="0.95 – 1.05"
                   source="lib/factors/batter.ts"
                   desc="Statcast contact profile (barrel%, hard-hit%, xwOBA) ratioed to league averages and dampened by an exponent of 0.25. Heavily damped because pTypical already captures most batter skill; this only nudges when underlying contact disagrees with rates."
-                />
-                <FactorRow
-                  name="TTO"
-                  range="0.95 – 1.15"
-                  source="lib/factors/tto.ts"
-                  desc="Times-through-the-order penalty applied uniformly. Average per-outcome TTO multiplier across PAs 1, 2, 3 (typical PAs vs the starter), HRR-weighted. ~1.08 in practice — a small constant lift the offline pTypical baseline doesn't apply."
                 />
               </tbody>
             </table>
@@ -314,13 +308,24 @@ p < 0.5  →  odds = +round(100 × (1 − p) / p)        (underdog)`}
           +1 H, +1 R, +1 RBI all in one swing) that closed-form Poisson models
           systematically under-price for power hitters.
         </p>
+        <Note label="TTO is baked in here">
+          PAs 1, 2, 3 against the starter use rates multiplied by the per-outcome
+          times-through-the-order multipliers (PAs 4+ are vs the bullpen). TTO is
+          fundamentally per-PA, so applying it inside the sim lets the effect
+          compound through the baserunner state machine instead of being a single
+          uniform multiplier on the binary &ldquo;≥ k HRR&rdquo; probability at request time.
+        </Note>
         <Note label="Where">
-          <FilePath>lib/offline-sim/sim.ts</FilePath>
+          <FilePath>lib/offline-sim/sim.ts</FilePath> · TTO transformation in{' '}
+          <FilePath>lib/p-typical.ts:applyTto</FilePath>
         </Note>
         <p className="text-xs text-ink-muted">
-          v1 simplifications: 9 innings only (no extras, ~&lt;0.5% impact on rung
-          probabilities); no pitcher / park / weather / TTO inside the sim. Those
-          enter at the closed-form factor stage when computing today&apos;s probability.
+          Remaining v1 simplifications: 9 innings only (no extras, ~&lt;0.5% impact
+          on rung probabilities); pitcher / park / weather still enter only at the
+          closed-form factor stage at request time, because moving them into the
+          sim would require per-(batter, pitcher) and per-(batter, venue) cached
+          baselines (~15k combinations) instead of per-batter (~500) and would
+          push the offline cron compute by 30×.
         </p>
       </Section>
 
@@ -433,10 +438,10 @@ p < 0.5  →  odds = +round(100 × (1 − p) / p)        (underdog)`}
           <Card title="Things the model does">
             <ul className="ml-5 list-disc space-y-1 text-sm marker:text-ink-muted">
               <li>20k-iteration per-player Monte Carlo for the typical-matchup baseline</li>
-              <li>Closed-form, sub-millisecond today-adjusted probability via odds-ratio composition of nine factors</li>
+              <li>Closed-form, sub-millisecond today-adjusted probability via odds-ratio composition of eight factors</li>
               <li>Empirical-Bayes shrunken BvP signal that nudges p̂ today on real career history</li>
               <li>Statcast contact-quality factor for batters (barrel%, hard-hit%, xwOBA)</li>
-              <li>Times-through-the-order penalty across PAs 1–3 against the starter</li>
+              <li>Times-through-the-order penalty applied per-PA inside the offline sim (compounds through the baserunner state machine)</li>
               <li>Variance-aware Kelly score so longshots don&apos;t dominate the board</li>
               <li>Stabilization toward career rates (when ≥ 200 career PAs) so small samples don&apos;t over-fit</li>
               <li>Confirmed / partial / estimated lineup tiering with status-aware caching</li>

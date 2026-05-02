@@ -328,13 +328,22 @@ by an exponent of 0.25 since `pTypical` already encodes most batter
 skill. Bounded [0.95, 1.05]. Wired into the ranker's per-batter parallel
 fetch block.
 
-### c. TTO multipliers — RESOLVED
+### c. TTO multipliers — RESOLVED, then refined
 
-New `lib/factors/tto.ts` exposes `computeTtoFactor`. Composes the
-per-outcome `TTO_MULTIPLIERS` (PAs 1, 2, 3) into a single HRR-weighted
-multiplier (~1.08). Applied uniformly — every batter sees the same lift
-since pTypical's offline sim doesn't apply TTO and PAs vs the starter
-are roughly the same shape across slot positions.
+First pass: new `lib/factors/tto.ts` composed `TTO_MULTIPLIERS`
+(PAs 1, 2, 3) into a single HRR-weighted multiplier (~1.08) and applied
+it uniformly at request-time.
+
+**Refined (same-day):** moved into the offline sim. New
+`lib/p-typical.ts:applyTto` multiplies non-OUT outcome rates by the
+per-outcome TTO multipliers for PA indices 0/1/2 (TTO 1/2/3 against
+starter), then renormalises. PA 3+ rates pass through unchanged
+(those are bullpen PAs). The closed-form TTO factor was deleted. This
+lets TTO compound correctly through the baserunner state machine
+(more contact → more baserunners → more RBI opportunities) and
+implicitly varies by lineup slot via the `starterShareByPA` weighting,
+instead of being a uniform constant lift on the binary "≥k HRR"
+probability.
 
 ### d. Park K and BB factors — RESOLVED
 
@@ -354,7 +363,8 @@ that doesn't pass the full multiplier map. The new formulation agrees
 with the dampened formula on mild weather and is more conservative at
 extremes.
 
-`computeProbTodayWithBreakdown` now exposes a 9-key `factors` object
-(was 6): pitcher, park, weather, handedness, bullpen, paCount, bvp,
-batter, tto. Consumers that depended on the 6-key shape were updated
-(prob-today tests).
+`computeProbTodayWithBreakdown` now exposes an 8-key `factors` object:
+pitcher, park, weather, handedness, bullpen, paCount, bvp, batter.
+TTO was briefly a 9th factor here; it now lives inside the offline sim
+(see "TTO multipliers" entry above). Consumers that depended on the
+6-key shape were updated (prob-today tests).

@@ -6,7 +6,6 @@ import { computeBullpenFactor } from './factors/bullpen'
 import { computePaCountFactor } from './factors/pa-count'
 import { computeBvpFactor } from './factors/bvp'
 import { computeBatterFactor } from './factors/batter'
-import { computeTtoFactor } from './factors/tto'
 import type { BullpenEraStats } from './bullpen'
 import type { Handedness, BvPRecord, BatterStatcast, Outcome } from './types'
 
@@ -41,7 +40,6 @@ export interface ProbTodayBreakdown {
     paCount: number
     bvp: number
     batter: number
-    tto: number
   }
 }
 
@@ -68,6 +66,9 @@ export interface ProbTodayBreakdown {
  * shouldn't be allowed to drive a 6× ratio swing on its own).
  */
 export function computeProbTodayWithBreakdown(args: ProbTodayInputs): ProbTodayBreakdown {
+  // TTO is applied per-PA inside the offline sim that builds pTypical
+  // (see lib/p-typical.ts:applyTto). No TTO factor at request time —
+  // doubling it would double-count the penalty.
   const factors = {
     pitcher: computePitcherFactor({ pitcher: args.pitcher }),
     park: computeParkFactor({ venueId: args.venueId, batterHand: args.batterHand }),
@@ -80,7 +81,6 @@ export function computeProbTodayWithBreakdown(args: ProbTodayInputs): ProbTodayB
     paCount: computePaCountFactor({ probTypical: args.probTypical, slot: args.lineupSlot }),
     bvp: computeBvpFactor({ bvp: args.bvp }),
     batter: computeBatterFactor({ statcast: args.batterStatcast }),
-    tto: computeTtoFactor(),
   }
 
   const factorProduct = clamp(
@@ -91,8 +91,7 @@ export function computeProbTodayWithBreakdown(args: ProbTodayInputs): ProbTodayB
       factors.bullpen *
       factors.paCount *
       factors.bvp *
-      factors.batter *
-      factors.tto,
+      factors.batter,
     0.25,
     4.0,
   )

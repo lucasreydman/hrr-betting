@@ -15,10 +15,10 @@
 import { kvGet } from './kv'
 import { simSinglePlayerHRR } from './offline-sim/sim'
 import { fetchBatterSeasonStats, fetchBatterCareerStats } from './mlb-api'
-import { LEAGUE_AVG_RATES } from './constants'
+import { LEAGUE_AVG_RATES, TTO_MULTIPLIERS } from './constants'
 import { stabilizeRates } from './stabilization'
 import type { BatterSimContext, BatterHRRDist } from './offline-sim/sim'
-import type { OutcomeRates } from './types'
+import type { Outcome, OutcomeRates } from './types'
 
 export interface PTypicalResult {
   playerId: number
@@ -120,12 +120,60 @@ function makeFallback(playerId: number): PTypicalResult {
   }
 }
 
+/**
+ * Apply per-outcome TTO multipliers to a batter's rates for one PA index.
+ *
+ * Times-through-the-order penalties are fundamentally per-PA — the pitcher
+ * gets progressively worse on each pass through the lineup. Baking TTO into
+ * the offline sim's per-PA rate slots means the effect compounds correctly
+ * through the baserunner state machine (more contact → more baserunners →
+ * more RBI opportunities for everyone), instead of being applied as a single
+ * uniform multiplier on the binary "≥ k HRR" probability at request time.
+ *
+ * Logic:
+ *   1. Multiply each non-OUT outcome rate by its TTO multiplier
+ *   2. OUT becomes 1 − sum(non-OUT) so probabilities still sum to 1
+ *   3. Renormalise to clean up any floating-point drift
+ *
+ * `paIndex` is 0-based. PA 0/1/2 (first three vs the starter) get TTO 1/2/3
+ * respectively. PA 3+ falls into the bullpen, which doesn't get TTO applied
+ * — relievers face each batter once, no TTO buildup.
+ */
+function applyTto(rates: OutcomeRates, paIndex: number): OutcomeRates {
+  if (paIndex >= 3) return rates  // bullpen PAs — no TTO
+  const ttoKey = String(paIndex + 1) as '1' | '2' | '3'
+  const mult = TTO_MULTIPLIERS[ttoKey]
+  const nonOutOutcomes: Outcome[] = ['1B', '2B', '3B', 'HR', 'BB', 'K']
+  const adjusted: Partial<OutcomeRates> = {}
+  for (const o of nonOutOutcomes) {
+    adjusted[o] = rates[o] * mult[o]
+  }
+  const sumNonOut = nonOutOutcomes.reduce((acc, o) => acc + (adjusted[o] ?? 0), 0)
+  adjusted.OUT = Math.max(0, 1 - sumNonOut)
+  // Renormalise against any floating-point drift.
+  const total = Object.values(adjusted).reduce((a, b) => a + (b ?? 0), 0)
+  return Object.fromEntries(
+    Object.entries(adjusted).map(([k, v]) => [k, (v ?? 0) / total]),
+  ) as OutcomeRates
+}
+
 function makeContext(batterId: number, rates: OutcomeRates): BatterSimContext {
-  const ratesArr = [rates, rates, rates, rates, rates]
+  // Per-PA rate arrays. Index 0/1/2 = TTO 1/2/3 against the starter.
+  // Index 3/4 = bullpen PAs (TTO not applicable). Bullpen rates use the
+  // un-adjusted batter line because the closed-form bullpen factor at
+  // request time captures opponent bullpen quality separately.
+  const starterByPA = [
+    applyTto(rates, 0),
+    applyTto(rates, 1),
+    applyTto(rates, 2),
+    rates,
+    rates,
+  ]
+  const bullpenByPA = [rates, rates, rates, rates, rates]
   return {
     batterId,
-    ratesVsStarterByPA: ratesArr,
-    ratesVsBullpenByPA: ratesArr,
+    ratesVsStarterByPA: starterByPA,
+    ratesVsBullpenByPA: bullpenByPA,
     starterShareByPA: [0.95, 0.85, 0.65, 0.40, 0.10],
   }
 }
