@@ -590,15 +590,15 @@ function MathPanel({ pick, rung, localTime }: { pick: Pick; rung?: 1 | 2 | 3; lo
         {rung != null && (
           <KV label={<>Floors <span className="text-ink-muted/70">(for {rung}+)</span></>}>
             <span className="font-mono text-[11px]">
-              <span className={passesProbFloor(pick.pMatchup, rung) ? 'text-hit' : 'text-warn'}>
+              <span className={passesProbFloor(pick.pMatchup, rung) ? 'text-hit' : 'text-miss'}>
                 p̂ ≥ {pct(PROB_FLOORS[rung], 0)} {passesProbFloor(pick.pMatchup, rung) ? '✓' : '✗'}
               </span>
               <span className="text-ink-muted"> · </span>
-              <span className={passesEdgeFloor(pick.edge, rung) ? 'text-hit' : 'text-warn'}>
+              <span className={passesEdgeFloor(pick.edge, rung) ? 'text-hit' : 'text-miss'}>
                 edge ≥ {(EDGE_FLOORS[rung] * 100).toFixed(0)}% {passesEdgeFloor(pick.edge, rung) ? '✓' : '✗'}
               </span>
               <span className="text-ink-muted"> · </span>
-              <span className={passesConfidenceFloor(pick.confidence) ? 'text-hit' : 'text-warn'}>
+              <span className={passesConfidenceFloor(pick.confidence) ? 'text-hit' : 'text-miss'}>
                 conf ≥ {pct(CONFIDENCE_FLOOR_TRACKED, 0)} {passesConfidenceFloor(pick.confidence) ? '✓' : '✗'}
               </span>
             </span>
