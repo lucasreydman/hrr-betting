@@ -363,14 +363,6 @@ function MathPanel({ pick, localTime }: { pick: Pick; localTime: ReturnType<type
               <KV label="Weather HR">
                 <FactorCell factor={inputs.weather.hrMult} />
               </KV>
-              <KV label="Stability rating">
-                <span className={inputs.weatherStable ? 'text-hit' : 'text-warn'}>
-                  {inputs.weatherStable ? `stable (${inputs.weatherStabilityKind})` : 'volatile'}
-                </span>
-                <span className="ml-2 font-mono text-[10px] text-ink-muted">
-                  conf ×{inputs.confidenceFactors.weather.toFixed(2)}
-                </span>
-              </KV>
             </>
           )}
         </PanelSection>
@@ -541,7 +533,7 @@ function MathPanel({ pick, localTime }: { pick: Pick; localTime: ReturnType<type
       {inputs && (
         <PanelSection title="Confidence">
           <p className="font-mono text-[11px] text-ink-muted">
-            confidence = product of 8 factors (weather is shown above in Stability rating)
+            confidence = product of 8 factors
           </p>
           <KV label={<>Lineup <span className="text-ink-muted/70">({pick.lineupStatus})</span></>}>
             <MultCell value={inputs.confidenceFactors.lineup} />
@@ -551,6 +543,20 @@ function MathPanel({ pick, localTime }: { pick: Pick; localTime: ReturnType<type
           </KV>
           <KV label={<>Pitcher sample <span className="text-ink-muted/70">({inputs.pitcherStartCount} starts)</span></>}>
             <MultCell value={inputs.confidenceFactors.pitcherStart} />
+          </KV>
+          <KV
+            label={
+              <>
+                Weather{' '}
+                <span className="text-ink-muted/70">
+                  ({inputs.weatherStable
+                    ? `stable, ${inputs.weatherStabilityKind}`
+                    : 'volatile'})
+                </span>
+              </>
+            }
+          >
+            <MultCell value={inputs.confidenceFactors.weather} />
           </KV>
           <KV label={<>Time to pitch <span className="text-ink-muted/70">({inputs.timeToFirstPitchMin} min)</span></>}>
             <MultCell value={inputs.confidenceFactors.time} />
