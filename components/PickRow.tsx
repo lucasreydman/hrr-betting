@@ -19,6 +19,24 @@ function passesConfidenceFloor(confidence: number): boolean {
   return confidence >= CONFIDENCE_FLOOR_TRACKED
 }
 
+/**
+ * Score → colour gradient. Low scores (just above the display floor of 0.05)
+ * read as light blue; high scores (≥ 0.50) read as the same green we use
+ * for HIT outcomes. Linear RGB interpolation between sky-300 (#7DD3FC) and
+ * hit green (#10B981) — passes through teal/turquoise mid-range.
+ *
+ * 0.50 is generous as a "max" — typical Tracked plays land 0.15–0.40 — but
+ * the saturation stops scaling there so the very top picks max out the
+ * green colour.
+ */
+function scoreColor(score: number): string {
+  const t = Math.min(1, Math.max(0, (score - 0.05) / (0.50 - 0.05)))
+  const r = Math.round(125 + t * (16 - 125))
+  const g = Math.round(211 + t * (185 - 211))
+  const b = Math.round(252 + t * (129 - 252))
+  return `rgb(${r}, ${g}, ${b})`
+}
+
 function pct(value: number, digits = 1): string {
   return `${(value * 100).toFixed(digits)}%`
 }
@@ -683,9 +701,10 @@ export function PickRow({ pick, rung }: { pick: Pick; rung?: 1 | 2 | 3 }) {
             ) : null}
           </div>
 
-          {/* PROB. TYPICAL — % over American odds */}
+          {/* PROB. TYPICAL — % over American odds. Light blue marks it as
+              the baseline/context column rather than a gate-passing column. */}
           <div className="text-center">
-            <div className="font-mono text-sm tabular-nums text-ink">
+            <div className="font-mono text-sm tabular-nums text-sky-300">
               {pct(pick.pTypical, 1)}
             </div>
             <div className="font-mono text-[10px] tabular-nums text-ink-muted">
@@ -732,15 +751,12 @@ export function PickRow({ pick, rung }: { pick: Pick; rung?: 1 | 2 | 3 }) {
             </span>
           </div>
 
-          {/* SCORE — ×100 with one decimal */}
+          {/* SCORE — ×100 with one decimal. Gradient blue → green by score
+              intensity (sky-300 at the floor, hit-green at the top). */}
           <div className="text-center">
             <div
-              className={
-                'font-mono tabular-nums ' +
-                (isTracked
-                  ? 'text-base font-semibold text-tracked'
-                  : 'text-base font-semibold text-ink')
-              }
+              className="font-mono text-base font-semibold tabular-nums"
+              style={{ color: scoreColor(pick.score) }}
             >
               {(pick.score * 100).toFixed(1)}
             </div>
@@ -804,7 +820,7 @@ export function PickRow({ pick, rung }: { pick: Pick; rung?: 1 | 2 | 3 }) {
           <div className="mt-2 border-t border-border/30 pt-2">
             <div className="flex justify-between text-xs">
               <span className="text-ink-muted">Typical</span>
-              <span className="font-mono tabular-nums text-ink">
+              <span className="font-mono tabular-nums text-sky-300">
                 {pct(pick.pTypical, 1)} <span className="text-[10px] text-ink-muted">/ {americanOdds(pick.pTypical)}</span>
               </span>
             </div>
@@ -844,7 +860,12 @@ export function PickRow({ pick, rung }: { pick: Pick; rung?: 1 | 2 | 3 }) {
               </div>
               <div className="flex items-baseline gap-1">
                 <span className="text-ink-muted">Score</span>
-                <span className={'font-mono tabular-nums ' + (isTracked ? 'font-semibold text-tracked' : 'text-ink')}>{(pick.score * 100).toFixed(1)}</span>
+                <span
+                  className="font-mono font-semibold tabular-nums"
+                  style={{ color: scoreColor(pick.score) }}
+                >
+                  {(pick.score * 100).toFixed(1)}
+                </span>
               </div>
             </div>
           </div>
