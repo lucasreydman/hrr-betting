@@ -582,7 +582,7 @@ export function PickRow({ pick, rung }: { pick: Pick; rung?: 1 | 2 | 3 }) {
           </div>
 
           {/* PROB. TYPICAL — % over American odds */}
-          <div className="text-right">
+          <div className="text-center">
             <div className="font-mono text-sm tabular-nums text-ink">
               {pct(pick.pTypical, 1)}
             </div>
@@ -592,7 +592,7 @@ export function PickRow({ pick, rung }: { pick: Pick; rung?: 1 | 2 | 3 }) {
           </div>
 
           {/* PROB. TODAY — % over American odds */}
-          <div className="text-right">
+          <div className="text-center">
             <div className={'font-mono text-sm tabular-nums ' + (isTracked ? 'font-semibold text-ink' : 'text-ink')}>
               {pct(pick.pMatchup, 1)}
             </div>
@@ -602,21 +602,21 @@ export function PickRow({ pick, rung }: { pick: Pick; rung?: 1 | 2 | 3 }) {
           </div>
 
           {/* EDGE */}
-          <div className="text-right">
+          <div className="text-center">
             <span className={'font-mono text-sm tabular-nums ' + (pick.edge >= 0 ? 'text-accent' : 'text-ink-muted')}>
               {signedPct(pick.edge)}
             </span>
           </div>
 
           {/* CONF */}
-          <div className="text-right">
+          <div className="text-center">
             <span className={'font-mono text-sm tabular-nums ' + (isTracked ? 'font-semibold text-hit' : 'text-ink')}>
               {pct(pick.confidence, 1)}
             </span>
           </div>
 
           {/* SCORE — ×100 with one decimal */}
-          <div className="text-right">
+          <div className="text-center">
             <div
               className={
                 'font-mono tabular-nums ' +

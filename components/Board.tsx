@@ -247,15 +247,15 @@ export function Board({ picks }: { picks: PickWithRung[] }) {
         <div className="text-[11px] uppercase tracking-wider text-ink-muted">Batter</div>
         <div className="text-[11px] uppercase tracking-wider text-ink-muted">Starting Pitcher</div>
         <div className="text-[11px] uppercase tracking-wider text-ink-muted">Game</div>
-        <div className="text-right text-[11px] tracking-wider text-ink-muted">
+        <div className="text-center text-[11px] tracking-wider text-ink-muted">
           p̂<sub className="text-[9px]">typical</sub>
         </div>
-        <div className="text-right text-[11px] tracking-wider text-ink-muted">
+        <div className="text-center text-[11px] tracking-wider text-ink-muted">
           p̂<sub className="text-[9px]">today</sub>
         </div>
-        <div className="text-right text-[11px] uppercase tracking-wider text-ink-muted">Edge</div>
-        <div className="text-right text-[11px] uppercase tracking-wider text-ink-muted">Confidence</div>
-        <div className="text-right text-[11px] uppercase tracking-wider text-ink-muted">Score</div>
+        <div className="text-center text-[11px] uppercase tracking-wider text-ink-muted">Edge</div>
+        <div className="text-center text-[11px] uppercase tracking-wider text-ink-muted">Confidence</div>
+        <div className="text-center text-[11px] uppercase tracking-wider text-ink-muted">Score</div>
         <div></div>
       </div>
 
