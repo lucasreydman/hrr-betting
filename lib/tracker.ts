@@ -295,7 +295,23 @@ export async function settlePicks(date: string): Promise<{ settled: number; pend
   if (lockedErr) throw new Error(`locked_picks read failed: ${lockedErr.message}`)
   if (!lockedRows || lockedRows.length === 0) return { settled: 0, pending: 0, alreadySettled: false }
 
+  // Pre-fetch all boxscores in parallel before iterating. The previous serial
+  // for-loop fan-out made wall-clock ≈ N × per-fetch on cold cache, which on
+  // a 15-game slate (~22s) blew Vercel's 10s function limit. Parallel pre-
+  // fetch drops it to max(per-fetch) ≈ 1.5–2s.
   const cache = new Map<number, Awaited<ReturnType<typeof fetchBoxscore>>>()
+  const distinctGameIds = [...new Set(lockedRows.map(r => r.game_id))]
+  await Promise.all(
+    distinctGameIds.map(async gid => {
+      try {
+        cache.set(gid, await fetchBoxscore(gid))
+      } catch {
+        // Leave the cache slot empty — computeOutcome falls back to PENDING
+        // on cache miss + fetch failure.
+      }
+    }),
+  )
+
   const settledRows: SettledPickRow[] = []
   let pendingCount = 0
 
