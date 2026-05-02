@@ -837,7 +837,12 @@ function modeSlot(slots: number[]): number {
  * about how stale "stale" actually is for each game state.
  */
 export async function fetchBoxscore(gameId: number): Promise<Boxscore> {
-  const cacheKey = `hrr:boxscore:${gameId}`
+  // v2: lenient finality detection. MLB sometimes strips `gameData` from the
+  // boxscore response post-finalisation (observed Braves @ Rockies 824366
+  // 2026-05-01: gameData absent, but players have full final stats). The
+  // previous parser defaulted to 'scheduled' in that case and every pick
+  // stayed PENDING forever. v2 falls back to a populated-stats heuristic.
+  const cacheKey = `hrr:boxscore:v2:${gameId}`
   const cached = await kvGet<Boxscore>(cacheKey)
   if (cached) return cached
 
@@ -870,12 +875,20 @@ export async function fetchBoxscore(gameId: number): Promise<Boxscore> {
     }
   }
 
-  // Derive status from the API's abstractGameState field
+  // Derive status. Prefer the API's explicit `abstractGameState` when present,
+  // else infer from how populated `playerStats` is. Threshold ≥9 = at least
+  // a full team's worth of batters with stats — strong signal the game has
+  // been played to (or near to) completion. The fallback only fires when
+  // `gameData` is entirely missing from the response, which empirically
+  // happens post-final, not mid-game (so this won't false-positive a live
+  // game as final and pin it under the 6h `final` TTL).
   const rawStatus = data.gameData?.status?.abstractGameState
+  const populatedEnoughForFinal = Object.keys(playerStats).length >= 9
   const status: Boxscore['status'] =
     rawStatus === 'Final'   ? 'final'       :
     rawStatus === 'Live'    ? 'in_progress' :
-                              'scheduled'
+    populatedEnoughForFinal  ? 'final'       :
+                               'scheduled'
 
   const result: Boxscore = { gameId, status, playerStats }
   // Status-aware TTL — see TTL policy block above. Crucial: an in_progress

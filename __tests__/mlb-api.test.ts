@@ -557,6 +557,35 @@ describe('fetchBoxscore', () => {
     const [, , ttlSec] = setSpy.mock.calls[0]
     expect(ttlSec).toBeGreaterThanOrEqual(60 * 60)  // ≥ 1h — i.e. the 6h policy
   })
+
+  test('infers status=final when gameData is missing but playerStats are populated', async () => {
+    // Real-world: MLB sometimes strips `gameData` from the boxscore response
+    // post-finalisation (observed Braves @ Rockies 824366 2026-05-01). Without
+    // a fallback heuristic, picks stayed PENDING forever because the parser
+    // defaulted to 'scheduled' and the live-settle gate (`status !== 'final'`)
+    // refused to settle them.
+    const players: Record<string, unknown> = {}
+    for (let i = 0; i < 12; i++) {
+      players[`ID${600000 + i}`] = { stats: { batting: { hits: 1, runs: 0, rbi: 0 } } }
+    }
+    mockFetch(() => jsonResp({
+      teams: { home: { players }, away: { players: {} } },
+      // gameData entirely missing — matches the observed MLB response shape
+    }))
+    const box = await fetchBoxscore(806006)
+    expect(box.status).toBe('final')
+    expect(Object.keys(box.playerStats).length).toBe(12)
+  })
+
+  test('keeps status=scheduled when gameData is missing and playerStats are sparse', async () => {
+    // Empty boxscore (game not yet started, or endpoint not yet loaded)
+    // should NOT false-positive as final via the heuristic.
+    mockFetch(() => jsonResp({
+      teams: { home: { players: {} }, away: { players: {} } },
+    }))
+    const box = await fetchBoxscore(806007)
+    expect(box.status).toBe('scheduled')
+  })
 })
 
 // ---------------------------------------------------------------------------
