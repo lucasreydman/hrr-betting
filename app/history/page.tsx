@@ -96,7 +96,7 @@ export default async function HistoryPage() {
             </dd>
           </div>
           <div className="space-y-0.5">
-            <dt className="font-mono uppercase tracking-wider text-warn">conservative</dt>
+            <dt className="font-mono uppercase tracking-wider text-sky-400">conservative</dt>
             <dd className="text-ink-muted">
               You&apos;re hitting more often than predicted. The model is under-rating the
               picks it surfaces.

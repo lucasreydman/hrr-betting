@@ -11,9 +11,13 @@ function classify(rate: number, predictedAvg: number, total: number): Calibratio
   return delta > 0 ? 'conservative' : 'optimistic'
 }
 
+// Distinct colours for the three meaningful verdicts so the table reads at a
+// glance. Accurate stays green (the "we're calibrated" signal); conservative
+// uses sky-blue (over-performance is positive news for the bettor); optimistic
+// uses amber/warn (under-performance is a caution signal).
 const LABEL_TONE: Record<CalibrationLabel, string> = {
   accurate: 'text-hit',
-  conservative: 'text-warn',
+  conservative: 'text-sky-400',
   optimistic: 'text-warn',
   'no data': 'text-ink-muted',
 }
@@ -59,7 +63,7 @@ export function CalibrationTable({ perRung }: { perRung: HistoryResponse['rollin
                 <td className="px-3 py-3 text-right text-ink-muted">
                   {r.total > 0 ? r.brier.toFixed(3) : '—'}
                 </td>
-                <td className={`px-3 py-3 text-right text-xs ${LABEL_TONE[label]}`}>
+                <td className={`px-3 py-3 text-right text-[11px] uppercase tracking-wider ${LABEL_TONE[label]}`}>
                   {label}
                 </td>
               </tr>
