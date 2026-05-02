@@ -326,7 +326,18 @@ export async function settlePicks(date: string): Promise<{ settled: number; pend
   for (const row of lockedRows as LockedPickRow[]) {
     const result = await computeOutcome(row.game_id, row.player_id, row.rung as Rung, cache)
     if (result.outcome === 'PENDING') pendingCount++
-    settledRows.push({ ...row, ...result })
+    // Strip locked_picks-only columns (id, locked_at) before upserting into
+    // settled_picks. Recent PostgREST versions reject unknown columns by
+    // default; spreading the raw row used to silently work but now 500s.
+    // Settled_picks owns its own id sequence and `settled_at` default.
+    const {
+      id: _lockedPicksId,
+      locked_at: _lockedAt,
+      ...lockedFields
+    } = row
+    void _lockedPicksId
+    void _lockedAt
+    settledRows.push({ ...lockedFields, ...result })
   }
 
   const { error: upsertErr } = await supabase
