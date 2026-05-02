@@ -676,7 +676,7 @@ export function PickRow({ pick, rung }: { pick: Pick; rung?: 1 | 2 | 3 }) {
         aria-controls={panelId}
         onClick={toggle}
         onKeyDown={onKeyDown}
-        className={'w-full cursor-pointer px-3 py-3 text-left transition-colors sm:px-4 ' + rowFill}
+        className={'group w-full cursor-pointer px-3 py-3 text-left transition-colors sm:px-4 ' + rowFill}
       >
         {/* Desktop: 10-column grid (bet · batter · pitcher · game · p.typ · p.today · edge · conf · score · caret) */}
         <div className="hidden sm:grid sm:grid-cols-[0.7fr_1.55fr_1.35fr_1.15fr_0.85fr_0.85fr_0.8fr_1fr_0.6fr_0.3fr] sm:items-center sm:gap-3">
@@ -799,11 +799,17 @@ export function PickRow({ pick, rung }: { pick: Pick; rung?: 1 | 2 | 3 }) {
             </div>
           </div>
 
-          {/* CARET — dedicated 8th column so score numbers don't shift */}
+          {/* CARET — dedicated 8th column so score numbers don't shift.
+              Grows + brightens on row hover to mirror the prominent ▾ in
+              the header copy ("click the ▾ on any row …"). */}
           <div className="flex items-center justify-center">
             <span
               aria-hidden="true"
-              className={'text-sm text-ink-muted/60 transition-transform ' + (expanded ? 'rotate-180' : '')}
+              className={
+                'inline-block font-mono text-sm text-ink-muted/60 transition-all duration-200 ease-out ' +
+                'group-hover:scale-125 group-hover:text-ink group-focus-visible:scale-125 group-focus-visible:text-ink ' +
+                (expanded ? 'rotate-180' : '')
+              }
             >
               ▾
             </span>
