@@ -1,148 +1,117 @@
-# HRR Betting — CLAUDE.md
+# CLAUDE.md
 
-## Project context
+Short, repo-specific guidance for Claude. The README has the full picture — this file is the operating manual.
 
-MLB Hits + Runs + RBIs prop ranker with three rungs (1+, 2+, 3+). Hybrid
-ranking model: an offline 20k-iter Monte Carlo computes a stable per-player
-`probTypical` baseline (weekly full + nightly slate refresh), and a
-closed-form formula evaluates `probToday` at request time as
-`probTypical × pitcherFactor × parkFactor × weatherFactor × handednessFactor × bullpenFactor × paCountFactor`.
-See `docs/superpowers/specs/2026-04-28-hybrid-ranking-refactor-design.md`.
-Tracked picks (high-conviction tier) auto-settle from boxscore.
+## Project Context
 
-## Architecture
-
-- `app/` — Next.js App Router. Three pages (`/`, `/history`, `/methodology`)
-  and seven API routes:
-  - Public: `picks`, `history`
-  - Cron-authed: `sim/typical` (offline MC), `sim/typical-slate-ids`, `refresh`,
-    `lock`, `settle`, `admin/bvp` (diagnostic)
-- `lib/` — pure math + data adapters. Math files have NO I/O; data files
-  handle caching against the Supabase `cache` table or the in-memory fallback.
-- `components/` — UI building blocks (`NavBar`, `ClientShell`, `BoardSection`,
-  `PickRow`, `StatusBanner`, `CalibrationTable`, `HistoryChart`, `EmptyState`).
-- `__tests__/` — Jest unit tests for math primitives + adapters. Live
-  smoke tests gated on `RUN_LIVE_TESTS=1`.
-- `supabase/migrations/` — Postgres schema (`locked_picks`, `settled_picks`,
-  `cache`) and one-shot cache invalidations.
-- `.github/workflows/cron.yml` — GitHub Actions cron (sim warm + lock + settle).
-- `.github/workflows/ci.yml` — lint / typecheck / test / build on every PR.
-
-## Stack
-
-- **Runtime**: Next.js 16 App Router (Turbopack) · React 19 · Tailwind v4 · TypeScript 6 (strict) · Jest 30 + ts-jest
-- **Persistence**: Supabase Postgres (cache + history). RLS on, service-role-only.
-- **Cron**: GitHub Actions free tier (~50 min/month against a 2,000 min quota).
-- **CI**: GitHub Actions — every push and PR runs lint / typecheck / test / build.
-- **Hosting**: Vercel Hobby (free); closed-form `probToday` is sub-millisecond on the request path; offline MC runs in the cron.
-- **External APIs (no auth)**: MLB Stats, Baseball Savant CSV, Open-Meteo.
-
-## Storage model
-
-| What | Table | Why |
-|---|---|---|
-| Sim results, P_typical, weather, Savant CSVs, TTO, bullpen, schedules, lineups | `cache` | Hot key/value cache with TTL — replaces Vercel KV / Upstash. JSONB. |
-| Locked + settled picks | `locked_picks` / `settled_picks` | History queries (rolling 30-day, recalibration) want SQL. UNIQUE(date, game_id, player_id, rung). |
-
-`lib/db.ts` exposes `getSupabase()` (returns `null` when env vars missing).
-`lib/kv.ts` keeps the historical `kvGet/kvSet/kvDel` API — under the hood it
-reads/writes the `cache` table via Supabase, with an in-memory `Map` fallback
-for tests/dev.
-
-## Critical files
-
-- `lib/offline-sim/sim.ts` — lineup-aware Monte Carlo, offline-only. Runs in `/api/sim/typical` cron, not on the request path.
-- `lib/offline-sim/baserunner.ts` — baserunner state machine used by the offline MC.
-- `lib/per-pa.ts` — log-5 + Statcast hybrid 7-outcome distribution. Statcast multipliers clamped to `[0.25, 4]` before sqrt to prevent zero-collapse.
-- `lib/prob-today.ts` — closed-form `probToday = probTypical × factors`. Evaluated at request time.
-- `lib/factors/` — individual closed-form factor functions: pitcher, park, weather, handedness, bullpen, paCount.
-- `lib/edge.ts` — `EDGE = max(P_matchup, 0.01) / max(P_typical, 0.01) − 1`. Symmetric floor on both sides.
-- `lib/p-typical.ts` — cache-reader for `probTypical` baselines; heavy compute in `computeTypicalOffline()` (offline MC path).
-- `lib/tracker.ts` — lock snapshot + settlement (writes to Supabase, KV fallback).
-- `lib/cron-auth.ts` — `x-cron-secret` header check for cron-triggered routes.
-- `lib/date-utils.ts` — `slateDateString()` (ET 3 AM rollover, **the slate helper**), `pacificDateString()` (kept for any caller that genuinely wants PT), `shiftIsoDate`, `isValidIsoDate`. Use `slateDateString` everywhere a slate boundary is needed.
-- `lib/weather-factors.ts` — temp + wind multipliers fed into the per-PA model. Domes/failures short-circuit to neutral 1.00. Constants are calibration targets.
-- `lib/park-factors.ts` — 2025 FanGraphs Guts! data, per-outcome × per-handedness.
-- `supabase/migrations/20260426000000_initial_schema.sql` — schema.
+- MLB Hits + Runs + RBIs prop ranker. Three independently-ranked rungs (1+, 2+, 3+ HRR), auto-tracked picks, rolling calibration metrics.
+- Hybrid model: an offline 20k-iter Monte Carlo (`probTypical`) cached in Supabase, multiplied at request time by closed-form factors (`probToday = probTypical × pitcher × park × weather × handedness × bullpen × paCount`).
+- Stack: Next.js 16 App Router (Turbopack), React 19, Tailwind v4, TypeScript 6 (strict), Jest 30 + ts-jest, Supabase Postgres.
+- Hosted on Vercel Hobby; cron driven by GitHub Actions (free tier).
 
 ## Commands
 
-| Command | What |
+Run from repo root.
+
+| Command | Purpose |
 | --- | --- |
-| `npm run dev` | Next dev server (KV in-memory fallback; Supabase no-op without env vars). |
-| `npm run build` | Production build (must stay green). |
-| `npm test` | Jest unit tests. |
+| `npm install` | Install deps. |
+| `npm run dev` | Next dev server. Works without env vars (in-memory KV, Supabase no-op). |
+| `npm run build` | Production build. Must stay green. |
+| `npm run start` | Serve the production build. |
 | `npm run lint` | ESLint over `app lib components scripts __tests__`. |
 | `npm run typecheck` | `tsc --noEmit`. |
-| `npm run recalibrate` | Tracked-tier floor audit (`scripts/recalibrate.ts`). Requires `SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY` and ≥ 30 days of settled history. |
-| `npx supabase db push` | Apply migrations to remote Supabase project (after `supabase link`). |
-| `RUN_LIVE_TESTS=1 npm test` | Run live-network smoke tests (MLB / Savant / weather / p-typical). |
+| `npm test` | Jest unit suite (hermetic). |
+| `npm run test:watch` | Jest watch mode. |
+| `npm run recalibrate` | `tsx scripts/recalibrate.ts` — Tracked-tier floor audit. Needs `SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY` and ≥30 days of settled history. |
 
-## Validation checklist (before any commit/merge)
+Live-network smoke tests are opt-in: `RUN_LIVE_TESTS=1 npm test` (not in CI).
 
-CI runs all four. Local equivalents:
+## Codebase Structure
+
+- `app/` — Next.js App Router. Pages (`/`, `/history`, `/history/all`, `/methodology`) and API routes under `app/api/`.
+- `components/` — UI building blocks (Board, PickRow, ClientShell, NavBar, CalibrationTable, …).
+- `lib/factors/` — closed-form per-factor math (pitcher, park, weather, handedness, bullpen, paCount, batter, bvp).
+- `lib/offline-sim/` — 20k-iter MC + baserunner state machine (cron-only path).
+- `lib/ranker.ts` · `lib/prob-today.ts` · `lib/p-typical.ts` · `lib/edge.ts` — scoring pipeline.
+- `lib/tracker.ts` — lock + settle, plus pure metric helpers (`shouldLock`, `computeRollingMetrics`).
+- `lib/kv.ts` · `lib/db.ts` · `lib/env.ts` · `lib/cron-auth.ts` — Supabase + cache plumbing + `x-cron-secret` check.
+- `lib/date-utils.ts` — `slateDateString()` (ET 3 AM rollover, the slate helper).
+- `__tests__/` — Jest tests; one alongside each math primitive.
+- `supabase/migrations/` — schema + one-shot cache invalidations.
+- `.github/workflows/{ci,cron}.yml` — CI gates and cron schedule.
+- `docs/DEPLOY.md` — deploy runbook. `docs/superpowers/` — spec + plan.
+
+## Development Rules
+
+- **Math files have no I/O.** `factors/*`, `per-pa`, `edge`, `confidence`, `weather-factors`, `park-factors`, `baserunner` are pure + unit-tested. Don't add fetches.
+- **Data adapters cache through `lib/kv.ts`.** Cache keys live with the function that owns them.
+- **Bump cache key prefix on shape changes.** Versioned prefixes (`hrr:lineup:` → `hrr:lineup:v2:`) force re-fetch instead of serving stale TTL data. Pair with a one-shot SQL migration in `supabase/migrations/` to free orphaned rows.
+- **Slate boundary is ET 3 AM.** Use `slateDateString()` everywhere — `/api/picks`, `/api/lock`, `/api/settle`, `/api/sim/typical`, `app/page.tsx`. Never hardcode UTC `today`. `pacificDateString()` exists only for callers that genuinely want PT.
+- **API input validation is strict.** All `?date=` go through `isValidIsoDate`. All IDs must be positive integers. Bad input → 400.
+- **Cron routes 401 on bad secret.** `verifyCronRequest` fails closed in production, opens in dev.
+- **Picks history is idempotent.** `locked_picks` / `settled_picks` upserts use `onConflict: 'date,game_id,player_id,rung'`.
+- **Tracked-tier floors are placeholders.** `EDGE_FLOORS`, `PROB_FLOORS`, `CONFIDENCE_FLOOR_TRACKED` in `lib/constants.ts` need ≥30 days of settled history before tuning. Use `npm run recalibrate`.
+- **Auto-refresh cadence.** Server cache 30 s; client polls every 60 s + on `visibilitychange`/`online`. Don't push lower without raising cron cadence.
+- **New math primitive → unit test alongside.** New API route → at least an input-validation test.
+
+## Environment Variables
+
+Copy `.env.example` to `.env.local` for production-parity dev. Without these, dev still boots: KV falls back to in-memory; Supabase calls become no-ops; cron auth opens.
+
+| Name | Purpose |
+| --- | --- |
+| `SUPABASE_URL` | Supabase project URL. Read in `lib/db.ts`. |
+| `SUPABASE_SERVICE_ROLE_KEY` | Service-role key. Bypasses RLS. **Server-only — never expose to the browser.** |
+| `CRON_SECRET` | Value of the `x-cron-secret` header on cron routes. Read in `lib/cron-auth.ts`. |
+| `RUN_LIVE_TESTS` (optional) | Set to `1` to opt into live-network smoke tests. |
+
+`lib/env.ts` exports `sanitizeEnvValue` to strip whitespace + matched surrounding quotes — Vercel sometimes wraps values, GitHub secrets don't, so both sides are normalised.
+
+## Cron / Automation
+
+`.github/workflows/cron.yml` runs against the deployed Vercel URL. All UTC. ET conversions assume EDT (in effect during MLB season).
+
+| Job | Cron (UTC) | ET equivalent |
+| --- | --- | --- |
+| Settle | `15 7 * * *` | 3:15 AM ET |
+| Typical sim — full population | `0 8 * * 0` | Sunday 4 AM ET |
+| Typical sim — slate batters | `0 8 * * 1-6` | Mon–Sat 4 AM ET |
+| Slate refresh | `*/2 17-23 * * *` and `*/2 0-7 * * *` | every 2 min, 1 PM ET → 3 AM ET |
+| Lock check | `*/5 17-23 * * *` and `*/5 0-7 * * *` | every 5 min, 1 PM ET → 3 AM ET |
+
+GitHub free-tier cron has 5–15 min jitter — fine for this eventually-consistent refresh model. Manual dispatch: GitHub → Actions → "Cron — sim/lock/settle" → Run workflow.
+
+## Testing / Quality Checks
+
+After any change, before claiming done:
 
 ```bash
-npm run lint
-npm run typecheck
-npm test
-npm run build
+npm run lint && npm run typecheck && npm test && npm run build
 ```
 
-## Environment variables
+Same four gates CI runs (`.github/workflows/ci.yml`). All four must pass.
 
-| Name | Required for | Notes |
-| --- | --- | --- |
-| `SUPABASE_URL` | Production | Without it, code falls back to in-memory KV (works for dev/tests). |
-| `SUPABASE_SERVICE_ROLE_KEY` | Production | Server-only. Bypasses RLS. **Never expose to the browser.** |
-| `CRON_SECRET` | Production cron + GitHub Actions secret | `x-cron-secret` header check. Without it, cron routes accept all callers (dev-mode bypass in `lib/cron-auth.ts`). |
+## Common Pitfalls
 
-`lib/env.ts` exports `sanitizeEnvValue` to strip whitespace and matched
-surrounding quotes from env values — Vercel and `.env` files both sometimes
-wrap values, this normalises both.
+- **Production missing `SUPABASE_URL` / `SUPABASE_SERVICE_ROLE_KEY`.** Code silently falls back to in-memory KV — no errors, but no data either. Verify on Vercel.
+- **Production missing `CRON_SECRET`.** Cron routes 401 every caller. GitHub Actions secret and Vercel env var must hold the same value.
+- **Cache-shape change without prefix bump.** Stale entries served until TTL expires. Bump prefix + ship a SQL invalidation migration.
+- **Hardcoding UTC `today` for slate work.** Use `slateDateString()`. Slate boundary is 3 AM ET.
+- **Editing generated files.** `.next/`, `*.tsbuildinfo`, `next-env.d.ts`, `node_modules/`, `coverage/` are gitignored — never commit.
+- **Drift between docs and config.** When changing `package.json` scripts, env var names, cron schedule, or API route shapes, update `README.md`, `CLAUDE.md`, `.env.example`, and `docs/DEPLOY.md` in the same change.
+- **Adding live-network calls in tests.** Tests must be hermetic by default. Gate live calls on `RUN_LIVE_TESTS=1`.
 
-## Coding conventions
+## Change Guidelines
 
-- **Math files have NO I/O.** Pure functions, deterministic, unit-testable. (`per-pa`, `edge`, `confidence`, `baserunner`, `rates`, `stabilization`, `bullpen` weights, `weather-factors`, `park-factors`.)
-- **Data adapters cache through `lib/kv.ts`.** Cache keys live in the function that owns them. **Bump the key prefix** (e.g. `hrr:lineup:` → `hrr:lineup:v2:`) when changing the *shape* of cached values so existing rows are forcibly re-fetched instead of serving stale data for the TTL window. Optionally pair with a one-shot SQL migration in `supabase/migrations/` to free orphaned rows.
-- **Slate boundary: ET, 3 AM rollover.** Use `slateDateString()` for *anything* slate-related — `/api/picks` default date, `/api/lock`, `/api/settle` (which then `shiftIsoDate(slateDateString(), -1)` for "yesterday's slate"), `/api/sim/typical`, `app/page.tsx`, the cron's `SLATE=$(TZ='America/New_York' date -d '3 hours ago' +%Y-%m-%d)` step. **Never** hardcode UTC `today`.
-- **API input validation: strict.** All `?date=` params go through `isValidIsoDate`; all IDs must be positive integers.
-- **Cron routes 401 on bad secret, 400 on bad input.** Never silently accept malformed input.
-- **Picks history is idempotent.** `locked_picks` / `settled_picks` upserts use `onConflict: 'date,game_id,player_id,rung'`. Re-runs are safe.
-- **Tracked tier floors are placeholders.** `EDGE_FLOORS`, `PROB_FLOORS`, `CONFIDENCE_FLOOR_TRACKED` in `lib/constants.ts` need ≥ 30 days of settled history before they can be tuned. Don't tune from gut feel.
-- **Auto-refresh:** `/api/picks` server cache is **30 s**; the client polls every 60 s while the tab is visible and instant-refetches on `visibilitychange` + `online`. Don't push these intervals lower without raising the cron cadence — faster polls won't surface new data, just burn cache.
+- Small, focused diffs. Don't bundle unrelated cleanup.
+- Preserve existing behaviour unless explicitly asked to change it.
+- Don't add dependencies without a clear reason — the dep tree is intentionally tiny.
+- Don't expose service-role secrets to the browser. Anything client-bundled is public.
+- Update related docs in the same change when behaviour changes.
 
-## Testing expectations
+## Before Finishing
 
-- New math primitives → unit test alongside (`__tests__/<name>.test.ts`).
-- New API routes → at minimum an input-validation test if no fetch mock is available.
-- Tests must be hermetic — no live network calls without `RUN_LIVE_TESTS=1`.
-- Pure functions in `lib/tracker.ts` (`shouldLock`, `computeRollingMetrics`) have explicit tests; preserve that pattern when adding new pure helpers.
-
-## Cron schedule (UTC)
-
-- `0 8 * * 0` — Sunday 4 AM ET: full-population offline MC (`/api/sim/typical?mode=full`).
-- `0 8 * * 1-6` — Mon-Sat 4 AM ET: slate-batter offline MC (`/api/sim/typical?mode=slate`).
-- `*/2 17-23 * * *` and `*/2 0-7 * * *` — every 2 min during slate hours: slate refresh (`/api/refresh`).
-- `*/5 17-23 * * *` and `*/5 0-7 * * *` — every 5 min during slate hours: lock check (`/api/lock`).
-- `0 10 * * *` — settle (6 AM ET, well past the 3 AM ET rollover so `slateDateString() − 1` correctly identifies yesterday's slate).
-- 5–15 min jitter on GitHub Actions free tier; fine for eventually-consistent refresh.
-
-## Known limitations / follow-ups
-
-These are intentional v1 simplifications, not bugs. Calibration target: post ≥ 30 days of settled history.
-
-- **Tracked-tier floors** (`lib/constants.ts`) are placeholders. Run `npm run recalibrate` to tune.
-- **MISS vs VOID outcome.** Players who didn't enter the boxscore are recorded as MISS with 0 HRR; sportsbooks would void. Tracking-accuracy implications acknowledged but no schema migration shipped.
-- **No L30/L15 batter rolling blend** in `buildBatterContext` — season stats only.
-- **Pitcher TTO splits** use league-average multipliers; pitcher-specific TTO requires Savant pitch-level data.
-- **Opener detection** is hardcoded to `'starter'` in the offline MC; needs Savant pitch-by-pitch data.
-- **Switch hitters** get the L/R-average park factor; a finer model would weight by the pitcher's hand for that PA.
-- **Weather constants** (TEMP_HR_PER_10F, WIND_HR_PER_MPH, the clamps) are calibration targets — magnitudes grounded in published research (Alan Nathan, Kovalchik), exact values to be tuned against settled history.
-- **`/api/admin/bvp`** is gated on the same `CRON_SECRET` as cron routes — fine for a personal-scope project; split if surface widens.
-
-## Spec & plan
-
-- Spec: `docs/superpowers/specs/2026-04-26-hrr-betting-design.md`
-- Plan: `docs/superpowers/plans/2026-04-26-hrr-betting.md`
-- Deploy runbook: `docs/DEPLOY.md`
+- Run `npm run lint && npm run typecheck && npm test && npm run build` and confirm green.
+- If you can't run a check (missing env vars, sandbox limits), say so explicitly — don't claim it passed.
+- Summarise what changed and which files were touched.
