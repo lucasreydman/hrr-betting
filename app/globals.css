@@ -33,6 +33,7 @@ html {
   --color-hit: #10b981;           /* settled win */
   --color-miss: #ef4444;          /* settled loss */
   --color-warn: #f59e0b;          /* used for partial / estimated states */
+  --color-live: #f97316;          /* in-progress game indicator (orange, distinct from miss-red and tracked-amber) */
 
   /* ---------- Typography ---------- */
   --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto;

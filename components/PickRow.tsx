@@ -157,16 +157,16 @@ function LineupBadge({ status, slot }: { status: Pick['lineupStatus']; slot: num
 function LiveBadge({ inning }: { inning?: Pick['gameInning'] }) {
   const inningLabel = inning ? `${inning.half === 'top' ? 'TOP' : 'BOT'} ${inning.number}` : null
   return (
-    <span className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-miss">
+    <span className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-live">
       <span
-        className="inline-block h-1.5 w-1.5 rounded-full bg-miss animate-pulse"
+        className="inline-block h-1.5 w-1.5 rounded-full bg-live animate-pulse"
         aria-hidden="true"
       />
       LIVE
       {inningLabel && (
         <>
-          <span className="text-miss/50" aria-hidden="true">·</span>
-          <span className="text-miss/90">{inningLabel}</span>
+          <span className="text-live/50" aria-hidden="true">·</span>
+          <span className="text-live/90">{inningLabel}</span>
         </>
       )}
     </span>
