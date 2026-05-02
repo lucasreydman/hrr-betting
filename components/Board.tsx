@@ -7,16 +7,17 @@ import { EmptyState } from './EmptyState'
 
 export type PickWithRung = Pick & { rung: 1 | 2 | 3 }
 
-type SortKey = 'score' | 'pMatchup' | 'edge' | 'confidence' | 'pTypical'
+type SortKey = 'score' | 'pTypical' | 'pMatchup' | 'edge' | 'confidence'
 
 // p̂ = "p-hat", standard stats notation for an estimated probability. Used in
-// labels and column headers throughout the board.
+// labels and column headers throughout the board. Object key order also drives
+// the `<select>` option order — Score first since it's the default.
 const SORT_LABELS: Record<SortKey, string> = {
-  score: 'Score',
+  score: 'Score (default)',
+  pTypical: 'p̂ typical',
   pMatchup: 'p̂ today',
   edge: 'Edge',
   confidence: 'Confidence',
-  pTypical: 'p̂ typical',
 }
 
 const RUNG_TOOLTIPS: Record<1 | 2 | 3, string> = {
@@ -110,7 +111,6 @@ export function Board({ picks }: { picks: PickWithRung[] }) {
     () => visible.filter(p => p.tier === 'watching').sort((a, b) => b[sortKey] - a[sortKey]),
     [visible, sortKey],
   )
-  const totalShown = tracked.length + watching.length
 
   // Don't allow zero rungs — keeps the board from going empty in a confusing way.
   const toggleRung = (r: 1 | 2 | 3) => {
@@ -192,9 +192,6 @@ export function Board({ picks }: { picks: PickWithRung[] }) {
           </button>
         </div>
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-          <span className="font-mono text-[11px] tabular-nums text-ink-muted">
-            {totalShown} {totalShown === 1 ? 'play' : 'plays'}
-          </span>
           <label className="flex items-center gap-2">
             <span className="text-[11px] uppercase tracking-wider text-ink-muted">Sort by</span>
             <select
