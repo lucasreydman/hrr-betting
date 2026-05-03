@@ -80,6 +80,8 @@ Project Settings → Environment Variables → add the following to **Production
 | `SUPABASE_URL` | `https://hzfzuemmhjnnlptoyqlg.supabase.co` |
 | `SUPABASE_SERVICE_ROLE_KEY` | (from step 2d — secret) |
 | `CRON_SECRET` | `tixqKv4paliuUCi3Dvfudw1S8Sh6TM-ZabL5RvDw16w` |
+| `DISCORD_WEBHOOK_URL` | (optional) Discord channel webhook for tracked-tier notifications. Get from Discord channel → Integrations → Webhooks → New Webhook. |
+| `DISCORD_LOCK_MENTION` | (optional) Defaults to `@everyone` so phone push-notifications fire on lock alerts. Override with `@here`, `<@USER_ID>`, or `""` to disable. |
 
 The `CRON_SECRET` was pre-generated for you and lives in this repo's deploy notes. Use the same value in the next step.
 
@@ -171,7 +173,6 @@ Commit floor adjustments as `chore(calibration): tune Tracked floors based on N 
 ## Out of scope for v0.1.0 (deferred)
 
 - Book odds integration
-- Discord notifications
 - Mobile-specific layouts
 - Automated recalibration cron
 - 2023+ ghost-runner extras rule
