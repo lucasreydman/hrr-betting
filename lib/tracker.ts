@@ -326,17 +326,20 @@ export async function settlePicks(date: string): Promise<{ settled: number; pend
   for (const row of lockedRows as LockedPickRow[]) {
     const result = await computeOutcome(row.game_id, row.player_id, row.rung as Rung, cache)
     if (result.outcome === 'PENDING') pendingCount++
-    // Strip locked_picks-only columns (id, locked_at) before upserting into
-    // settled_picks. Recent PostgREST versions reject unknown columns by
-    // default; spreading the raw row used to silently work but now 500s.
-    // Settled_picks owns its own id sequence and `settled_at` default.
+    // Strip locked_picks-only columns (id, locked_at, discord_notified_at)
+    // before upserting into settled_picks. Recent PostgREST versions reject
+    // unknown columns by default; spreading the raw row used to silently work
+    // but now 500s. Settled_picks owns its own id sequence and `settled_at`
+    // default, and never uses the Discord notify marker.
     const {
       id: _lockedPicksId,
       locked_at: _lockedAt,
+      discord_notified_at: _discordNotifiedAt,
       ...lockedFields
     } = row
     void _lockedPicksId
     void _lockedAt
+    void _discordNotifiedAt
     settledRows.push({ ...lockedFields, ...result })
   }
 
