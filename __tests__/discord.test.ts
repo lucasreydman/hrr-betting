@@ -1,5 +1,6 @@
 import {
   buildLockEmbed,
+  buildLockContent,
   buildSettleDigestEmbed,
   postWebhook,
   postLockNotifications,
@@ -148,6 +149,64 @@ describe('buildLockEmbed', () => {
   test('omits footer when no pitcher provided', () => {
     const embed = buildLockEmbed({ picks: [lockedRow()], game: sampleGame })
     expect(embed.footer).toBeUndefined()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// buildLockContent (push-notification-visible summary)
+// ---------------------------------------------------------------------------
+
+describe('buildLockContent', () => {
+  test('includes mention, matchup, ET time, player names, and rungs', () => {
+    const content = buildLockContent({
+      picks: [
+        lockedRow({ player_id: 1, player_name: 'Aaron Judge', rung: 1, lineup_slot: 2 }),
+        lockedRow({ player_id: 2, player_name: 'Ben Rice', rung: 1, lineup_slot: 4 }),
+        lockedRow({ player_id: 2, player_name: 'Ben Rice', rung: 2, lineup_slot: 4 }),
+      ],
+      game: sampleGame,  // 2026-04-30T00:05:00Z = 8:05 PM ET
+      mention: '@everyone',
+    })
+    expect(content).toContain('@everyone')
+    expect(content).toContain('🔒')
+    expect(content).toContain('NYY @ TEX')
+    expect(content).toContain('8:05p')
+    expect(content).toContain('Aaron Judge 1+')
+    expect(content).toContain('Ben Rice 1+/2+')
+  })
+
+  test('orders players by lineup slot ascending', () => {
+    const content = buildLockContent({
+      picks: [
+        lockedRow({ player_id: 1, player_name: 'Slot 5', lineup_slot: 5 }),
+        lockedRow({ player_id: 2, player_name: 'Slot 2', lineup_slot: 2 }),
+      ],
+      game: sampleGame,
+      mention: '',
+    })
+    const slot2Idx = content.indexOf('Slot 2')
+    const slot5Idx = content.indexOf('Slot 5')
+    expect(slot2Idx).toBeLessThan(slot5Idx)
+    expect(slot2Idx).toBeGreaterThan(-1)
+  })
+
+  test('falls back to row metadata when game lookup is missing', () => {
+    const content = buildLockContent({
+      picks: [lockedRow()],
+      mention: '@everyone',
+    })
+    expect(content).toContain('NYY vs TEX')
+    expect(content).not.toContain('AM')
+    expect(content).not.toContain('PM')
+  })
+
+  test('omits mention prefix when mention is empty', () => {
+    const content = buildLockContent({
+      picks: [lockedRow()],
+      mention: '',
+    })
+    expect(content).not.toMatch(/^@/)
+    expect(content).toContain('🔒')
   })
 })
 
@@ -379,7 +438,8 @@ describe('postLockNotifications', () => {
     })
 
     const body = JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string)
-    expect(body.content).toBe('@everyone')
+    expect(body.content).toMatch(/^@everyone /)
+    expect(body.content).toContain('Aaron Judge')
     expect(body.allowed_mentions?.parse).toContain('everyone')
   })
 
@@ -395,11 +455,11 @@ describe('postLockNotifications', () => {
     })
 
     const body = JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string)
-    expect(body.content).toBe('<@123456789>')
+    expect(body.content).toMatch(/^<@123456789> /)
     expect(body.allowed_mentions?.parse).toEqual(expect.arrayContaining(['users']))
   })
 
-  test('empty DISCORD_LOCK_MENTION disables mention entirely', async () => {
+  test('empty DISCORD_LOCK_MENTION omits mention but keeps the summary', async () => {
     process.env.DISCORD_WEBHOOK_URL = 'https://discord.com/api/webhooks/x/y'
     process.env.DISCORD_LOCK_MENTION = ''
     const fetchMock = jest.fn().mockResolvedValue(new Response(null, { status: 204 }))
@@ -411,7 +471,8 @@ describe('postLockNotifications', () => {
     })
 
     const body = JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string)
-    expect(body.content).toBeUndefined()
+    expect(body.content).not.toMatch(/^@/)
+    expect(body.content).toContain('Aaron Judge')
     expect(body.allowed_mentions).toBeUndefined()
   })
 

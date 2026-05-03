@@ -126,6 +126,62 @@ function formatRungLine(row: LockedPickRow): string {
 }
 
 /**
+ * Format ET game time as "h:mma" (e.g. "7:10p"). Push notifications show
+ * the raw content string only — Discord's `<t:UNIX>` renders are stripped
+ * outside the embed, so we have to format the time as plain text here.
+ *
+ * ET hardcoded because the app is a US sports book context anchored on the
+ * ET 3 AM slate boundary; viewers on other coasts can still mentally adjust.
+ */
+function formatGameTimeET(iso: string): string {
+  const fmt = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/New_York',
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+  })
+  // Output looks like "7:10 PM" — compress to "7:10p" for tight notifications.
+  return fmt
+    .format(new Date(iso))
+    .replace(/\s?AM$/, 'a')
+    .replace(/\s?PM$/, 'p')
+}
+
+/**
+ * Build the per-game `content` string. This is the ONLY part of the message
+ * that surfaces in mobile push notifications — embed fields are not visible
+ * on the lock screen — so it has to be a self-contained scannable summary
+ * of "what to bet, in which game, by when".
+ *
+ * Format: `{mention} 🔒 {AWAY @ HOME} {time}p — {Player} {1+/2+...} · …`
+ *
+ * Skips the mention entirely when the caller passes empty string.
+ */
+export function buildLockContent(args: {
+  picks: LockedPickRow[]
+  game?: Game
+  mention: string
+}): string {
+  const { picks, game, mention } = args
+  const players = groupByPlayer(picks)
+  const first = picks[0]
+
+  const matchup = game
+    ? `${game.awayTeam.abbrev} @ ${game.homeTeam.abbrev}`
+    : `${first.player_team} vs ${first.opponent_abbrev}`
+
+  const timeBit = game ? ` ${formatGameTimeET(game.gameDate)}` : ''
+
+  const playerSummaries = players.map(p => {
+    const rungBit = p.rungs.map(r => `${r.rung}+`).join('/')
+    return `${p.playerName} ${rungBit}`
+  })
+
+  const summary = `🔒 ${matchup}${timeBit} — ${playerSummaries.join(' · ')}`
+  return mention ? `${mention} ${summary}` : summary
+}
+
+/**
  * Build a single-game lock embed. `picks` MUST all share the same `game_id`.
  * Caller is responsible for grouping; passing mixed games will produce
  * misleading output.
@@ -363,15 +419,17 @@ export async function postLockNotifications(args: {
     : (sanitizeEnvValue(rawMention) ?? '')
 
   for (const [gameId, picks] of byGame) {
+    const game = gameLookup.get(gameId)
     const embed = buildLockEmbed({
       picks,
-      game: gameLookup.get(gameId),
+      game,
       opposingPitcher: pitcherLookup?.get(gameId),
     })
+    const content = buildLockContent({ picks, game, mention })
     const body: DiscordWebhookBody = {
+      content,
       embeds: [embed],
       ...(mention ? {
-        content: mention,
         allowed_mentions: { parse: ['everyone', 'roles', 'users'] },
       } : {}),
     }
