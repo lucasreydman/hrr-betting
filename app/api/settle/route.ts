@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { settlePicks } from '@/lib/tracker'
 import { verifyCronRequest } from '@/lib/cron-auth'
 import { slateDateString, shiftIsoDate, isValidIsoDate } from '@/lib/date-utils'
+import { processSettleDigest } from '@/lib/discord'
 
 // Settle reads boxscores for ~5-15 picks. Each fetch is ~200-500ms; even with
 // 20 picks we're under 10s.
@@ -30,5 +31,8 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
 
   const targetDate = dateParam ?? shiftIsoDate(slateDateString(), -1)
   const result = await settlePicks(targetDate)
-  return NextResponse.json({ date: targetDate, ...result })
+  // Daily Discord digest. KV-flagged so manual re-dispatches don't double-post.
+  // No-op when DISCORD_WEBHOOK_URL is unset or Supabase is unavailable.
+  const discord = await processSettleDigest({ date: targetDate })
+  return NextResponse.json({ date: targetDate, ...result, discord })
 }

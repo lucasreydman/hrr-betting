@@ -36,6 +36,7 @@ Live-network smoke tests are opt-in: `RUN_LIVE_TESTS=1 npm test` (not in CI).
 - `lib/ranker.ts` · `lib/prob-today.ts` · `lib/p-typical.ts` · `lib/edge.ts` — scoring pipeline.
 - `lib/tracker.ts` — lock + settle, plus pure metric helpers (`shouldLock`, `computeRollingMetrics`).
 - `lib/kv.ts` · `lib/db.ts` · `lib/env.ts` · `lib/cron-auth.ts` — Supabase + cache plumbing + `x-cron-secret` check.
+- `lib/discord.ts` — Discord webhook notifier. Pure embed builders + thin POST wrapper. Idempotent via `locked_picks.discord_notified_at` (per-game lock alerts) and a KV flag (per-day settle digest).
 - `lib/date-utils.ts` — `slateDateString()` (ET 3 AM rollover, the slate helper).
 - `__tests__/` — Jest tests; one alongside each math primitive.
 - `supabase/migrations/` — schema + one-shot cache invalidations.
@@ -64,6 +65,8 @@ Copy `.env.example` to `.env.local` for production-parity dev. Without these, de
 | `SUPABASE_URL` | Supabase project URL. Read in `lib/db.ts`. |
 | `SUPABASE_SERVICE_ROLE_KEY` | Service-role key. Bypasses RLS. **Server-only — never expose to the browser.** |
 | `CRON_SECRET` | Value of the `x-cron-secret` header on cron routes. Read in `lib/cron-auth.ts`. |
+| `DISCORD_WEBHOOK_URL` (optional) | Discord channel webhook. When set, `/api/lock` posts an embed per game with newly-locked tracked picks, and `/api/settle` posts a daily digest. Unset → notifier no-ops. Read in `lib/discord.ts`. |
+| `DISCORD_LOCK_MENTION` (optional) | Mention prepended to lock messages so phone push-notifications fire (Discord channels default to "@mentions only"). Defaults to `@everyone`. Set to `@here`, `<@USER_ID>`, or empty string to override. |
 | `RUN_LIVE_TESTS` (optional) | Set to `1` to opt into live-network smoke tests. |
 
 `lib/env.ts` exports `sanitizeEnvValue` to strip whitespace + matched surrounding quotes — Vercel sometimes wraps values, GitHub secrets don't, so both sides are normalised.

@@ -64,6 +64,9 @@ export interface LockedPickRow {
   edge: number
   confidence: number
   score: number
+  // Set to NOW() after a successful Discord webhook POST. NULL = unposted; the
+  // lock cron's notifier picks these up on each run. See lib/discord.ts.
+  discord_notified_at?: string | null
 }
 
 export interface SettledPickRow extends LockedPickRow {

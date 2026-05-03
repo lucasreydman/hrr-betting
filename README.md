@@ -27,6 +27,7 @@ A "Tracked" tier (high-conviction picks gated by `EDGE` / probability / confiden
 - Hybrid ranking model with offline MC baseline + closed-form request-time factors.
 - Auto-refresh: server cache 30 s, client polls every 60 s, instant refetch on tab focus / network reconnect.
 - High-conviction "Tracked" picks auto-locked at lineup confirmation, auto-settled at 6 AM ET via MLB boxscore.
+- Optional Discord webhook notifications: per-game lock alerts when picks newly enter the tracked tier, plus a daily settle-recap digest.
 - `/history` dashboard with all-time hit rate, per-rung Brier score, predicted-vs-actual calibration, and recent settled picks.
 - `/methodology` page that explains every factor and traces it back to the source code.
 - Supabase-backed cache (`cache` table) replaces Vercel KV / Upstash; in-memory `Map` fallback for tests / dev with no env vars.
@@ -135,6 +136,8 @@ Production mode requires the env vars below. Without `CRON_SECRET`, the cron-aut
 | `SUPABASE_URL` | Production | Supabase project URL. Without it, code falls back to in-memory KV (fine for dev/tests, not for prod). |
 | `SUPABASE_SERVICE_ROLE_KEY` | Production | Server-only service-role key. Bypasses RLS on `cache` / `locked_picks` / `settled_picks`. **Never expose to the browser.** |
 | `CRON_SECRET` | Production cron + GitHub Actions | Value of the `x-cron-secret` header that gates `/api/sim/*`, `/api/refresh`, `/api/lock`, `/api/settle`, `/api/admin/bvp`. Without it in production, those routes 401 every caller. |
+| `DISCORD_WEBHOOK_URL` | Optional | Discord channel webhook URL. When set, `/api/lock` posts an embed per game with newly-locked tracked picks (idempotent via `locked_picks.discord_notified_at`), and `/api/settle` posts a daily recap digest (KV-flagged). Unset → notifier no-ops, cron behaviour unchanged. See `lib/discord.ts`. |
+| `DISCORD_LOCK_MENTION` | Optional | Mention prepended to lock messages so phone push-notifications fire (Discord channels default to "@mentions only"). Defaults to `@everyone`. Set to `@here`, `<@USER_ID>`, or empty string `""` to override. Settle digest never mentions. |
 
 `lib/env.ts` exports `sanitizeEnvValue` to strip whitespace and matched surrounding quotes — Vercel's UI sometimes wraps values in quotes while GitHub secrets don't, so both sides of the comparison are normalised.
 

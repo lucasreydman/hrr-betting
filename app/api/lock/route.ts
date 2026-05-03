@@ -6,6 +6,8 @@ import { verifyCronRequest } from '@/lib/cron-auth'
 import { slateDateString, isValidIsoDate } from '@/lib/date-utils'
 import { kvGet } from '@/lib/kv'
 import { rankPicks, type PicksResponse } from '@/lib/ranker'
+import { processLockNotifications } from '@/lib/discord'
+import type { Game } from '@/lib/types'
 
 /**
  * Read picks:current cache or fall back to a fresh `rankPicks(date)` call.
@@ -71,7 +73,9 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   if (force) {
     const current = await readOrComputePicks(date)
     const result = await snapshotLockedPicks({ date, current })
-    return NextResponse.json({ date, status: 'forced', ...result })
+    const games = await fetchSchedule(date).catch(() => [] as Game[])
+    const discord = await processLockNotifications({ date, gamesForLookup: games, currentPicks: current })
+    return NextResponse.json({ date, status: 'forced', ...result, discord })
   }
 
   const games = await fetchSchedule(date)
@@ -104,5 +108,10 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
 
   const current = await readOrComputePicks(date)
   const result = await snapshotLockedPicks({ date, current })
-  return NextResponse.json({ date, status: 'locked', ...result })
+  // Discord notifications run after the snapshot. Notifier reads the
+  // `discord_notified_at IS NULL` queue, so it picks up rows newly inserted
+  // by THIS snapshot and any rows from previous cron runs that failed to
+  // post. No-op when the env var is unset or Supabase is unavailable.
+  const discord = await processLockNotifications({ date, gamesForLookup: games, currentPicks: current })
+  return NextResponse.json({ date, status: 'locked', ...result, discord })
 }

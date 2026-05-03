@@ -47,3 +47,6 @@ graphify-out/
 .graphify_*
 
 .vercel
+
+# Per-session planning scratchpad — personal workflow, not repo-shared
+tasks/
