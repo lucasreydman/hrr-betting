@@ -27,6 +27,7 @@ import {
   fetchPitcherPriorSeasonStartsCount,
   fetchPitcherSeasonStats,
   fetchBatterSeasonStats,
+  fetchBatterPriorSeasonPa,
   fetchBvP,
   fetchPeople,
   fetchBoxscore,
@@ -415,15 +416,19 @@ export async function rankPicks(date: string): Promise<PicksResponse> {
       lineup.entries.map(entry => ({ entry, lineup, opponent, isHome, sidePassesGates }))
     )
 
-    // P_typical + per-batter BvP + per-batter season stats + per-batter Statcast.
-    // All four are independent reads against the slate-aligned cache layer, so
-    // running them in parallel keeps the per-game block close to one round-trip
-    // even with the additional Savant lookup.
+    // P_typical + per-batter BvP + per-batter season stats + per-batter Statcast
+    // + per-batter prior-season PA (cold-start backfill for the sample-size
+    // confidence factor; 7-day cache means a steady-state batter only re-fetches
+    // once a week). All five are independent reads against the slate-aligned
+    // cache layer, so running them in parallel keeps the per-game block close
+    // to one round-trip.
+    const batterPriorSeason = season - 1
     const [
       pTypicalResults,
       bvpResults,
       batterSeasonResults,
       batterStatcastResults,
+      batterPriorSeasonPaResults,
     ] = await Promise.all([
       Promise.all(playerJobs.map(({ entry }) => getPTypical({ playerId: entry.player.playerId }))),
       Promise.all(playerJobs.map(({ entry, lineup }) => {
@@ -438,6 +443,9 @@ export async function rankPicks(date: string): Promise<PicksResponse> {
       Promise.all(playerJobs.map(({ entry }) =>
         getBatterStatcast(entry.player.playerId, season).catch(() => null)
       )),
+      Promise.all(playerJobs.map(({ entry }) =>
+        fetchBatterPriorSeasonPa(entry.player.playerId, batterPriorSeason).catch(() => 0)
+      )),
     ])
 
     for (let i = 0; i < playerJobs.length; i++) {
@@ -446,6 +454,7 @@ export async function rankPicks(date: string): Promise<PicksResponse> {
       const bvp = bvpResults[i]
       const batterSeason = batterSeasonResults[i]
       const batterStatcast = batterStatcastResults[i]
+      const batterPriorSeasonPa = batterPriorSeasonPaResults[i]
 
       const player = entry.player
 
@@ -531,6 +540,7 @@ export async function rankPicks(date: string): Promise<PicksResponse> {
         isOpener,
         timeToFirstPitchMin,
         batterSeasonPa,
+        priorSeasonPa: batterPriorSeasonPa,
         maxCacheAgeSec: scheduleAgeSec,
       })
 

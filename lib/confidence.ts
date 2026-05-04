@@ -53,20 +53,32 @@ export interface ConfidenceInputs {
   isOpener: boolean  // bullpen-after-opener is harder to predict
   timeToFirstPitchMin: number  // time until first pitch (min); closer = more confident
   batterSeasonPa: number  // batter's PAs this season (0 = no data yet)
+  /**
+   * Optional: prior-season plate-appearance total for the same batter.
+   * Folds into the sample-size confidence ramp so a known-regular veteran
+   * isn't pinned at the 0.85 floor in early April just because they've
+   * only logged 12 fresh PAs. Capped at 100 inside the math (parallel to
+   * the pitcher-start backfill design): historical volume earns a real
+   * lift but cannot reach the ceiling alone — current-season anchors.
+   * Defaults to 0 when omitted (current-season-only behaviour).
+   */
+  priorSeasonPa?: number
   maxCacheAgeSec: number  // age of the freshest-out-of-date upstream cache (seconds)
 }
 
 /** Per-factor breakdown of the confidence multiplier. Product of all eight = `confidence`. */
 export interface ConfidenceFactors {
   lineup: number       // 1.00 / 0.85 / 0.70 by lineup status
-  bvp: number          // 0.90–1.00 ramp from 0 to 20 BvP at-bats
+  bvp: number          // 1.00 below 5 AB (no signal), then 0.90→1.00 ramp
+                       // from 5 to 20 AB. Aligns with probToday BvP threshold.
   pitcherStart: number // 0.90–1.00 ramp from 3 to 10 effective starts
-                       // (current-season + min(7, prior-season))
+                       // (current × 1.5 + min(5, prior season))
   weather: number      // 1.00 at neutral; ramps to 0.90 at ±20% hrMult impact
   time: number         // 1.00 if lineup is confirmed; otherwise ramps from
                        // 1.00 (≤30 min out) to 0.95 (≥6 hrs out)
   opener: number       // 1.00 normal / 0.90 opener
-  sampleSize: number   // 0.85 at 0 PA → 1.00 at ≥200 PA, linear
+  sampleSize: number   // 0.85 floor → 1.00 ceiling on effective PA
+                       // (current × 1.5 + min(100, prior season))
   dataFreshness: number // 1.00 if ≤5 min stale → 0.90 if ≥30 min, linear
 }
 
@@ -83,7 +95,20 @@ export function computeConfidenceBreakdown(args: ConfidenceInputs): {
   const lineup =
     args.lineupStatus === 'confirmed' ? 1.00 :
     args.lineupStatus === 'partial' ? 0.85 : 0.70
-  const bvp = Math.min(1.0, 0.90 + (args.bvpAB / 20) * 0.10)
+  // BvP confidence aligns with the probToday BvP factor's activation
+  // threshold (lib/factors/bvp.ts:BVP_MIN_AB = 5). Below 5 AB the probToday
+  // factor is pinned at 1.00 — there's no BvP signal feeding the
+  // probability — so the confidence factor takes no haircut either.
+  // Penalising "no data" used to ding every pick in a brand-new matchup
+  // (pitcher facing a team for the first time) by a flat 10pp.
+  //
+  // The discontinuity at AB=5 is intentional: it reflects the underlying
+  // model phase change. ≤4 AB: model ignores BvP → confidence neutral.
+  // ≥5 AB: model leans on a small sample → confidence dings, ramps back
+  // to 1.00 as sample grows toward 20 AB.
+  const bvp = args.bvpAB < 5
+    ? 1.00
+    : Math.min(1.0, 0.90 + ((args.bvpAB - 5) / 15) * 0.10)
   // Effective sample size for the pitcher confidence ramp.
   //
   //   effectiveStarts = currentStarts × 1.5 + min(5, priorStarts)
@@ -127,7 +152,23 @@ export function computeConfidenceBreakdown(args: ConfidenceInputs): {
     args.timeToFirstPitchMin >= 360 ? 0.95 :
     1.0 - ((args.timeToFirstPitchMin - 30) / 330) * 0.05
   const opener = args.isOpener ? 0.90 : 1.0
-  const sampleSize = Math.min(1.0, Math.max(0.85, 0.85 + 0.15 * Math.min(1, args.batterSeasonPa / 200)))
+  // Sample-size confidence with prior-season PA backfill — same shape as
+  // pitcherStart above:
+  //
+  //   effectivePA = currentPA × 1.5 + min(100, priorPA)
+  //
+  // Current-season PAs weigh 1.5× because fresh form is the better signal
+  // (y-o-y batter rate correlation is ~0.4–0.7, parallel to pitcher).
+  // Prior cap of 100 PA (50 % of the 200-PA stabilization point) means a
+  // 0-fresh-PA veteran reads ~×0.925 (clear lift from the rookie 0.85
+  // floor) but a true rookie still floors. Veterans need ≥67 fresh PAs
+  // to fully reach the 1.00 ceiling — ~3 weeks of regular play, fast
+  // enough that the cold-start window closes naturally as the season
+  // gets going.
+  const currentPA = Math.max(0, args.batterSeasonPa)
+  const priorPA = Math.max(0, args.priorSeasonPa ?? 0)
+  const effectivePA = currentPA * 1.5 + Math.min(100, priorPA)
+  const sampleSize = Math.min(1.0, Math.max(0.85, 0.85 + 0.15 * Math.min(1, effectivePA / 200)))
   const dataFreshness =
     args.maxCacheAgeSec <= 5 * 60 ? 1.0 :
     args.maxCacheAgeSec >= 30 * 60 ? 0.90 :

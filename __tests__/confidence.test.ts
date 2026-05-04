@@ -238,6 +238,56 @@ describe('computeConfidenceBreakdown — pitcherStart factor (with prior-season 
   })
 })
 
+describe('computeConfidenceBreakdown — bvp factor (aligned with probToday threshold)', () => {
+  const baseGood = {
+    lineupStatus: 'confirmed' as const,
+    pitcherStartCount: 12,
+    weatherImpact: 0,
+    isOpener: false,
+    timeToFirstPitchMin: 60,
+    batterSeasonPa: 200,
+    maxCacheAgeSec: 0,
+  }
+
+  test('0 AB → 1.00 (no BvP signal contributing → no haircut)', () => {
+    // First-time matchup (pitcher facing a team they've never faced) used
+    // to ding every hitter on the lineup by 10pp. The probToday BvP factor
+    // is pinned at 1.00 below 5 AB, so the confidence factor mirrors that.
+    const { factors } = computeConfidenceBreakdown({ ...baseGood, bvpAB: 0 })
+    expect(factors.bvp).toBeCloseTo(1.00, 4)
+  })
+
+  test('4 AB → 1.00 (still below probToday activation threshold)', () => {
+    const { factors } = computeConfidenceBreakdown({ ...baseGood, bvpAB: 4 })
+    expect(factors.bvp).toBeCloseTo(1.00, 4)
+  })
+
+  test('5 AB → 0.90 (probToday just activated, smallest possible sample)', () => {
+    // The discontinuity here is intentional: it reflects the underlying
+    // model phase change. ≤4 AB the model ignores BvP; ≥5 AB it leans on
+    // a tiny sample, which deserves a haircut that ramps off as the sample
+    // grows.
+    const { factors } = computeConfidenceBreakdown({ ...baseGood, bvpAB: 5 })
+    expect(factors.bvp).toBeCloseTo(0.90, 4)
+  })
+
+  test('12 AB → 0.9467 (mid-ramp)', () => {
+    // 0.90 + ((12 - 5) / 15) * 0.10 = 0.9467
+    const { factors } = computeConfidenceBreakdown({ ...baseGood, bvpAB: 12 })
+    expect(factors.bvp).toBeCloseTo(0.9467, 3)
+  })
+
+  test('20 AB → 1.00 (ramp ceiling)', () => {
+    const { factors } = computeConfidenceBreakdown({ ...baseGood, bvpAB: 20 })
+    expect(factors.bvp).toBeCloseTo(1.00, 4)
+  })
+
+  test('100 AB → 1.00 (well above ceiling, clamped)', () => {
+    const { factors } = computeConfidenceBreakdown({ ...baseGood, bvpAB: 100 })
+    expect(factors.bvp).toBeCloseTo(1.00, 4)
+  })
+})
+
 describe('computeConfidenceBreakdown — sampleSize factor', () => {
   const baseGood = {
     lineupStatus: 'confirmed' as const,
@@ -259,9 +309,43 @@ describe('computeConfidenceBreakdown — sampleSize factor', () => {
     expect(factors.sampleSize).toBeCloseTo(1.0, 4)
   })
 
-  test('100 PA → sampleSize = 0.925', () => {
+  test('100 PA, no prior → sampleSize ≈ 0.9625 (100 × 1.5 = 150 effective)', () => {
     const { factors } = computeConfidenceBreakdown({ ...baseGood, batterSeasonPa: 100 })
+    expect(factors.sampleSize).toBeCloseTo(0.9625, 4)
+  })
+
+  test('0 current PA + 600 prior → sampleSize ≈ 0.925 (cold-start lift to effective 100)', () => {
+    // min(100, 600) = 100. effective = 0 + 100 = 100. ramp 0.85 + 0.15*0.5 = 0.925.
+    const { factors } = computeConfidenceBreakdown({
+      ...baseGood, batterSeasonPa: 0, priorSeasonPa: 600,
+    })
     expect(factors.sampleSize).toBeCloseTo(0.925, 4)
+  })
+
+  test('20 current PA + 600 prior → sampleSize ≈ 0.9475 (early-April veteran)', () => {
+    // 20 × 1.5 + 100 = 130 effective. ramp 0.85 + 0.15 * (130/200) = 0.9475.
+    const { factors } = computeConfidenceBreakdown({
+      ...baseGood, batterSeasonPa: 20, priorSeasonPa: 600,
+    })
+    expect(factors.sampleSize).toBeCloseTo(0.9475, 4)
+  })
+
+  test('priorSeasonPa cap at 100: 600 prior ≡ 100 prior at the same current count', () => {
+    const a = computeConfidenceBreakdown({
+      ...baseGood, batterSeasonPa: 0, priorSeasonPa: 600,
+    })
+    const b = computeConfidenceBreakdown({
+      ...baseGood, batterSeasonPa: 0, priorSeasonPa: 100,
+    })
+    expect(a.factors.sampleSize).toBeCloseTo(b.factors.sampleSize, 6)
+  })
+
+  test('omitted priorSeasonPa is current-season-only (backwards compatible)', () => {
+    // 50 current → 50 × 1.5 = 75 effective → 0.85 + 0.15 * (75/200) = 0.90625
+    const { factors } = computeConfidenceBreakdown({
+      ...baseGood, batterSeasonPa: 50,
+    })
+    expect(factors.sampleSize).toBeCloseTo(0.90625, 4)
   })
 
   test('clamps at lower bound: -5 PA → sampleSize = 0.85', () => {
