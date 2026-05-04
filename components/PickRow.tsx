@@ -651,7 +651,19 @@ function MathPanel({ pick, rung, localTime, storedLine }: {
           <KV label={<>BvP sample <span className="text-ink-muted/70">({inputs.bvp?.ab ?? 0} AB)</span></>}>
             <MultCell value={inputs.confidenceFactors.bvp} />
           </KV>
-          <KV label={<>Pitcher sample <span className="text-ink-muted/70">({inputs.pitcherStartCount} starts)</span></>}>
+          <KV
+            label={
+              <>
+                Pitcher sample{' '}
+                <span className="text-ink-muted/70">
+                  ({inputs.pitcherStartCount} starts
+                  {inputs.pitcherPriorSeasonStarts > 0
+                    ? ` · ${inputs.pitcherPriorSeasonStarts} prior`
+                    : ''})
+                </span>
+              </>
+            }
+          >
             <MultCell value={inputs.confidenceFactors.pitcherStart} />
           </KV>
           <KV

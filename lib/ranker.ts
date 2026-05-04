@@ -94,8 +94,17 @@ export interface PickInputs {
    * BvP confidence factor and the BvP probToday factor.
    */
   bvp: BvPRecord | null
-  /** Number of the starter's recent starts available for the IP CDF. */
+  /** Number of the starter's current-season starts available for the IP CDF. */
   pitcherStartCount: number
+  /**
+   * Number of regular-season starts the same pitcher made in the *prior*
+   * season. Surfaced alongside `pitcherStartCount` in the math panel so the
+   * confidence ramp's prior-season backfill (cold-start fix in
+   * `lib/confidence.ts`) is visible to readers — without it, an early-April
+   * veteran's 6-start ×1.00 reading looks unexplained against the 0.90 floor
+   * a same-count rookie would get. 0 for true rookies and on fetch failure.
+   */
+  pitcherPriorSeasonStarts: number
   /**
    * Avg innings-pitched per recent start for the opposing starter. Used by
    * the Opener heuristic and surfaced in the math panel for transparency.
@@ -533,6 +542,7 @@ export async function rankPicks(date: string): Promise<PicksResponse> {
         weather: pickWeather,
         bvp,
         pitcherStartCount: opposingStarterStartCount,
+        pitcherPriorSeasonStarts: opposingStarterPriorSeasonStarts,
         pitcherAvgIp: avgIp,
         timeToFirstPitchMin,
         scheduleAgeSec,
