@@ -108,7 +108,7 @@ function BetSettingsBar() {
         />
       </label>
       <label className="flex items-center gap-2">
-        <span className="text-[11px] text-ink-muted">Kelly</span>
+        <span className="text-[11px] text-ink-muted">Kelly Fraction</span>
         <select
           value={kellyMultiplier}
           onChange={e => setKellyMultiplier(Number(e.target.value))}
@@ -122,7 +122,7 @@ function BetSettingsBar() {
         </select>
       </label>
       <span className="ml-auto text-[11px] text-ink-muted/70">
-        Recommended bets reload as you change either field. ¼ Kelly is the safe default.
+        Recommended bets reload as you change either field. Quarter Kelly is the safe default.
       </span>
     </div>
   )
