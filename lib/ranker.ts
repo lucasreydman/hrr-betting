@@ -20,6 +20,7 @@ import { computeEdge, computeScore } from './edge'
 import { computeConfidenceBreakdown, passesHardGates, type ConfidenceFactors } from './confidence'
 import { getPTypical } from './p-typical'
 import { computeProbTodayWithBreakdown, type ProbTodayBreakdown } from './prob-today'
+import { getLockedPickKeysForDate } from './tracker'
 import {
   fetchSchedule,
   fetchProbablePitchers,
@@ -202,6 +203,17 @@ export interface Pick {
   score: number
   tier: 'tracked' | 'watching'
   /**
+   * True when the pick has already been snapshotted into `locked_picks`
+   * for this slate by `/api/lock`. The live ranker treats a locked pick
+   * as `tracked` regardless of current real-time confidence — once a
+   * pick is frozen at lock time, weather forecast updates or schedule
+   * cache shifts can't bounce it out of the tracked tier on the live
+   * board. Undefined / false for picks whose lock window hasn't fired
+   * yet (game still > 90 min out with confirmed lineup, or > 30 min
+   * out otherwise).
+   */
+  wasLocked?: boolean
+  /**
    * Live-settled outcome for picks whose game has finalised. Populated by
    * the ranker after the main score loop, by fetching the boxscore and
    * comparing the player's actual HRR total to the rung. Undefined for
@@ -282,7 +294,16 @@ export async function rankPicks(date: string): Promise<PicksResponse> {
   // Schedule cache age — feeds the confidence `dataFreshness` factor below.
   // null means "unknown freshness" (no meta record yet); we pass 0 in that
   // case so the factor is neutral, not penalising for missing telemetry.
-  const scheduleAgeSec = (await getScheduleAgeSec(date)) ?? 0
+  // Locked-pick overlay: pulls (game, player, rung) keys for every pick
+  // that's already been snapshotted into `locked_picks` this slate.
+  // Picks in this set get tier='tracked' overridden into the live
+  // response regardless of current real-time confidence — the lock cron
+  // froze them at decision time, weather/lineup drift after that point
+  // shouldn't bounce them out of the tracked tier on the user's screen.
+  const [scheduleAgeSec, lockedKeys] = await Promise.all([
+    getScheduleAgeSec(date).then(age => age ?? 0),
+    getLockedPickKeysForDate(date),
+  ])
 
   // Separate accumulators per rung (avoids adding `rung` to the public Pick type)
   const rung1Picks: Pick[] = []
@@ -703,7 +724,18 @@ export async function rankPicks(date: string): Promise<PicksResponse> {
 
         if (!sidePassesGates) continue
 
-        const tier = classifyTier({ rung, edge, pMatchup, confidence, score })
+        // Locked-pick overlay: once a pick has been written into
+        // `locked_picks` by /api/lock for this slate, we pin its tier
+        // at 'tracked' on the live board regardless of how confidence
+        // has drifted in the interim. Real-time data continues to
+        // recompute (probability/edge/confidence still reflect current
+        // weather, lineups, etc.) so the user can see *why* the pick
+        // softened, but the tier badge stays put. Settlement still
+        // works off the locked snapshot, not the live values.
+        const wasLocked = lockedKeys.has(`${game.gameId}:${player.playerId}:${rung}`)
+        const baseTier = classifyTier({ rung, edge, pMatchup, confidence, score })
+        const tier: 'tracked' | 'watching' | null =
+          wasLocked ? 'tracked' : baseTier
         if (tier === null) continue
 
         const pick: Pick = {
@@ -736,6 +768,7 @@ export async function rankPicks(date: string): Promise<PicksResponse> {
           confidence,
           score,
           tier,
+          ...(wasLocked ? { wasLocked: true } : {}),
           inputs,
         }
 

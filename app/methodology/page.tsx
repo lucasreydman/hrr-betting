@@ -413,7 +413,14 @@ p < 0.5  →  odds = +round(100 × (1 − p) / p)        (underdog)`}
             (confirmed lineup ≤ 90 min before first pitch, or ≤ 30 min regardless).
             Insert-only: existing rows never change, but new Tracked picks added later
             in the slate (e.g. a 9 PM start whose lineup confirmed after the early
-            cron) still land.
+            cron) still land. Once a pick is locked, the live board pins its{' '}
+            <span className="text-tracked">🎯 Tracked</span> badge with a small{' '}
+            <span className="text-ink-muted">🔒</span> indicator regardless of how
+            real-time data drifts after the lock — weather updates, late lineup
+            changes, or data-freshness shifts can&apos;t bounce a locked pick back
+            into Watching. The probability / edge / confidence numbers in the math
+            panel still update live so you can see *why* the model has softened on
+            the pick, but the tier itself is frozen at lock-time.
           </li>
           <li>
             <strong className="text-ink">Live.</strong> Once a game ends, the next

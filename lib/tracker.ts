@@ -380,6 +380,38 @@ async function settlePicksKv(date: string): Promise<{ settled: number; pending: 
 // ============================================================================
 
 /**
+ * Return the set of (game_id, player_id, rung) keys for picks already
+ * locked into `locked_picks` for a slate. Used by the live ranker to
+ * overlay tier='tracked' on picks whose lock window has fired — once a
+ * pick has been frozen by `/api/lock`, the live board should keep showing
+ * it as tracked even if real-time data (weather, lineup churn) drifts the
+ * raw confidence below the floor.
+ *
+ * Returns each entry as the canonical lookup string `"{gameId}:{playerId}:{rung}"`.
+ * Empty set on Supabase unavailable, fetch failure, or unlocked slate —
+ * the live board falls back to its computed-from-current-data tier in
+ * those cases (no tier overlay, behavior unchanged from pre-overlay model).
+ *
+ * Cheap: single SELECT of three integer columns; ~30-50ms against the
+ * Supabase free tier. Caller can run it in parallel with other slate-prep
+ * fetches.
+ */
+export async function getLockedPickKeysForDate(date: string): Promise<Set<string>> {
+  if (!isSupabaseAvailable()) return new Set()
+  const supabase = getSupabase()!
+  try {
+    const { data, error } = await supabase
+      .from('locked_picks')
+      .select('game_id, player_id, rung')
+      .eq('date', date)
+    if (error || !data) return new Set()
+    return new Set(data.map(r => `${r.game_id}:${r.player_id}:${r.rung}`))
+  } catch {
+    return new Set()
+  }
+}
+
+/**
  * Return settled picks ordered newest-first.
  *
  * `sinceDate` is optional. When omitted, returns all settled picks ever
