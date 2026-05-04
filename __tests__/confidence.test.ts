@@ -113,7 +113,7 @@ describe('computeConfidence', () => {
       pitcherStartCount: 10,
       weatherImpact: 0,
       isOpener: false,
-      timeToFirstPitchMin: 90,
+      timeToFirstPitchMin: 30,  // ≤30 min → time pins to 1.0 even for partial
       batterSeasonPa: 200,
       maxCacheAgeSec: 0,
     })
@@ -247,5 +247,82 @@ describe('computeConfidenceBreakdown — weather factor', () => {
   test('clamps at floor for extreme impact (impact = 0.50) → weather = 0.90', () => {
     const { factors } = computeConfidenceBreakdown({ ...baseGood, weatherImpact: 0.50 })
     expect(factors.weather).toBeCloseTo(0.90, 4)
+  })
+})
+
+describe('computeConfidenceBreakdown — time factor', () => {
+  const baseGood = {
+    bvpAB: 25,
+    pitcherStartCount: 12,
+    weatherImpact: 0,
+    isOpener: false,
+    batterSeasonPa: 200,
+    maxCacheAgeSec: 0,
+  }
+
+  test('confirmed lineup pins time to 1.0 even at 6 hours out', () => {
+    const { factors } = computeConfidenceBreakdown({
+      ...baseGood,
+      lineupStatus: 'confirmed',
+      timeToFirstPitchMin: 360,
+    })
+    expect(factors.time).toBeCloseTo(1.0, 4)
+  })
+
+  test('confirmed lineup pins time to 1.0 even at 12 hours out', () => {
+    // Confirmed lineups don't get penalised for waiting — late scratches
+    // are too rare to warrant a global haircut.
+    const { factors } = computeConfidenceBreakdown({
+      ...baseGood,
+      lineupStatus: 'confirmed',
+      timeToFirstPitchMin: 720,
+    })
+    expect(factors.time).toBeCloseTo(1.0, 4)
+  })
+
+  test('estimated lineup ≤30 min out → time = 1.0', () => {
+    const { factors } = computeConfidenceBreakdown({
+      ...baseGood,
+      lineupStatus: 'estimated',
+      timeToFirstPitchMin: 30,
+    })
+    expect(factors.time).toBeCloseTo(1.0, 4)
+  })
+
+  test('estimated lineup at 360 min (6 hrs) → time = 0.95', () => {
+    const { factors } = computeConfidenceBreakdown({
+      ...baseGood,
+      lineupStatus: 'estimated',
+      timeToFirstPitchMin: 360,
+    })
+    expect(factors.time).toBeCloseTo(0.95, 4)
+  })
+
+  test('estimated lineup mid-ramp (195 min) → time ≈ 0.975', () => {
+    // midpoint between 30 and 360 → 1.0 - 0.5*0.05 = 0.975
+    const { factors } = computeConfidenceBreakdown({
+      ...baseGood,
+      lineupStatus: 'estimated',
+      timeToFirstPitchMin: 195,
+    })
+    expect(factors.time).toBeCloseTo(0.975, 4)
+  })
+
+  test('estimated lineup clamps at 0.95 floor for extreme distance', () => {
+    const { factors } = computeConfidenceBreakdown({
+      ...baseGood,
+      lineupStatus: 'estimated',
+      timeToFirstPitchMin: 1440,  // 24 hrs
+    })
+    expect(factors.time).toBeCloseTo(0.95, 4)
+  })
+
+  test('partial lineup uses the ramp (not confirmed gate)', () => {
+    const { factors } = computeConfidenceBreakdown({
+      ...baseGood,
+      lineupStatus: 'partial',
+      timeToFirstPitchMin: 360,
+    })
+    expect(factors.time).toBeCloseTo(0.95, 4)
   })
 })

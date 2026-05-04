@@ -45,7 +45,8 @@ export interface ConfidenceFactors {
   bvp: number          // 0.90–1.00 ramp from 0 to 20 BvP at-bats
   pitcherStart: number // 0.90–1.00 ramp from 3 to 10 recent starts
   weather: number      // 1.00 at neutral; ramps to 0.90 at ±20% hrMult impact
-  time: number         // 1.00 within 90 min / 0.95 at 4+ hrs out
+  time: number         // 1.00 if lineup is confirmed; otherwise ramps from
+                       // 1.00 (≤30 min out) to 0.95 (≥6 hrs out)
   opener: number       // 1.00 normal / 0.90 opener
   sampleSize: number   // 0.85 at 0 PA → 1.00 at ≥200 PA, linear
   dataFreshness: number // 1.00 if ≤5 min stale → 0.90 if ≥30 min, linear
@@ -77,10 +78,16 @@ export function computeConfidenceBreakdown(args: ConfidenceInputs): {
     args.weatherImpact <= 0.05 ? 1.0 :
     args.weatherImpact >= 0.20 ? 0.90 :
     1.0 - ((args.weatherImpact - 0.05) / 0.15) * 0.10
+  // Confirmed lineup pins time to 1.0 — the main thing time-to-pitch was
+  // proxying (lineup churn) is already locked. Late scratches still happen
+  // but are too rare to warrant a global haircut on every confirmed pick.
+  // For estimated/partial lineups, ramp from 1.00 (≤30 min) to 0.95 (≥6 hrs):
+  // farther out = more time for the projected lineup to be wrong.
   const time =
-    args.timeToFirstPitchMin <= 90 ? 1.0 :
-    args.timeToFirstPitchMin >= 240 ? 0.95 :
-    1.0 - ((args.timeToFirstPitchMin - 90) / 150) * 0.05
+    args.lineupStatus === 'confirmed' ? 1.0 :
+    args.timeToFirstPitchMin <= 30 ? 1.0 :
+    args.timeToFirstPitchMin >= 360 ? 0.95 :
+    1.0 - ((args.timeToFirstPitchMin - 30) / 330) * 0.05
   const opener = args.isOpener ? 0.90 : 1.0
   const sampleSize = Math.min(1.0, Math.max(0.85, 0.85 + 0.15 * Math.min(1, args.batterSeasonPa / 200)))
   const dataFreshness =
