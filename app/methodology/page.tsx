@@ -21,11 +21,13 @@ export default function Methodology() {
 
       <Section heading="What the board ranks" eyebrow="Overview">
         <p>
-          Every row is a single prop bet: one batter, one rung. The board ranks every
-          (player, rung) combination from the day&apos;s slate by{' '}
-          <Code>Score</Code>, a Kelly bet fraction × confidence number that answers
-          &ldquo;how much would Kelly bet on this at the model&apos;s fair-typical odds,
-          weighted by data quality.&rdquo;
+          Every row is a single prop bet: one batter, one rung. The board is sorted
+          by an internal <Code>Score</Code> (Kelly bet fraction × confidence) that
+          answers &ldquo;how much would Kelly bet on this at the model&apos;s
+          fair-typical odds, weighted by data quality.&rdquo; Score is no longer
+          shown as its own column; the visible wager column shows the recommended
+          bet in dollars once you enter the FanDuel line for a row (see{' '}
+          <em>Wager sizing</em> below).
         </p>
         <p>
           Three rungs per player: <RungTag rung={1} />,{' '}
@@ -187,27 +189,28 @@ score = kelly × confidence`}
 
       <Section heading="Wager sizing" eyebrow="Bet size from your FD line">
         <p>
-          You set a <Code>Bankroll</Code> and a <Code>Kelly fraction</Code>{' '}
-          (default ¼ Kelly) at the top of the board. For every pick, you can type
-          the FanDuel American line into the row&apos;s wager cell — once entered,
-          the row computes the recommended dollar bet size based on Kelly applied
-          to the actual book line you&apos;d hit.
+          You set a <Code>Bankroll</Code> and a <Code>Kelly Fraction</Code>{' '}
+          (Eighth / Quarter / Half / Full, default Quarter) at the top of the board.
+          For every pick, you can type the FanDuel American line into the row&apos;s
+          wager cell — once entered, the row computes the recommended dollar bet
+          size based on Kelly applied to the actual book line you&apos;d hit.
         </p>
         <Formula>
           {`b           = profit per $1 staked at the offered odds
-                                       implied_p   = book's implied probability (with vig)
-                                       fullKelly   = max(0, (p̂_today × b − (1 − p̂_today)) / b)
-                                       bet_dollars = fullKelly × kellyFraction × bankroll`}
+implied_p   = book's implied probability (with vig)
+fullKelly   = max(0, (p̂_today × b − (1 − p̂_today)) / b)
+bet_dollars = fullKelly × kellyFraction × bankroll`}
         </Formula>
         <p className="text-sm text-ink-muted">
           The Kelly formula recommends $0 (skip) when the book line implies a higher
           probability than the model believes — i.e. when there&apos;s no edge to
-          extract. ¼ Kelly is the safe default; full Kelly is theoretically optimal
-          but practically too aggressive given even small calibration errors.
+          extract. Quarter Kelly is the safe default; full Kelly is theoretically
+          optimal but practically too aggressive given even small calibration errors.
+          Settings persist to localStorage so reloads don&apos;t reset them.
         </p>
         <Note label="Why FanDuel-line-driven">
           The model&apos;s p̂ today gives the predicted probability; profitability
-          depends on whether that beats the *book&apos;s* implied probability,
+          depends on whether that beats the <em>book&apos;s</em> implied probability,
           which has vig baked in. Without your FD line, the system can only show
           model factors — it can&apos;t tell you whether a given play is +EV at
           the odds you&apos;d actually hit.
@@ -305,9 +308,12 @@ score = kelly × confidence`}
 p < 0.5  →  odds = +round(100 × (1 − p) / p)        (underdog)`}
         </Formula>
         <p className="text-xs text-ink-muted">
-          The app does not ingest sportsbook lines. Implied probabilities and
-          line-shopping are not part of the model. The displayed odds are only
-          the model&apos;s own probabilities translated into a moneyline.
+          The app does not auto-ingest sportsbook lines — there is no live odds
+          feed, scraper, or aggregator. The American number shown next to{' '}
+          <Code>p̂ typical</Code> and <Code>p̂ today</Code> is purely the model&apos;s
+          own probability translated into a moneyline. The Wager sizing feature
+          accepts a FanDuel line per pick via manual entry; that entry is the
+          only place a real book line enters the system.
         </p>
       </Section>
 
@@ -463,7 +469,7 @@ p < 0.5  →  odds = +round(100 × (1 − p) / p)        (underdog)`}
           </Card>
           <Card title="Things the model doesn&apos;t do">
             <ul className="ml-5 list-disc space-y-1 text-sm marker:text-ink-muted">
-              <li>Ingest sportsbook lines or compute book-implied probabilities</li>
+              <li>Auto-ingest sportsbook lines (manual FD-line entry per pick is the only book signal — no scraper, no aggregator)</li>
               <li>Differentiate starter rates from bullpen rates inside the offline baseline</li>
               <li>Track L15/L30 rolling form blends in the live ranker</li>
               <li>Project bullpen quality by reliever leverage tier (uses team-aggregate ERA)</li>
