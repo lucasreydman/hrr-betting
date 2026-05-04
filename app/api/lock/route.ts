@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { fetchSchedule } from '@/lib/mlb-api'
-import { fetchLineup } from '@/lib/lineup'
 import { shouldLock, snapshotLockedPicks } from '@/lib/tracker'
 import { verifyCronRequest } from '@/lib/cron-auth'
 import { slateDateString, isValidIsoDate } from '@/lib/date-utils'
@@ -83,23 +82,16 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ date, status: 'no-games' })
   }
 
-  // Fan out the home-lineup fetches in parallel so a 15-game slate doesn't
-  // pay 15× sequential MLB API roundtrips just to decide whether to lock.
-  // The home lineup is used as the lineup-status signal for both sides —
-  // they typically confirm together; asymmetric scratch/IL is rare and the
-  // 30-min forced fallback covers that edge anyway.
+  // shouldLock now gates only on time-to-first-pitch (≤30 min). No lineup
+  // fetch required at the route level — when we DO snapshot, snapshotLockedPicks
+  // gets a fresh PicksResponse via readOrComputePicks which fetches lineups
+  // inside rankPicks. Used to fan out home-lineup fetches per game just for
+  // the gate; that's now dead weight, removed for faster cron cycles.
   const lockable = games.filter(g => g.status !== 'postponed' && g.status !== 'final')
-  const homeLineups = await Promise.all(
-    lockable.map(g =>
-      fetchLineup(g.gameId, g.homeTeam.teamId, 'home', date).catch(() => null),
-    ),
-  )
 
-  const anyShouldLock = lockable.some((g, i) => {
-    const homeLineup = homeLineups[i]
-    if (!homeLineup) return false
+  const anyShouldLock = lockable.some(g => {
     const firstPitch = new Date(g.gameDate).getTime()
-    return shouldLock({ now, firstPitch, lineupStatus: homeLineup.status })
+    return shouldLock({ now, firstPitch })
   })
 
   if (!anyShouldLock) {

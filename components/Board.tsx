@@ -73,7 +73,7 @@ const STATUS_TOOLTIPS: Record<GameStatusFilter, string> = {
 type BetTypeFilter = 'tracked' | 'other'
 
 const BET_TYPE_LABELS: Record<BetTypeFilter, string> = {
-  tracked: '🎯 Tracked',
+  tracked: 'Tracked',
   other: 'Other',
 }
 

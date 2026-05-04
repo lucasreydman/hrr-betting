@@ -858,13 +858,17 @@ function MathPanel({ pick, rung, localTime, storedLine }: {
         })()}
         <KV label="Tier">
           <span className={isTracked ? 'font-semibold text-tracked' : 'text-ink-muted'}>
-            {isTracked ? '🎯 Tracked' : 'Other play'}
+            {pick.wasLocked
+              ? '🔒 Tracked (locked)'
+              : isTracked
+                ? '🎯 Tracked (live)'
+                : 'Other play'}
             {pick.wasLocked && (
               <span
-                className="ml-2 text-[10px] font-medium uppercase tracking-wider text-ink-muted"
+                className="ml-2 text-[10px] font-medium normal-case tracking-normal text-ink-muted"
                 title="This pick was snapshotted into locked_picks by the lock cron. The tracked-tier badge is pinned on the live board regardless of how confidence has drifted in the meantime — settlement still uses the locked snapshot, not the current live values."
               >
-                🔒 locked
+                tier pinned through settlement
               </span>
             )}
           </span>
@@ -978,16 +982,26 @@ export function PickRow({ pick, rung }: { pick: Pick; rung?: 1 | 2 | 3 }) {
           {/* BET — rung badge + tracked target */}
           <div className="flex min-w-0 items-center gap-1.5">
             {rung && <RungBadge rung={rung} />}
-            {isTracked && <span className="text-tracked" aria-hidden="true">🎯</span>}
-            {pick.wasLocked && (
+            {/* 🎯 = tracked, lock cron hasn't fired yet (could still drop).
+                🔒 = locked at lock-time, tier pinned through to settlement.
+                Mutually exclusive — once locked, the target becomes a lock. */}
+            {pick.wasLocked ? (
               <span
                 className="text-ink-muted/80"
                 title="Locked — tracked tier pinned regardless of live data drift"
-                aria-label="Pick locked at lock window"
+                aria-label="Pick locked"
               >
                 🔒
               </span>
-            )}
+            ) : isTracked ? (
+              <span
+                className="text-tracked"
+                title="Tracked — passing all floors right now, but lock window hasn't fired yet (could still drift)"
+                aria-label="Pick currently tracked, not yet locked"
+              >
+                🎯
+              </span>
+            ) : null}
           </div>
 
           {/* BATTER — name + hand + lineup-status-with-slot pill */}
@@ -1124,16 +1138,23 @@ export function PickRow({ pick, rung }: { pick: Pick; rung?: 1 | 2 | 3 }) {
               {pick.player.fullName}
             </span>
             {rung && <RungBadge rung={rung} />}
-            {isTracked && <span className="text-tracked" aria-hidden="true">🎯</span>}
-            {pick.wasLocked && (
+            {pick.wasLocked ? (
               <span
                 className="text-ink-muted/80"
                 title="Locked — tracked tier pinned regardless of live data drift"
-                aria-label="Pick locked at lock window"
+                aria-label="Pick locked"
               >
                 🔒
               </span>
-            )}
+            ) : isTracked ? (
+              <span
+                className="text-tracked"
+                title="Tracked — passing all floors right now, but lock window hasn't fired yet"
+                aria-label="Pick currently tracked, not yet locked"
+              >
+                🎯
+              </span>
+            ) : null}
           </div>
           <div className="mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs text-ink-muted">
             <span>{pick.player.bats}</span>

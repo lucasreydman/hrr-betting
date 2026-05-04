@@ -13,21 +13,34 @@ import { slateDateString, shiftIsoDate } from './date-utils'
 export interface ShouldLockArgs {
   now: number         // Date.now() ms
   firstPitch: number  // ms timestamp of first pitch
-  lineupStatus: 'confirmed' | 'partial' | 'estimated'
 }
 
 /**
- * Lock trigger: earliest-wins.
- * - Confirmed lineup AND now >= first_pitch - 90min: fire
- * - now >= first_pitch - 30min: fire (forced fallback regardless of lineup status)
+ * Lock trigger: a single threshold at ≤30 minutes before first pitch.
+ *
+ * Previously the gate had a confirmed-lineup early-lock at ≤90 min, but
+ * that committed picks based on data that could still meaningfully
+ * change in the next hour (weather forecasts update, late scratches,
+ * pitcher-status flips). A pick that was tracked at T-45 min and dropped
+ * to watching by T-35 min would still get locked under the old logic if
+ * the cron happened to fire while it was tracked — a lottery based on
+ * cron jitter, not on the pick's actual final state.
+ *
+ * Tightening to ≤30 min eliminates the early-lock window entirely. By
+ * 30 min before first pitch, conditions are stable: lineups are posted,
+ * pitcher status is committed, and weather forecasts for first pitch
+ * are essentially final. Any pick that's tracked when the cron fires
+ * inside that window genuinely meets the floors at decision-time.
+ *
+ * Late recoveries (pick goes from watching at T-25 → tracked at T-15)
+ * still get locked: the cron continues firing every 5 min through to
+ * first pitch, and `snapshotLockedPicks` is insert-only, so any pick
+ * that lands in tracked at any cron run within the window gets added.
  */
 export function shouldLock(args: ShouldLockArgs): boolean {
-  const ms90 = 90 * 60 * 1000
   const ms30 = 30 * 60 * 1000
   const timeUntilFirstPitch = args.firstPitch - args.now
-  if (args.lineupStatus === 'confirmed' && timeUntilFirstPitch <= ms90) return true
-  if (timeUntilFirstPitch <= ms30) return true
-  return false
+  return timeUntilFirstPitch <= ms30
 }
 
 // ============================================================================
