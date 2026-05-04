@@ -88,18 +88,24 @@ export const DISPLAY_FLOOR_SCORE = 0.05
 
 // Minimum confidence for a pick to be Tracked.
 //
-// Re-tuned 2026-05-04 alongside the confidence-alignment refactor (every
-// confidence factor now mirrors what its corresponding probToday factor
-// actually uses). The alignment refactor pinned several factors to 1.00
-// when their probability counterpart was inactive (BvP < 5 AB, TBD pitcher,
-// dome weather, null bullpen) and added career-prior awareness to the
-// batter-sample factor. Net effect: typical confidence shifted up by ~5–9pp.
+// Re-tuned 2026-05-04 alongside the confidence-alignment refactor and a
+// follow-up that opted BvP out of strict alignment (BvP confidence is now
+// a pure linear sample-size signal: 0.90 at 0 AB → 1.00 at ≥20 AB,
+// regardless of whether the probToday BvP factor is active below 5 AB).
 //
-// Empirically observed median on the 2026-05-04 slate: 0.86. Old floor
-// (0.85) caught roughly half the slate; raising to 0.92 preserves the
-// original "top quartile" selectivity. Will be tuned against settled
-// history once npm run recalibrate has ≥30 days of data.
-export const CONFIDENCE_FLOOR_TRACKED = 0.92
+// The alignment refactor lifted typical confidence ~5–9pp by pinning
+// several factors to 1.00 when their probability counterpart was
+// neutralised (TBD pitcher, dome weather, null bullpen) and adding career-
+// prior awareness to the batter-sample factor. The BvP follow-up brought
+// median confidence back down because ~83% of picks have <5 BvP AB and
+// now take the 10pp 0-AB haircut.
+//
+// Empirically observed median on the 2026-05-04 slate after both changes:
+// 0.79. Floor sits at 0.85 — back to the original — which catches roughly
+// the top quartile of picks by confidence on a typical slate. Will be
+// tuned against settled history once npm run recalibrate has ≥30 days of
+// data.
+export const CONFIDENCE_FLOOR_TRACKED = 0.85
 
 // League-average pitcher rates (recalibration target). 2025 MLB averages.
 export const LG_K_PCT = 0.225 // K / BF

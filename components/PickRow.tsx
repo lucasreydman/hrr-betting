@@ -655,8 +655,7 @@ function MathPanel({ pick, rung, localTime, storedLine }: {
               <>
                 BvP sample{' '}
                 <span className="text-ink-muted/70">
-                  ({inputs.bvp?.ab ?? 0} AB
-                  {(inputs.bvp?.ab ?? 0) < 5 ? ' · factor inactive' : ''})
+                  ({inputs.bvp?.ab ?? 0} AB)
                 </span>
               </>
             }

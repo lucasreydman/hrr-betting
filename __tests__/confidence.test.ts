@@ -107,10 +107,10 @@ describe('computeConfidence', () => {
       batterCareerPa: 0,
       maxCacheAgeSec: 0,
     })
-    // 0.70 (lineup) × 1.0 (bvp) × 1.0 (pitcher) × 1.0 (weather) × 1.0 (bullpen)
+    // 0.70 (lineup) × 0.90 (bvp, 0 AB) × 1.0 (pitcher) × 1.0 (weather) × 1.0 (bullpen)
     //   × 0.85 (batterSample, no career prior) × 1.0 (time) × 1.0 (opener)
-    //   × 1.0 (dataFreshness) = 0.595
-    expect(c).toBeCloseTo(0.595, 3)
+    //   × 1.0 (dataFreshness) = 0.5355
+    expect(c).toBeCloseTo(0.5355, 3)
   })
 
   test('confirmed lineup, all factors active and at ceiling → exactly 1.0', () => {
@@ -125,32 +125,28 @@ describe('computeConfidence', () => {
 })
 
 // =============================================================================
-// BvP factor — aligned with probToday gate at 5 AB
+// BvP factor — pure sample-size signal (intentionally NOT gate-aligned)
+// Reads independently of whether the probToday BvP factor is active. Below
+// 5 AB the probability factor is neutralised, but the confidence haircut
+// still reflects "we have very little matchup history" — a useful UX signal
+// even when the model isn't moving pMatchup on BvP.
 // =============================================================================
 
 describe('computeConfidenceBreakdown — bvp factor', () => {
-  test('0 AB → 1.00 (probToday BvP factor inactive — no signal contributing)', () => {
+  test('0 AB → 0.90 (floor: no historical matchup data)', () => {
     const { factors } = computeConfidenceBreakdown({ ...allCeilings, bvpAB: 0 })
-    expect(factors.bvp).toBeCloseTo(1.0, 4)
-  })
-
-  test('4 AB → 1.00 (still below probToday activation threshold)', () => {
-    const { factors } = computeConfidenceBreakdown({ ...allCeilings, bvpAB: 4 })
-    expect(factors.bvp).toBeCloseTo(1.0, 4)
-  })
-
-  test('5 AB → 0.90 (just-activated, smallest possible sample)', () => {
-    // The discontinuity at AB=5 is intentional. ≤4 AB the model ignores
-    // BvP entirely; ≥5 AB it leans on a small career sample, which earns
-    // a haircut that ramps off as the sample grows.
-    const { factors } = computeConfidenceBreakdown({ ...allCeilings, bvpAB: 5 })
     expect(factors.bvp).toBeCloseTo(0.90, 4)
   })
 
-  test('12 AB → ≈ 0.947 (mid-ramp)', () => {
-    // 0.90 + ((12 - 5) / 15) * 0.10 = 0.9467
-    const { factors } = computeConfidenceBreakdown({ ...allCeilings, bvpAB: 12 })
-    expect(factors.bvp).toBeCloseTo(0.9467, 3)
+  test('5 AB → 0.925 (small sample, mid-low ramp)', () => {
+    // 0.90 + (5/20) * 0.10 = 0.925
+    const { factors } = computeConfidenceBreakdown({ ...allCeilings, bvpAB: 5 })
+    expect(factors.bvp).toBeCloseTo(0.925, 4)
+  })
+
+  test('10 AB → 0.95 (mid-ramp)', () => {
+    const { factors } = computeConfidenceBreakdown({ ...allCeilings, bvpAB: 10 })
+    expect(factors.bvp).toBeCloseTo(0.95, 4)
   })
 
   test('20 AB → 1.00 (ramp ceiling)', () => {
@@ -161,6 +157,11 @@ describe('computeConfidenceBreakdown — bvp factor', () => {
   test('100 AB → 1.00 (well above ceiling, clamped)', () => {
     const { factors } = computeConfidenceBreakdown({ ...allCeilings, bvpAB: 100 })
     expect(factors.bvp).toBeCloseTo(1.0, 4)
+  })
+
+  test('negative AB clamps to 0 (no spurious lift)', () => {
+    const { factors } = computeConfidenceBreakdown({ ...allCeilings, bvpAB: -5 })
+    expect(factors.bvp).toBeCloseTo(0.90, 4)
   })
 })
 
@@ -470,18 +471,13 @@ describe('computeConfidenceBreakdown — opener factor', () => {
 
 // =============================================================================
 // Alignment regression tests — pin down the "factor inactive → confidence 1.00"
-// invariants that this whole refactor was built around. Future changes that
-// break alignment will fail here.
+// invariants for the factors that ARE strictly aligned with their probToday
+// counterparts. BvP intentionally opts out of this principle (it tracks
+// matchup history sample size regardless of probToday activation) — see
+// the BvP describe block above.
 // =============================================================================
 
 describe('alignment invariants — confidence pins to 1.00 when probToday factor is inactive', () => {
-  test('BvP: probToday gate at 5 AB → confidence 1.00 below threshold', () => {
-    for (const ab of [0, 1, 2, 3, 4]) {
-      const { factors } = computeConfidenceBreakdown({ ...allCeilings, bvpAB: ab })
-      expect(factors.bvp).toBeCloseTo(1.0, 4)
-    }
-  })
-
   test('Pitcher: pitcherActive=false → confidence 1.00 regardless of BF', () => {
     for (const bf of [0, 30, 100, 200, 500]) {
       const { factors } = computeConfidenceBreakdown({

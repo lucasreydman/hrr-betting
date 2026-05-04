@@ -237,7 +237,7 @@ bet_dollars = fullKelly × kellyFraction × bankroll`}
               </thead>
               <tbody className="text-ink-subtle">
                 <ConfRow3 factor="Lineup" inactive="—" mapping="confirmed 1.00 / partial 0.85 / estimated 0.70" />
-                <ConfRow3 factor="BvP" inactive="career AB < 5 (probToday BvP returns 1.00)" mapping="ramp 0.90 at 5 AB → 1.00 at ≥20 AB" />
+                <ConfRow3 factor="BvP" inactive="—" mapping="linear ramp 0.90 at 0 AB → 1.00 at ≥20 AB (sample-size signal — reads independently of probToday gate)" />
                 <ConfRow3 factor="Pitcher rates" inactive="TBD pitcher OR < 3 current starts" mapping="ramp 0.90 at 50 BF → 1.00 at ≥200 BF" />
                 <ConfRow3 factor="Weather" inactive="dome / failed forecast / |hrMult−1| ≤ 5%" mapping="continuous: 1.00 → 0.90 between 5% and 20% impact" />
                 <ConfRow3 factor="Bullpen" inactive="bullpen IP unknown" mapping="ramp 0.95 at 0 IP → 1.00 at ≥150 IP" />
@@ -251,10 +251,13 @@ bet_dollars = fullKelly × kellyFraction × bankroll`}
         </div>
         <p className="text-xs text-ink-muted">
           Three notes worth flagging. <strong>One:</strong> the BvP factor here
-          scales confidence by sample size; the BvP factor on{' '}
-          <Code>p̂ today</Code> actually shifts the probability based on
-          observed wOBA. Both read the same career line and both gate at 5 AB —
-          below that, neither does anything. <strong>Two:</strong> the pitcher
+          scales confidence by sample size as a pure linear signal — even at
+          0 AB it dings 10pp because we have no historical matchup data, even
+          though the probToday BvP factor is itself neutralised below 5 AB.
+          That&apos;s an intentional break from strict alignment: probToday
+          BvP tracks &ldquo;how well does this batter perform vs this
+          pitcher&rdquo; (wOBA-shifted, gate ≥ 5 AB), while confidence BvP
+          tracks &ldquo;how much matchup history do we have&rdquo;. <strong>Two:</strong> the pitcher
           factor stabilizes K%, BB%, HR%, and hard-hit% individually. Confidence
           ramps on batters-faced rather than start count because BF is the
           underlying unit those rates stabilize against (Russell Carleton:

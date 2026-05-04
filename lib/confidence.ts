@@ -96,7 +96,7 @@ export interface ConfidenceInputs {
 /** Per-factor breakdown of the confidence multiplier. Product of all nine = `confidence`. */
 export interface ConfidenceFactors {
   lineup: number         // 1.00 / 0.85 / 0.70 by lineup status
-  bvp: number            // 1.00 below 5 AB (factor neutral); 0.90→1.00 ramp 5-20 AB
+  bvp: number            // pure sample-size signal: 0.90 at 0 AB → 1.00 at ≥20 AB
   pitcher: number        // 1.00 when pitcher factor inactive; otherwise BF-based ramp
   weather: number        // 1.00 at neutral; 0.90 at ±20% hrMult impact (continuous)
   bullpen: number        // 1.00 when factor inactive; otherwise IP-based ramp
@@ -125,15 +125,15 @@ export function computeConfidenceBreakdown(args: ConfidenceInputs): {
     args.lineupStatus === 'partial' ? 0.85 : 0.70
 
   // ── 2. BvP ───────────────────────────────────────────────────────────────
-  // Aligned with probToday BvP factor activation (lib/factors/bvp.ts:46).
-  // Below 5 career AB, the probToday factor returns 1.00 — no BvP signal
-  // contributes to pMatchup. Confidence haircut would be penalising for
-  // data we'd already chosen not to use, so pin to 1.00.
-  // At ≥5 AB the factor activates with a small sample; confidence ramps
-  // from 0.90 (just-activated) to 1.00 (20+ AB, well-sampled).
-  const bvp = args.bvpAB < 5
-    ? 1.00
-    : Math.min(1.0, 0.90 + ((args.bvpAB - 5) / 15) * 0.10)
+  // Pure sample-size signal: linear ramp from 0.90 at 0 AB to 1.00 at 20+
+  // AB. Reads independently of whether the probToday BvP factor is active —
+  // intentional break from the strict alignment principle for this factor.
+  // The framing here is "how much historical matchup data do we have?"
+  // not "is the factor contributing to pMatchup?" Below 5 AB, probToday
+  // BvP is neutralised and pMatchup isn't moved, but the confidence reading
+  // still reflects that we have very little context for this batter-pitcher
+  // pairing — which is information worth surfacing to the user.
+  const bvp = Math.min(1.0, 0.90 + (Math.max(0, args.bvpAB) / 20) * 0.10)
 
   // ── 3. Pitcher ───────────────────────────────────────────────────────────
   // Aligned with pitcher factor activation (lib/factors/pitcher.ts:31-32):
