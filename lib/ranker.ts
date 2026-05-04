@@ -487,13 +487,20 @@ export async function rankPicks(date: string): Promise<PicksResponse> {
       //  1. **In-season pattern**: ≥ 3 current-season starts averaging < 2 IP.
       //     Catches established opener strategies (Tampa-style / Houston-style).
       //  2. **Reliever-history**: pitcher was predominantly a reliever last
-      //     season (gamesStarted / gamesPlayed < 0.5) AND has < 3 current-
-      //     season starts. Catches the "first opener game of the season for a
-      //     known reliever" case the in-season pattern can't see yet because
-      //     it needs 3 starts to fire.
+      //     season AND current-season usage is consistent with opener pattern
+      //     (either no fresh starts yet, or fresh starts also averaging short).
+      //     Catches the "first opener game of the season for a known reliever"
+      //     case the in-season pattern can't see yet (needs 3 starts to fire).
+      //
+      // Why the in-season-IP guard on path 2: a former reliever (e.g., Payton
+      // Tolle in 2025) who's been moved to the rotation in 2026 will have
+      // GS/G < 0.5 last year but be pitching 5+ IP today. Without the guard,
+      // the prior-season role would override the obvious current-season
+      // starter behavior. With the guard, we only fire on path 2 when
+      // current-season usage doesn't contradict the historical role.
       //
       // Free-data limit: MLB Stats doesn't expose a beat-reporter "this is
-      // an opener game" flag. The two heuristics above cover ~80% of opener
+      // an opener game" flag. The two heuristics cover ~80% of opener
       // strategies using cached data we already pull; the remaining ~20%
       // (true rookie called up to start a bullpen game with no prior-season
       // role data) needs a paid feed to detect cleanly. Acceptable miss rate.
@@ -508,7 +515,16 @@ export async function rankPicks(date: string): Promise<PicksResponse> {
       // career reliever). 0.5 is the conventional reliever/starter cutoff.
       const priorSeasonRelieverFlag =
         priorSeasonG >= 5 && priorSeasonGS / priorSeasonG < 0.5
-      const isOpener = inSeasonOpener || (priorSeasonRelieverFlag && opposingStarterStartCount < 3)
+      // Current-season behavior consistent with opener: either no fresh
+      // starts (can't contradict role yet) OR fresh starts averaging < 3 IP
+      // (consistent with opener-length outings). 3.0 IP is the threshold —
+      // a true opener throws 1-2 IP; a regular starter throws 5-6+; the gap
+      // around 3 is small and rare in practice.
+      const currentLooksLikeOpener =
+        opposingStarts.length === 0 || avgIp < 3.0
+      const isOpener =
+        inSeasonOpener ||
+        (priorSeasonRelieverFlag && opposingStarterStartCount < 3 && currentLooksLikeOpener)
 
       // Build PitcherInputs — fall back to league-average rates when data unavailable.
       // This gives pitcherFactor = 1.0 (conservative, not a crash).
