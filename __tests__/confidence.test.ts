@@ -67,16 +67,17 @@ describe('passesHardGates', () => {
 
 const allCeilings = {
   lineupStatus: 'confirmed' as const,
-  bvpAB: 25,             // ≥20 → bvp ceiling
+  bvpAB: 25,                   // ≥20 → bvp ceiling
   pitcherActive: true,
-  pitcherBf: 250,        // ≥200 → pitcher ceiling
-  weatherImpact: 0,      // ≤0.05 → weather ceiling
-  bullpenIp: 200,        // ≥150 → bullpen ceiling
-  timeToFirstPitchMin: 60,
+  pitcherBf: 250,              // ≥200 → pitcher ceiling
+  weatherImpact: 0,            // ≤0.05 → weather ceiling
+  bullpenIp: 200,              // ≥150 → bullpen ceiling
+  timeToFirstPitchMin: 30,     // ≤30 → no time absorption into lineup
   isOpener: false,
-  batterSeasonPa: 200,   // covers either branch
-  batterCareerPa: 600,   // strong-prior branch
-  maxCacheAgeSec: 0,     // ≤300 → dataFreshness ceiling
+  batterSeasonPa: 200,         // covers either branch
+  batterCareerPa: 600,          // strong-prior branch
+  batterStatcastPresent: true, // factor at ceiling
+  maxCacheAgeSec: 0,           // ≤300 → dataFreshness ceiling
 }
 
 // =============================================================================
@@ -342,6 +343,53 @@ describe('computeConfidenceBreakdown — batterSample factor', () => {
 })
 
 // =============================================================================
+// Batter Statcast availability factor — new in the cold-start refactor
+// =============================================================================
+
+describe('computeConfidenceBreakdown — batterStatcast factor', () => {
+  test('Statcast present → 1.00 regardless of career PA', () => {
+    const a = computeConfidenceBreakdown({
+      ...allCeilings, batterStatcastPresent: true, batterCareerPa: 0,
+    })
+    const b = computeConfidenceBreakdown({
+      ...allCeilings, batterStatcastPresent: true, batterCareerPa: 5000,
+    })
+    expect(a.factors.batterStatcast).toBeCloseTo(1.0, 4)
+    expect(b.factors.batterStatcast).toBeCloseTo(1.0, 4)
+  })
+
+  test('Statcast missing for a vet (≥200 career PA) → 0.96 (unusual missing data)', () => {
+    const { factors } = computeConfidenceBreakdown({
+      ...allCeilings, batterStatcastPresent: false, batterCareerPa: 600,
+    })
+    expect(factors.batterStatcast).toBeCloseTo(0.96, 4)
+  })
+
+  test('Statcast missing for a rookie (<200 career PA) → 1.00 (normal, no haircut)', () => {
+    // Rookies often lack Savant data until they've accumulated some PAs;
+    // this is expected, not surprising — no confidence haircut.
+    const { factors } = computeConfidenceBreakdown({
+      ...allCeilings, batterStatcastPresent: false, batterCareerPa: 50,
+    })
+    expect(factors.batterStatcast).toBeCloseTo(1.0, 4)
+  })
+
+  test('boundary: career=199 missing Statcast → 1.00 (still rookie tier)', () => {
+    const { factors } = computeConfidenceBreakdown({
+      ...allCeilings, batterStatcastPresent: false, batterCareerPa: 199,
+    })
+    expect(factors.batterStatcast).toBeCloseTo(1.0, 4)
+  })
+
+  test('boundary: career=200 missing Statcast → 0.96 (vet tier)', () => {
+    const { factors } = computeConfidenceBreakdown({
+      ...allCeilings, batterStatcastPresent: false, batterCareerPa: 200,
+    })
+    expect(factors.batterStatcast).toBeCloseTo(0.96, 4)
+  })
+})
+
+// =============================================================================
 // Lineup factor (unchanged — unaffected by the alignment refactor)
 // =============================================================================
 
@@ -393,40 +441,45 @@ describe('computeConfidenceBreakdown — weather factor', () => {
   })
 })
 
-describe('computeConfidenceBreakdown — time factor', () => {
-  test('confirmed lineup pins time to 1.0 even at 12 hours out', () => {
+// =============================================================================
+// Time-to-pitch is now absorbed into the lineup factor (no standalone factor).
+// These tests verify the multiplicative absorption: lineup base × time mult.
+// =============================================================================
+
+describe('computeConfidenceBreakdown — lineup × time absorption', () => {
+  test('confirmed lineup pins to base 1.0 even at 12 hours out', () => {
     const { factors } = computeConfidenceBreakdown({
       ...allCeilings, lineupStatus: 'confirmed', timeToFirstPitchMin: 720,
     })
-    expect(factors.time).toBeCloseTo(1.0, 4)
+    expect(factors.lineup).toBeCloseTo(1.0, 4)
   })
 
-  test('estimated lineup ≤30 min out → time = 1.0', () => {
+  test('partial lineup ≤30 min out → 0.85 (no time decay near first pitch)', () => {
     const { factors } = computeConfidenceBreakdown({
-      ...allCeilings, lineupStatus: 'estimated', timeToFirstPitchMin: 30,
+      ...allCeilings, lineupStatus: 'partial', timeToFirstPitchMin: 30,
     })
-    expect(factors.time).toBeCloseTo(1.0, 4)
+    expect(factors.lineup).toBeCloseTo(0.85, 4)
   })
 
-  test('estimated lineup at 360 min (6 hrs) → time = 0.95', () => {
-    const { factors } = computeConfidenceBreakdown({
-      ...allCeilings, lineupStatus: 'estimated', timeToFirstPitchMin: 360,
-    })
-    expect(factors.time).toBeCloseTo(0.95, 4)
-  })
-
-  test('estimated lineup mid-ramp (195 min) → time ≈ 0.975', () => {
-    const { factors } = computeConfidenceBreakdown({
-      ...allCeilings, lineupStatus: 'estimated', timeToFirstPitchMin: 195,
-    })
-    expect(factors.time).toBeCloseTo(0.975, 4)
-  })
-
-  test('partial lineup uses the ramp (not confirmed gate)', () => {
+  test('partial lineup at 360 min (6 hrs) → 0.85 × 0.95 = 0.8075', () => {
     const { factors } = computeConfidenceBreakdown({
       ...allCeilings, lineupStatus: 'partial', timeToFirstPitchMin: 360,
     })
-    expect(factors.time).toBeCloseTo(0.95, 4)
+    expect(factors.lineup).toBeCloseTo(0.8075, 4)
+  })
+
+  test('estimated lineup at 360 min → 0.70 × 0.95 = 0.665', () => {
+    const { factors } = computeConfidenceBreakdown({
+      ...allCeilings, lineupStatus: 'estimated', timeToFirstPitchMin: 360,
+    })
+    expect(factors.lineup).toBeCloseTo(0.665, 4)
+  })
+
+  test('estimated lineup at 195 min mid-ramp → 0.70 × 0.975 = 0.6825', () => {
+    const { factors } = computeConfidenceBreakdown({
+      ...allCeilings, lineupStatus: 'estimated', timeToFirstPitchMin: 195,
+    })
+    expect(factors.lineup).toBeCloseTo(0.6825, 4)
   })
 })
 

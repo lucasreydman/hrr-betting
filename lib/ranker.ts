@@ -376,6 +376,8 @@ export async function rankPicks(date: string): Promise<PicksResponse> {
       awayPitcherSavant,
       homeBullpenStats,
       awayBullpenStats,
+      homePitcherPriorSeason,
+      awayPitcherPriorSeason,
     ] = await Promise.all([
       probables.home > 0 ? fetchPitcherRecentStarts(probables.home, 10, season).catch(() => []) : Promise.resolve([]),
       probables.away > 0 ? fetchPitcherRecentStarts(probables.away, 10, season).catch(() => []) : Promise.resolve([]),
@@ -387,6 +389,13 @@ export async function rankPicks(date: string): Promise<PicksResponse> {
       // Bullpen for each side: home batters face away bullpen, away batters face home bullpen.
       fetchBullpenStats(game.awayTeam.teamId, season).catch(() => null),
       fetchBullpenStats(game.homeTeam.teamId, season).catch(() => null),
+      // Prior-season pitcher stats. Feeds the pitcher factor's cold-start
+      // fallback (current < 3 starts → stabilize against last year's rates
+      // instead of league avg) and the opener detection's reliever-history
+      // path (pitcher who was predominantly a reliever last year and is
+      // "starting" today is almost certainly an opener).
+      probables.home > 0 ? fetchPitcherSeasonStats(probables.home, season - 1).catch(() => null) : Promise.resolve(null),
+      probables.away > 0 ? fetchPitcherSeasonStats(probables.away, season - 1).catch(() => null) : Promise.resolve(null),
     ])
 
     const pitcherNames = new Map<number, string>()
@@ -470,22 +479,47 @@ export async function rankPicks(date: string): Promise<PicksResponse> {
       const opposingStarterId = onHome ? probables.away : probables.home
       const opposingPitcherSeasonStats = onHome ? awayPitcherSeasonStats : homePitcherSeasonStats
       const opposingPitcherSavant = onHome ? awayPitcherSavant : homePitcherSavant
+      const opposingPitcherPriorSeason = onHome ? awayPitcherPriorSeason : homePitcherPriorSeason
       // Home batters face away bullpen, away batters face home bullpen.
       const opposingBullpen = onHome ? homeBullpenStats : awayBullpenStats
 
-      // Opener detection: a "starter" who routinely throws < 2 IP per outing
-      // is an opener — the bullpen will work most of the game and the
-      // confidence factor should ding accordingly. Need ≥ 3 starts to make
-      // the call; fewer than that and we already neutralise pitcherFactor.
+      // Opener detection — two paths:
+      //  1. **In-season pattern**: ≥ 3 current-season starts averaging < 2 IP.
+      //     Catches established opener strategies (Tampa-style / Houston-style).
+      //  2. **Reliever-history**: pitcher was predominantly a reliever last
+      //     season (gamesStarted / gamesPlayed < 0.5) AND has < 3 current-
+      //     season starts. Catches the "first opener game of the season for a
+      //     known reliever" case the in-season pattern can't see yet because
+      //     it needs 3 starts to fire.
+      //
+      // Free-data limit: MLB Stats doesn't expose a beat-reporter "this is
+      // an opener game" flag. The two heuristics above cover ~80% of opener
+      // strategies using cached data we already pull; the remaining ~20%
+      // (true rookie called up to start a bullpen game with no prior-season
+      // role data) needs a paid feed to detect cleanly. Acceptable miss rate.
       const avgIp = opposingStarts.length > 0
         ? opposingStarts.reduce((acc, s) => acc + (s.ip || 0), 0) / opposingStarts.length
         : 0
-      const isOpener = opposingStarts.length >= 3 && avgIp < 2.0
+      const inSeasonOpener = opposingStarts.length >= 3 && avgIp < 2.0
+      const priorSeasonGS = opposingPitcherPriorSeason?.gamesStarted ?? 0
+      const priorSeasonG = opposingPitcherPriorSeason?.gamesPlayed ?? 0
+      // ≥ 5 prior-season games guards against tiny-sample false positives
+      // (a pitcher with 1 G / 0 GS in 2025 is likely a rookie callup, not a
+      // career reliever). 0.5 is the conventional reliever/starter cutoff.
+      const priorSeasonRelieverFlag =
+        priorSeasonG >= 5 && priorSeasonGS / priorSeasonG < 0.5
+      const isOpener = inSeasonOpener || (priorSeasonRelieverFlag && opposingStarterStartCount < 3)
 
       // Build PitcherInputs — fall back to league-average rates when data unavailable.
       // This gives pitcherFactor = 1.0 (conservative, not a crash).
       const pitcherBf = opposingPitcherSeasonStats?.ip
         ? Math.round(opposingPitcherSeasonStats.ip * 4.3)  // ~4.3 BF/IP
+        : 0
+      // Prior-season BF for the pitcher factor's cold-start fallback. ~50 BF
+      // (~12 starts) is the activation threshold inside computePitcherFactor;
+      // we always pass the data and let the factor decide whether to use it.
+      const priorSeasonBf = opposingPitcherPriorSeason?.ip
+        ? Math.round(opposingPitcherPriorSeason.ip * 4.3)
         : 0
       const pitcherInputs = {
         id: opposingStarterId > 0 ? opposingStarterId : 0,
@@ -499,6 +533,20 @@ export async function rankPicks(date: string): Promise<PicksResponse> {
         hardHitRate: opposingPitcherSavant?.hardHitPctAllowed ?? LG_HARD_HIT_RATE,
         bf: pitcherBf,
         recentStarts: opposingStarterStartCount,
+        // Cold-start fallback: when current-season has < 3 starts AND we
+        // have ≥50 prior-season BF, pitcher factor stabilises against
+        // prior-season rates instead of league avg. See lib/factors/pitcher.ts.
+        ...(opposingPitcherPriorSeason && priorSeasonBf >= 50
+          ? {
+              priorSeason: {
+                kPct: opposingPitcherPriorSeason.kPct,
+                bbPct: opposingPitcherPriorSeason.bbPct,
+                hrPct: opposingPitcherPriorSeason.hrPct,
+                hardHitRate: LG_HARD_HIT_RATE,  // prior-season Savant hardHit not fetched; use league avg
+                bf: priorSeasonBf,
+              },
+            }
+          : {}),
         throws: opposingStarterId > 0
           ? (pitcherPeople.get(opposingStarterId)?.throws ?? 'R')
           : 'R',
@@ -534,10 +582,26 @@ export async function rankPicks(date: string): Promise<PicksResponse> {
       const batterSeasonPa = batterSeason?.pa ?? 0
       const batterCareerPa = batterCareer?.pa ?? 0
 
-      // Pitcher activation aligns with lib/factors/pitcher.ts:31-32 —
-      // factor returns 1.00 when id=0 (TBD) OR recentStarts < 3.
+      // Pitcher activation: factor produces a non-1.00 value when we have
+      // any usable rate signal — either ≥3 current-season starts (normal
+      // path) OR ≥50 BF of prior-season data (cold-start fallback). The
+      // ranker mirrors the gate inside lib/factors/pitcher.ts so the
+      // confidence factor's pin-when-inactive behavior stays in sync.
+      const pitcherHasPriorSeasonRates =
+        (opposingPitcherPriorSeason?.ip ?? 0) * 4.3 >= 50
       const pitcherActive =
-        opposingStarterId > 0 && opposingStarterStartCount >= 3
+        opposingStarterId > 0 &&
+        (opposingStarterStartCount >= 3 || pitcherHasPriorSeasonRates)
+
+      // Detect "real Statcast data" — the parser returns null when the
+      // player isn't in the Savant CSV; for borderline cases (recent
+      // callups before Savant syndicates them) the record may exist with
+      // all-zero fields. Treat all-zero as not-present.
+      const batterStatcastPresent =
+        !!batterStatcast &&
+        (batterStatcast.barrelPct > 0 ||
+         batterStatcast.hardHitPct > 0 ||
+         batterStatcast.xwOBA > 0)
 
       const { factors: confidenceFactors, product: confidence } = computeConfidenceBreakdown({
         lineupStatus: lineup.status,
@@ -550,6 +614,7 @@ export async function rankPicks(date: string): Promise<PicksResponse> {
         isOpener,
         batterSeasonPa,
         batterCareerPa,
+        batterStatcastPresent,
         maxCacheAgeSec: scheduleAgeSec,
       })
 

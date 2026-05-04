@@ -214,6 +214,8 @@ interface RawPitcherStat {
   strikeOuts: number
   inningsPitched: string
   battersFaced: number
+  gamesPlayed?: number
+  gamesStarted?: number
   era?: string
 }
 
@@ -945,11 +947,14 @@ export async function fetchPitcherSeasonStats(
 ): Promise<PitcherStats> {
   // Slate-aligned: data freezes for the entire slate (3am ET → next 3am ET) so
   // mid-game stat updates don't shift previously-given plays.
-  // v2: hrPct field added (HR/BF). v1 entries lack the field; reading them
-  // back as PitcherStats would silently fall through to the `?? LG_HR_PCT`
-  // default in ranker.ts and produce a degraded factor for the rest of the
-  // slate. Bumping the prefix forces a re-fetch with the new shape.
-  const cacheKey = `hrr:pitcher:season:v2:${pitcherId}:${season}:${slateDateString()}`
+  // v3: gamesPlayed + gamesStarted fields added (drives opener detection's
+  //   prior-season-reliever path and the pitcher factor's cold-start fallback).
+  //   v2 entries lack these fields; reading them as PitcherStats would silently
+  //   surface 0 for both, producing wrong opener verdicts for the rest of the
+  //   slate. Bumping the prefix forces a re-fetch.
+  // v2 added hrPct (HR/BF); v1 read hrPct via hrPer9/9 which produced HR/inning
+  //   (off by ~4× — see ranker.ts:fetchPitcherSeasonStats history).
+  const cacheKey = `hrr:pitcher:season:v3:${pitcherId}:${season}:${slateDateString()}`
   const cached = await kvGet<PitcherStats>(cacheKey)
   if (cached) return cached
 
@@ -986,6 +991,8 @@ export async function fetchPitcherSeasonStats(
     // gave HR/inning, not HR/BF (off by ~4× since there are ~4 BF/inning),
     // which pegged the pitcher factor near its 2.0 cap on every pick.
     hrPct:   bf > 0 ? stat.homeRuns / bf : LEAGUE_AVG_HR_PCT,
+    gamesPlayed:  stat.gamesPlayed ?? 0,
+    gamesStarted: stat.gamesStarted ?? 0,
   }
 
   await kvSet(cacheKey, result, TTL_24H)
@@ -1000,6 +1007,8 @@ function fallbackPitcherStats(pitcherId: number): PitcherStats {
     kPct:   LEAGUE_AVG_K_PCT,
     bbPct:  LEAGUE_AVG_BB_PCT,
     hrPer9: LEAGUE_AVG_HR_PER9,
+    gamesPlayed:  0,
+    gamesStarted: 0,
     hrPct:  LEAGUE_AVG_HR_PCT,
   }
 }

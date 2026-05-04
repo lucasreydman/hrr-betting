@@ -236,14 +236,14 @@ bet_dollars = fullKelly × kellyFraction × bankroll`}
                 </tr>
               </thead>
               <tbody className="text-ink-subtle">
-                <ConfRow3 factor="Lineup" inactive="—" mapping="confirmed 1.00 / partial 0.85 / estimated 0.70" />
+                <ConfRow3 factor="Lineup" inactive="—" mapping="base: confirmed 1.00 / partial 0.85 / estimated 0.70 — multiplied by a time-to-pitch factor (1.00 → 0.95 from 30 min to 6 hrs out, unconfirmed only)" />
                 <ConfRow3 factor="BvP" inactive="—" mapping="linear ramp 0.90 at 0 AB → 1.00 at ≥20 AB (sample-size signal — reads independently of probToday gate)" />
-                <ConfRow3 factor="Pitcher rates" inactive="TBD pitcher OR < 3 current starts" mapping="ramp 0.90 at 50 BF → 1.00 at ≥200 BF" />
+                <ConfRow3 factor="Pitcher rates" inactive="TBD pitcher OR (< 3 current starts AND < 50 BF prior season)" mapping="ramp 0.90 at 50 BF → 1.00 at ≥200 BF — cold-start fallback uses prior-season rates as the stabilization prior" />
                 <ConfRow3 factor="Weather" inactive="dome / failed forecast / |hrMult−1| ≤ 5%" mapping="continuous: 1.00 → 0.90 between 5% and 20% impact" />
                 <ConfRow3 factor="Bullpen" inactive="bullpen IP unknown" mapping="ramp 0.95 at 0 IP → 1.00 at ≥150 IP" />
                 <ConfRow3 factor="Batter sample" inactive="—" mapping="career ≥ 200 PA: 0.92 → 1.00 over 100 fresh PA;  career < 200: 0.85 → 1.00 over 200 fresh PA" />
-                <ConfRow3 factor="Time to pitch" inactive="lineup confirmed" mapping="1.00 ≤ 30 min → 0.95 ≥ 6 hrs (unconfirmed only)" />
-                <ConfRow3 factor="Opener" inactive="normal starter" mapping="opener 0.90 (relevance haircut, not data quality)" />
+                <ConfRow3 factor="Batter Statcast" inactive="Statcast present OR rookie (< 200 career PA, missing Statcast is normal)" mapping="0.96 when Statcast missing for a vet (≥ 200 career PA) — small ding for unusual missing data" />
+                <ConfRow3 factor="Opener" inactive="normal starter" mapping="opener 0.90 (relevance haircut, not data quality) — fires on in-season pattern (≥3 starts, &lt;2 IP avg) OR prior-season reliever flag (GS/G &lt; 0.5)" />
                 <ConfRow3 factor="Data freshness" inactive="schedule cache ≤ 5 min stale" mapping="ramp to 0.90 at ≥ 30 min stale" />
               </tbody>
             </table>
@@ -262,7 +262,11 @@ bet_dollars = fullKelly × kellyFraction × bankroll`}
           ramps on batters-faced rather than start count because BF is the
           underlying unit those rates stabilize against (Russell Carleton:
           ~70 BF for K%, ~170 BF for BB%/HR%, ~200 BF for hardHit%). 200 BF is
-          the most-binding threshold; that&apos;s where the ramp ceiling sits.{' '}
+          the most-binding threshold; that&apos;s where the ramp ceiling sits.
+          When current-season has &lt; 3 starts AND prior-season has ≥ 50 BF,
+          the factor falls back to stabilising current rates against prior-
+          season rates — a 30-start veteran with 1 fresh start no longer
+          reads as league-average.{' '}
           <strong>Three:</strong> the batter sample factor branches on whether
           <Code>p̂ typical</Code> is using a strong career prior (≥ 200 career
           PA). When it is, the rates feeding pTypical are anchored by career

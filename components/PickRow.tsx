@@ -717,8 +717,21 @@ function MathPanel({ pick, rung, localTime, storedLine }: {
           >
             <MultCell value={inputs.confidenceFactors.batterSample} />
           </KV>
-          <KV label={<>Time to pitch <span className="text-ink-muted/70">({inputs.timeToFirstPitchMin} min)</span></>}>
-            <MultCell value={inputs.confidenceFactors.time} />
+          <KV
+            label={
+              <>
+                Batter Statcast{' '}
+                <span className="text-ink-muted/70">
+                  ({inputs.batterStatcast
+                    ? 'present'
+                    : inputs.batterCareerPa >= 200
+                      ? 'missing (vet)'
+                      : 'missing (rookie · normal)'})
+                </span>
+              </>
+            }
+          >
+            <MultCell value={inputs.confidenceFactors.batterStatcast} />
           </KV>
           <KV label={<>Opener <span className="text-ink-muted/70">({inputs.isOpener ? 'yes' : 'no'})</span></>}>
             <MultCell value={inputs.confidenceFactors.opener} />

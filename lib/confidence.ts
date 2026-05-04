@@ -27,81 +27,80 @@ export function passesHardGates(args: HardGateInputs): boolean {
 }
 
 // =============================================================================
-// Confidence model — strict alignment with what the probability factors use
+// Confidence model — factors mirror the data probToday actually uses
 // =============================================================================
 //
-// Design principle: every confidence factor mirrors a specific input to the
-// probability calculation. When the corresponding probToday factor is
-// neutralized (returns 1.00 — the data isn't actually being used), the
-// confidence factor pins to 1.00 too. No haircuts for absent data.
+// Design principle: every confidence factor maps to a specific input feeding
+// pMatchup. When the corresponding probToday factor is neutralized (returns
+// 1.00 — the data isn't being used), the confidence factor pins to 1.00 too.
+// No haircuts for absent data.
 //
-// Factors:
-//   lineup         — slot/order data feeding paCount + bullpen factors
-//   bvp            — career BvP signal (probToday gate: ≥5 AB)
-//   pitcher        — current-season K%/BB%/HR%/hardHit% (gate: id≠0 AND ≥3 starts)
-//   weather        — Open-Meteo forecast (gate: outdoor + fetch succeeded)
-//   bullpen        — opponent team bullpen ERA (gate: non-null)
-//   batterSample   — batter rates feeding pTypical, with career-prior awareness
-//   time           — lineup churn risk (gates on lineup status)
-//   opener         — pitcher data relevance (binary)
-//   dataFreshness  — system-health proxy (schedule cache age)
+// One intentional opt-out: BvP confidence is a pure linear sample-size
+// signal and does NOT pin when probToday BvP is inactive (< 5 AB). It
+// reads "how much matchup data do we have" rather than "is the factor
+// contributing", which surfaces a useful "we know little here" UX hint
+// even on first-time matchups.
 //
-// 9 factors total (was 8; added bullpen). The design tradeoff: adds one
-// factor, removes the prior-season pitcher backfill (the pitcher *factor*
-// only uses current-season data, so prior-season backfilling confidence
-// was confidence claiming stability the factor itself didn't have).
+// Factors (9):
+//   lineup            — slot/order data quality, with time-to-pitch absorbed
+//   bvp               — career BvP sample-size signal (no gate)
+//   pitcher           — current-season K%/BB%/HR%/hardHit% (gate: id≠0 AND ≥3 starts)
+//   weather           — Open-Meteo forecast (gate: outdoor + non-neutral)
+//   bullpen           — opponent team bullpen ERA (gate: non-null)
+//   batterSample      — pTypical's batter rates, with career-prior awareness
+//   batterStatcast    — Statcast availability for the batter quality factor
+//   opener            — pitcher data relevance (binary)
+//   dataFreshness     — system-health proxy (schedule cache age)
 
 export interface ConfidenceInputs {
   lineupStatus: Lineup['status']  // 'confirmed' | 'partial' | 'estimated'
 
-  // BvP signal feeding the BvP probToday factor (career AB; gate at ≥5).
+  // BvP: pure sample-size signal (intentionally not gate-aligned).
   bvpAB: number
 
   // Pitcher inputs feeding the pitcher probToday factor.
   // Factor neutralizes when pitcherActive=false → confidence pins to 1.00.
-  pitcherActive: boolean   // false when pitcher id=0 (TBD) OR recentStarts < 3
-  pitcherBf: number        // batters faced this season (drives rate stabilization)
+  pitcherActive: boolean
+  pitcherBf: number  // batters faced this season
 
-  // Weather impact magnitude: |hrMult - 1|. 0 means the weather model isn't
-  // exposed (dome / fetch failed / neutral conditions). Confidence pins to
-  // 1.00 at impact ≤ 0.05.
+  // Weather impact magnitude: |hrMult - 1|. 0 means no exposure.
   weatherImpact: number
 
   // Bullpen sample feeding the bullpen probToday factor.
-  // Factor neutralizes when null → confidence pins to 1.00.
   bullpenIp: number | null  // null = no bullpen data; factor inactive
-                            // ≥0 = current-season aggregate IP
 
-  // Time to first pitch (minutes). Only matters when lineup is unconfirmed —
-  // farther out = more lineup churn risk. Confirmed lineups pin to 1.00.
+  // Time to first pitch (minutes). Absorbed into the lineup factor for
+  // unconfirmed lineups (further out = more lineup churn risk).
   timeToFirstPitchMin: number
 
   // Opener heuristic. Pitcher data is "less relevant" when it won't apply
   // to most of the game (opener strategy: starter throws ~1 IP, bullpen
-  // takes over). Distinct from pitcher rate stability — this is a relevance
-  // haircut, not a sample-size one.
+  // takes over).
   isOpener: boolean
 
   // Batter sample inputs feeding pTypical via stabilizeRates.
-  // pTypical uses career rates as the stabilization prior when career PA ≥ 200,
-  // so a veteran with low fresh PA but a long career has stable rates. Confidence
-  // reflects which prior path was taken.
-  batterSeasonPa: number   // batter's PAs this season
-  batterCareerPa: number   // batter's career PAs (≥200 → strong prior)
+  // pTypical uses career rates as the prior when career PA ≥ 200, so a
+  // veteran with low fresh PA but a long career has stable rates.
+  batterSeasonPa: number
+  batterCareerPa: number
 
-  // System-health: schedule cache age. Drives the dataFreshness factor.
+  // Whether Statcast contact metrics (barrel%, hardHit%, xwOBA) are present
+  // for this batter. Drives the batterStatcast confidence factor.
+  batterStatcastPresent: boolean
+
+  // System-health: schedule cache age.
   maxCacheAgeSec: number
 }
 
 /** Per-factor breakdown of the confidence multiplier. Product of all nine = `confidence`. */
 export interface ConfidenceFactors {
-  lineup: number         // 1.00 / 0.85 / 0.70 by lineup status
+  lineup: number         // tiered base × time-to-pitch absorption
   bvp: number            // pure sample-size signal: 0.90 at 0 AB → 1.00 at ≥20 AB
   pitcher: number        // 1.00 when pitcher factor inactive; otherwise BF-based ramp
   weather: number        // 1.00 at neutral; 0.90 at ±20% hrMult impact (continuous)
   bullpen: number        // 1.00 when factor inactive; otherwise IP-based ramp
   batterSample: number   // career-prior-aware: vets ramp from 0.92, rookies from 0.85
-  time: number           // 1.00 if confirmed; otherwise 1.00→0.95 ramp on time-to-pitch
+  batterStatcast: number // 1.00 when Statcast present; 0.96 when missing for a vet
   opener: number         // 1.00 normal / 0.90 opener (relevance haircut)
   dataFreshness: number  // 1.00 if ≤5 min → 0.90 at ≥30 min, linear
 }
@@ -109,92 +108,83 @@ export interface ConfidenceFactors {
 /**
  * Compute the per-factor breakdown of the confidence multiplier. Each factor
  * is documented inline with its alignment rationale: when it pins to 1.00,
- * what input it ramps on, and what stabilization point the ramp is calibrated
- * around.
+ * what input it ramps on, and what stabilization point the ramp targets.
  */
 export function computeConfidenceBreakdown(args: ConfidenceInputs): {
   factors: ConfidenceFactors
   product: number
 } {
-  // ── 1. Lineup ────────────────────────────────────────────────────────────
-  // Tiered haircut on slot/order data quality. Used by paCount + bullpen
-  // factors via slot. confirmed = full data, partial = some lineup data,
-  // estimated = inferred from 14-day batting-order history.
-  const lineup =
+  // ── 1. Lineup (with time-to-pitch absorbed) ─────────────────────────────
+  // Tiered base on slot/order data quality. For unconfirmed lineups, the
+  // base is multiplied by a time-to-pitch component that captures lineup
+  // churn risk (further from first pitch = more time for the projected
+  // lineup to be wrong). Confirmed lineups get the full base — late
+  // scratches are too rare to warrant a global time haircut.
+  //
+  // Replaces the previous separate `time` factor. Folding time into lineup
+  // makes the math panel single-row and removes the redundant overlap that
+  // existed when both factors said "we're not sure about the lineup."
+  const lineupBase =
     args.lineupStatus === 'confirmed' ? 1.00 :
     args.lineupStatus === 'partial' ? 0.85 : 0.70
+  const lineupTimeMult =
+    args.lineupStatus === 'confirmed' ? 1.0 :
+    args.timeToFirstPitchMin <= 30 ? 1.0 :
+    args.timeToFirstPitchMin >= 360 ? 0.95 :
+    1.0 - ((args.timeToFirstPitchMin - 30) / 330) * 0.05
+  const lineup = lineupBase * lineupTimeMult
 
-  // ── 2. BvP ───────────────────────────────────────────────────────────────
+  // ── 2. BvP (intentional alignment opt-out) ───────────────────────────────
   // Pure sample-size signal: linear ramp from 0.90 at 0 AB to 1.00 at 20+
-  // AB. Reads independently of whether the probToday BvP factor is active —
-  // intentional break from the strict alignment principle for this factor.
-  // The framing here is "how much historical matchup data do we have?"
-  // not "is the factor contributing to pMatchup?" Below 5 AB, probToday
-  // BvP is neutralised and pMatchup isn't moved, but the confidence reading
-  // still reflects that we have very little context for this batter-pitcher
-  // pairing — which is information worth surfacing to the user.
+  // AB. Reads independently of whether the probToday BvP factor is active
+  // (gate at ≥5 AB on that side). The framing here is "how much historical
+  // matchup data do we have?" — surfaces "we have very little context for
+  // this batter-pitcher pairing" as a UX signal even when the model isn't
+  // moving pMatchup on BvP.
   const bvp = Math.min(1.0, 0.90 + (Math.max(0, args.bvpAB) / 20) * 0.10)
 
-  // ── 3. Pitcher ───────────────────────────────────────────────────────────
-  // Aligned with pitcher factor activation (lib/factors/pitcher.ts:31-32):
-  // factor returns 1.00 when id=0 (TBD) OR recentStarts < 3. In those cases
-  // no pitcher rate signal feeds pMatchup → confidence pins to 1.00.
-  //
-  // When active, ramp on batters-faced. Carleton stabilization sample sizes
-  // for the rates the factor uses:
-  //   K%       70 BF
-  //   BB%      170 BF
-  //   HR%      170 BF
-  //   hardHit% 200 BF
-  // Use 200 BF as the "fully sampled" threshold (largest of the four — the
-  // most-binding constraint). 50 BF (~3 starts) is the activation floor.
+  // ── 3. Pitcher rates ─────────────────────────────────────────────────────
+  // Aligned with pitcher factor activation. When inactive → pin to 1.00.
+  // When active, ramp on batters-faced. 200 BF = the largest of the rate
+  // stabilization sample sizes the factor uses (Carleton: K% 70, BB%/HR%
+  // 170, hardHit% 200 BF) — the most-binding constraint.
   let pitcher: number
   if (!args.pitcherActive) {
     pitcher = 1.00
   } else {
-    // Linear ramp 50 BF → 200 BF (~3 starts → ~12 starts on a 4-IP-per-start average).
     const t = Math.max(0, Math.min(1, (args.pitcherBf - 50) / 150))
     pitcher = 0.90 + t * 0.10
   }
 
   // ── 4. Weather ───────────────────────────────────────────────────────────
-  // Continuous ramp on |hrMult - 1|. Pinned to 0 by the ranker for domes /
-  // failed forecasts (the weather factor itself returns 1.00 there → no
-  // weather signal feeds pMatchup → confidence pins to 1.00 via the ≤0.05
-  // floor). Above 0.05 impact, ramp linearly to 0.90 at ±20%.
+  // Continuous ramp on |hrMult - 1|. ≤0.05 impact (essentially neutral) →
+  // 1.00. ≥0.20 impact (Coors-cold or Wrigley-gale territory) → 0.90.
+  // Pinned to 0 by the ranker for domes / failed forecasts, so those cases
+  // hit the 1.00 floor naturally via the ≤0.05 branch.
   const weather =
     args.weatherImpact <= 0.05 ? 1.0 :
     args.weatherImpact >= 0.20 ? 0.90 :
     1.0 - ((args.weatherImpact - 0.05) / 0.15) * 0.10
 
   // ── 5. Bullpen ───────────────────────────────────────────────────────────
-  // NEW factor (was unmonitored). Aligned with bullpen factor activation
-  // (lib/factors/bullpen.ts): factor returns 1.00 when bullpen is null.
-  //
-  // When active, ramp on cumulative IP. The bullpen factor stabilizes at
-  // 150 IP (STABILIZATION_BULLPEN_IP), so use that as the "fully sampled"
-  // threshold. Smaller range than other factors (5pp) because the bullpen
-  // factor's clamp ([0.85, 1.15]) caps its impact.
+  // Aligned with bullpen factor activation. Null → pin to 1.00. Active →
+  // ramp on cumulative IP, with the Carleton-style stabilization point of
+  // 150 IP as the ceiling. 5pp range (smaller than other factors) because
+  // the bullpen factor's clamp [0.85, 1.15] caps its impact on pMatchup.
   let bullpen: number
   if (args.bullpenIp == null) {
     bullpen = 1.00
   } else {
-    // Linear ramp 0 IP → 150 IP. Floor at 0.95.
     const t = Math.max(0, Math.min(1, args.bullpenIp / 150))
     bullpen = 0.95 + t * 0.05
   }
 
   // ── 6. Batter sample (career-prior-aware) ───────────────────────────────
-  // pTypical's stabilizeRates uses career rates as the prior when career
-  // PA ≥ 200 (lib/p-typical.ts:88). When the prior is strong, the rates
-  // feeding pTypical are stable regardless of how few fresh PAs the batter
-  // has — current-season rates barely shift the career anchor.
-  //
-  // So branch:
-  //   ≥200 career PA: ramp from 0.92 floor → 1.00 at 100+ current PA
-  //                   (career anchor + small current-season top-up)
-  //   <200 career PA: ramp from 0.85 floor → 1.00 at 200+ current PA
-  //                   (no useful prior; current PA is the only signal)
+  // pTypical's stabilizeRates uses career rates as the prior when career PA
+  // ≥ 200 (lib/p-typical.ts:88). When the prior is strong, the rates feeding
+  // pTypical are stable regardless of how few fresh PAs the batter has.
+  //   ≥ 200 career PA: ramp from 0.92 floor → 1.00 at 100+ current PA
+  //   <  200 career PA: ramp from 0.85 floor → 1.00 at 200+ current PA
   const currentPA = Math.max(0, args.batterSeasonPa)
   const careerPA = Math.max(0, args.batterCareerPa)
   let batterSample: number
@@ -206,41 +196,51 @@ export function computeConfidenceBreakdown(args: ConfidenceInputs): {
     batterSample = 0.85 + t * 0.15
   }
 
-  // ── 7. Time to pitch ────────────────────────────────────────────────────
-  // Confirmed lineup → 1.00 (the thing time-to-pitch was proxying for is
-  // already locked). For unconfirmed lineups, ramp 1.00 (≤30 min) → 0.95
-  // (≥6 hrs out). Lineup churn risk grows with how far we're projecting.
-  const time =
-    args.lineupStatus === 'confirmed' ? 1.0 :
-    args.timeToFirstPitchMin <= 30 ? 1.0 :
-    args.timeToFirstPitchMin >= 360 ? 0.95 :
-    1.0 - ((args.timeToFirstPitchMin - 30) / 330) * 0.05
+  // ── 7. Batter Statcast availability ─────────────────────────────────────
+  // The batter quality probToday factor (lib/factors/batter.ts) returns
+  // 1.00 when Statcast is missing — factor inactive, no signal contributing.
+  // Under strict alignment, this would mean confidence 1.00 regardless of
+  // missing data. But missing Statcast for a player who should have it
+  // (vet with ≥200 career PA) is unusual and worth surfacing as a small
+  // confidence haircut. Rookies (career PA < 200) without Statcast is
+  // normal and gets no haircut.
+  //
+  // 4pp range (smallest factor in the model) reflects that the batter
+  // quality factor itself is heavily damped (clamped [0.95, 1.05]).
+  let batterStatcast: number
+  if (args.batterStatcastPresent) {
+    batterStatcast = 1.00
+  } else if (careerPA >= 200) {
+    batterStatcast = 0.96  // vet-no-Statcast = small ding for unusual missing data
+  } else {
+    batterStatcast = 1.00  // rookie-no-Statcast = normal, no ding
+  }
 
   // ── 8. Opener ────────────────────────────────────────────────────────────
-  // Relevance haircut, NOT data quality. The pitcher factor's data may be
-  // stable, but if the bullpen pitches most of the game the pitcher's stats
-  // don't apply to most of the matchup. 0.90 reflects this directly.
+  // Relevance haircut, NOT data quality. Pitcher rate data may be stable,
+  // but if the bullpen pitches most of the game the pitcher's stats don't
+  // apply to most of the matchup.
   const opener = args.isOpener ? 0.90 : 1.0
 
   // ── 9. Data freshness ────────────────────────────────────────────────────
-  // System-health proxy. Schedule has the shortest TTL of any cache (2 min)
-  // and drives lineup/probables/status downstream — its age is the best
-  // single proxy for "is the slate-refresh cron actually running?"
+  // System-health proxy via schedule-cache age (the canonical 2-min-TTL
+  // live-state cache). If the slate-refresh cron stops, schedule age grows
+  // and confidence smoothly drops toward 0.90.
   const dataFreshness =
     args.maxCacheAgeSec <= 5 * 60 ? 1.0 :
     args.maxCacheAgeSec >= 30 * 60 ? 0.90 :
     1.0 - ((args.maxCacheAgeSec - 5 * 60) / (25 * 60)) * 0.10
 
   const factors: ConfidenceFactors = {
-    lineup, bvp, pitcher, weather, bullpen, batterSample, time, opener, dataFreshness,
+    lineup, bvp, pitcher, weather, bullpen, batterSample, batterStatcast, opener, dataFreshness,
   }
   const product =
-    lineup * bvp * pitcher * weather * bullpen * batterSample * time * opener * dataFreshness
+    lineup * bvp * pitcher * weather * bullpen * batterSample * batterStatcast * opener * dataFreshness
   return { factors, product }
 }
 
 /**
- * Graded confidence multiplier in [0.55, 1.00] (typical range).
+ * Graded confidence multiplier in [0.5, 1.00] (typical range).
  * Each input contributes a multiplier; the product is the final confidence.
  */
 export function computeConfidence(args: ConfidenceInputs): number {

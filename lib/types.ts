@@ -58,6 +58,12 @@ export interface PitcherStats {
    * (also HR/BF), so it must be in the same units. Computed as HR/BF where
    * raw stats are available; falls back to LEAGUE_AVG_HR_PCT otherwise. */
   hrPct: number
+  /** Total games this pitcher appeared in this season (any role). */
+  gamesPlayed: number
+  /** Games started — used by opener detection's prior-season-reliever path
+   * and by the cold-start fallback to gauge whether prior-season rates are
+   * usable as a stand-in when current-season has < 3 starts. */
+  gamesStarted: number
   vsR?: OutcomeRates
   vsL?: OutcomeRates
 }
