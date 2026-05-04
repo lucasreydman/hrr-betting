@@ -87,7 +87,19 @@ export const PROB_FLOORS: Record<Rung, number> = { 1: 0.80, 2: 0.60, 3: 0.40 }
 export const DISPLAY_FLOOR_SCORE = 0.05
 
 // Minimum confidence for a pick to be Tracked.
-export const CONFIDENCE_FLOOR_TRACKED = 0.85
+//
+// Re-tuned 2026-05-04 alongside the confidence-alignment refactor (every
+// confidence factor now mirrors what its corresponding probToday factor
+// actually uses). The alignment refactor pinned several factors to 1.00
+// when their probability counterpart was inactive (BvP < 5 AB, TBD pitcher,
+// dome weather, null bullpen) and added career-prior awareness to the
+// batter-sample factor. Net effect: typical confidence shifted up by ~5–9pp.
+//
+// Empirically observed median on the 2026-05-04 slate: 0.86. Old floor
+// (0.85) caught roughly half the slate; raising to 0.92 preserves the
+// original "top quartile" selectivity. Will be tuned against settled
+// history once npm run recalibrate has ≥30 days of data.
+export const CONFIDENCE_FLOOR_TRACKED = 0.92
 
 // League-average pitcher rates (recalibration target). 2025 MLB averages.
 export const LG_K_PCT = 0.225 // K / BF

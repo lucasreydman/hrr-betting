@@ -643,28 +643,39 @@ function MathPanel({ pick, rung, localTime, storedLine }: {
       {inputs && (
         <PanelSection title="Confidence">
           <p className="font-mono text-[11px] text-ink-muted">
-            confidence = product of 8 factors
+            confidence = product of 9 factors. Each factor pins to ×1.00 when the
+            corresponding p̂<sub>today</sub> input is neutralised — no haircut for
+            data the model isn&apos;t actually using.
           </p>
           <KV label={<>Lineup <span className="text-ink-muted/70">({pick.lineupStatus})</span></>}>
             <MultCell value={inputs.confidenceFactors.lineup} />
           </KV>
-          <KV label={<>BvP sample <span className="text-ink-muted/70">({inputs.bvp?.ab ?? 0} AB)</span></>}>
+          <KV
+            label={
+              <>
+                BvP sample{' '}
+                <span className="text-ink-muted/70">
+                  ({inputs.bvp?.ab ?? 0} AB
+                  {(inputs.bvp?.ab ?? 0) < 5 ? ' · factor inactive' : ''})
+                </span>
+              </>
+            }
+          >
             <MultCell value={inputs.confidenceFactors.bvp} />
           </KV>
           <KV
             label={
               <>
-                Pitcher sample{' '}
+                Pitcher rates{' '}
                 <span className="text-ink-muted/70">
-                  ({inputs.pitcherStartCount} starts
-                  {inputs.pitcherPriorSeasonStarts > 0
-                    ? ` · ${inputs.pitcherPriorSeasonStarts} prior`
-                    : ''})
+                  ({inputs.pitcherActive
+                    ? `${inputs.pitcherBf} BF`
+                    : 'factor inactive'})
                 </span>
               </>
             }
           >
-            <MultCell value={inputs.confidenceFactors.pitcherStart} />
+            <MultCell value={inputs.confidenceFactors.pitcher} />
           </KV>
           <KV
             label={
@@ -678,14 +689,40 @@ function MathPanel({ pick, rung, localTime, storedLine }: {
           >
             <MultCell value={inputs.confidenceFactors.weather} />
           </KV>
+          <KV
+            label={
+              <>
+                Bullpen sample{' '}
+                <span className="text-ink-muted/70">
+                  ({inputs.bullpenIp == null
+                    ? 'factor inactive'
+                    : `${inputs.bullpenIp.toFixed(0)} IP`})
+                </span>
+              </>
+            }
+          >
+            <MultCell value={inputs.confidenceFactors.bullpen} />
+          </KV>
+          <KV
+            label={
+              <>
+                Batter sample{' '}
+                <span className="text-ink-muted/70">
+                  ({inputs.batterSeasonPa} PA
+                  {inputs.batterCareerPa >= 200
+                    ? ` · ${inputs.batterCareerPa} career`
+                    : ''})
+                </span>
+              </>
+            }
+          >
+            <MultCell value={inputs.confidenceFactors.batterSample} />
+          </KV>
           <KV label={<>Time to pitch <span className="text-ink-muted/70">({inputs.timeToFirstPitchMin} min)</span></>}>
             <MultCell value={inputs.confidenceFactors.time} />
           </KV>
           <KV label={<>Opener <span className="text-ink-muted/70">({inputs.isOpener ? 'yes' : 'no'})</span></>}>
             <MultCell value={inputs.confidenceFactors.opener} />
-          </KV>
-          <KV label={<>Batter sample <span className="text-ink-muted/70">({inputs.batterSeasonPa} PA)</span></>}>
-            <MultCell value={inputs.confidenceFactors.sampleSize} />
           </KV>
           <KV label={<>Data freshness <span className="text-ink-muted/70">({inputs.scheduleAgeSec}s)</span></>}>
             <MultCell value={inputs.confidenceFactors.dataFreshness} />

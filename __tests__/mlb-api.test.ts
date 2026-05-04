@@ -14,7 +14,6 @@ import {
   fetchBoxscore,
   fetchPitcherSeasonStats,
   fetchPitcherRecentStarts,
-  fetchPitcherPriorSeasonStartsCount,
   fetchBatterSeasonStats,
   fetchBatterGameLog,
   fetchBvP,
@@ -472,56 +471,6 @@ describe('fetchPitcherRecentStarts', () => {
     mockFetch(() => jsonResp({}, { ok: false, status: 500 }))
     const starts = await fetchPitcherRecentStarts(803003, 5, 2099)
     expect(starts).toEqual([])
-  })
-})
-
-// ---------------------------------------------------------------------------
-// fetchPitcherPriorSeasonStartsCount
-// ---------------------------------------------------------------------------
-
-describe('fetchPitcherPriorSeasonStartsCount', () => {
-  test('counts only splits with IP > 0 (relief appearances excluded)', async () => {
-    // Build a sparse 2025 game log with five entries — three real starts
-    // (≥ 1 IP) and two relief appearances (0 IP). The count should be 3.
-    mockFetch(() => jsonResp({
-      stats: [{ splits: [
-        { date: '2025-09-28', stat: { inningsPitched: '6.0' } },
-        { date: '2025-09-22', stat: { inningsPitched: '0.0' } },  // relief
-        { date: '2025-09-16', stat: { inningsPitched: '5.1' } },
-        { date: '2025-04-04', stat: { inningsPitched: '0.0' } },  // relief
-        { date: '2025-04-01', stat: { inningsPitched: '7.0' } },
-      ] }],
-    }))
-    const count = await fetchPitcherPriorSeasonStartsCount(805001, 2024)
-    expect(count).toBe(3)
-  })
-
-  test('returns 0 when the API returns no splits', async () => {
-    mockFetch(() => jsonResp({ stats: [{ splits: [] }] }))
-    const count = await fetchPitcherPriorSeasonStartsCount(805002, 2024)
-    expect(count).toBe(0)
-  })
-
-  test('returns 0 on HTTP failure (transient blip should not pin a veteran to 0 for 7 days)', async () => {
-    // The short-TTL cache on failure is implementation detail of the
-    // adapter — the public contract is: failure → 0, retry-friendly.
-    mockFetch(() => jsonResp({}, { ok: false, status: 500 }))
-    const count = await fetchPitcherPriorSeasonStartsCount(805003, 2024)
-    expect(count).toBe(0)
-  })
-
-  test('rejects non-positive pitcherId without hitting the network', async () => {
-    const fetchSpy = mockFetch(() => jsonResp({ stats: [] }))
-    expect(await fetchPitcherPriorSeasonStartsCount(0, 2024)).toBe(0)
-    expect(await fetchPitcherPriorSeasonStartsCount(-1, 2024)).toBe(0)
-    expect(fetchSpy).not.toHaveBeenCalled()
-  })
-
-  test('rejects non-integer / clearly-bogus seasons without hitting the network', async () => {
-    const fetchSpy = mockFetch(() => jsonResp({ stats: [] }))
-    expect(await fetchPitcherPriorSeasonStartsCount(805004, NaN)).toBe(0)
-    expect(await fetchPitcherPriorSeasonStartsCount(805004, 1850)).toBe(0)
-    expect(fetchSpy).not.toHaveBeenCalled()
   })
 })
 

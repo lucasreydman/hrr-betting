@@ -24,9 +24,9 @@ import {
   fetchSchedule,
   fetchProbablePitchers,
   fetchPitcherRecentStarts,
-  fetchPitcherPriorSeasonStartsCount,
   fetchPitcherSeasonStats,
   fetchBatterSeasonStats,
+  fetchBatterCareerStats,
   fetchBvP,
   fetchPeople,
   fetchBoxscore,
@@ -97,14 +97,16 @@ export interface PickInputs {
   /** Number of the starter's current-season starts available for the IP CDF. */
   pitcherStartCount: number
   /**
-   * Number of regular-season starts the same pitcher made in the *prior*
-   * season. Surfaced alongside `pitcherStartCount` in the math panel so the
-   * confidence ramp's prior-season backfill (cold-start fix in
-   * `lib/confidence.ts`) is visible to readers — without it, an early-April
-   * veteran's 6-start ×1.00 reading looks unexplained against the 0.90 floor
-   * a same-count rookie would get. 0 for true rookies and on fetch failure.
+   * Whether the pitcher probToday factor is active for this pick. `false`
+   * when the starter is TBD (id=0) OR has fewer than 3 current-season starts
+   * — both cases produce factor = 1.00 in lib/factors/pitcher.ts. Drives the
+   * confidence pitcher factor's pin-to-1.00 behavior under the alignment
+   * principle: no pitcher-rate signal contributing → no haircut.
    */
-  pitcherPriorSeasonStarts: number
+  pitcherActive: boolean
+  /** Approximate batters-faced this season, used for the pitcher confidence
+   *  ramp. Carleton's BB%/HR% stabilization is at 170 BF; hardHit at 200 BF. */
+  pitcherBf: number
   /**
    * Avg innings-pitched per recent start for the opposing starter. Used by
    * the Opener heuristic and surfaced in the math panel for transparency.
@@ -131,8 +133,18 @@ export interface PickInputs {
    *  · volatile    — outdoor with HR multiplier outside ±10%
    */
   weatherStabilityKind: 'dome' | 'no forecast' | 'mild' | 'volatile'
-  /** Batter season PA count — drives the sampleSize confidence factor. */
+  /** Batter season PA count — drives the batterSample confidence factor's
+   *  current-PA ramp (top-up when career prior is strong, primary signal
+   *  when career prior is weak). */
   batterSeasonPa: number
+  /** Batter career PA count — used by the batterSample confidence factor to
+   *  branch on whether pTypical's stabilizeRates is using a strong career
+   *  prior (≥200 career PA) versus league-average fallback. */
+  batterCareerPa: number
+  /** Opponent bullpen IP this season — drives the bullpen confidence factor.
+   *  `null` mirrors the bullpen probToday factor's null-input case (factor
+   *  inactive → confidence pins to 1.00). */
+  bullpenIp: number | null
   /** The 9-batter lineup the player is part of (slot + name only). */
   lineup: LineupSlotSummary[]
   /** Per-factor breakdown of the confidence multiplier. Product = `confidence`. */
@@ -353,12 +365,7 @@ export async function rankPicks(date: string): Promise<PicksResponse> {
 
     // Fetch each probable pitcher's recent-starts count + name in parallel.
     // Also fetch season stats (kPct, bbPct, hrPct, bf) and Savant hardHitRate.
-    // Prior-season start counts feed only the *confidence* sample-size ramp
-    // (cold-start backfill); current-season counts still drive the pitcher-
-    // quality factor and the opener heuristic on their own. 7-day cache
-    // means a steady-state pitcher only re-fetches once a week.
     const pitcherIds = [probables.home, probables.away].filter(id => id > 0)
-    const priorSeason = season - 1
     const [
       homePitcherStarts,
       awayPitcherStarts,
@@ -369,8 +376,6 @@ export async function rankPicks(date: string): Promise<PicksResponse> {
       awayPitcherSavant,
       homeBullpenStats,
       awayBullpenStats,
-      homePitcherPriorSeasonStarts,
-      awayPitcherPriorSeasonStarts,
     ] = await Promise.all([
       probables.home > 0 ? fetchPitcherRecentStarts(probables.home, 10, season).catch(() => []) : Promise.resolve([]),
       probables.away > 0 ? fetchPitcherRecentStarts(probables.away, 10, season).catch(() => []) : Promise.resolve([]),
@@ -382,8 +387,6 @@ export async function rankPicks(date: string): Promise<PicksResponse> {
       // Bullpen for each side: home batters face away bullpen, away batters face home bullpen.
       fetchBullpenStats(game.awayTeam.teamId, season).catch(() => null),
       fetchBullpenStats(game.homeTeam.teamId, season).catch(() => null),
-      probables.home > 0 ? fetchPitcherPriorSeasonStartsCount(probables.home, priorSeason).catch(() => 0) : Promise.resolve(0),
-      probables.away > 0 ? fetchPitcherPriorSeasonStartsCount(probables.away, priorSeason).catch(() => 0) : Promise.resolve(0),
     ])
 
     const pitcherNames = new Map<number, string>()
@@ -424,6 +427,7 @@ export async function rankPicks(date: string): Promise<PicksResponse> {
       bvpResults,
       batterSeasonResults,
       batterStatcastResults,
+      batterCareerResults,
     ] = await Promise.all([
       Promise.all(playerJobs.map(({ entry }) => getPTypical({ playerId: entry.player.playerId }))),
       Promise.all(playerJobs.map(({ entry, lineup }) => {
@@ -438,6 +442,15 @@ export async function rankPicks(date: string): Promise<PicksResponse> {
       Promise.all(playerJobs.map(({ entry }) =>
         getBatterStatcast(entry.player.playerId, season).catch(() => null)
       )),
+      // Career PA — drives the batterSample confidence factor's "do we have
+      // a strong career prior" branch. fetchBatterCareerStats is cached 30
+      // days on success, 5 minutes on failure, so this only hits MLB Stats
+      // once per batter per month in steady state. Same data is used by
+      // p-typical to choose the stabilization prior, so the model and the
+      // confidence factor are reading the same career signal.
+      Promise.all(playerJobs.map(({ entry }) =>
+        fetchBatterCareerStats(entry.player.playerId).catch(() => null)
+      )),
     ])
 
     for (let i = 0; i < playerJobs.length; i++) {
@@ -446,6 +459,7 @@ export async function rankPicks(date: string): Promise<PicksResponse> {
       const bvp = bvpResults[i]
       const batterSeason = batterSeasonResults[i]
       const batterStatcast = batterStatcastResults[i]
+      const batterCareer = batterCareerResults[i]
 
       const player = entry.player
 
@@ -453,9 +467,6 @@ export async function rankPicks(date: string): Promise<PicksResponse> {
       const onHome = lineup === homeLineup
       const opposingStarts = onHome ? awayPitcherStarts : homePitcherStarts
       const opposingStarterStartCount = opposingStarts.length
-      const opposingStarterPriorSeasonStarts = onHome
-        ? awayPitcherPriorSeasonStarts
-        : homePitcherPriorSeasonStarts
       const opposingStarterId = onHome ? probables.away : probables.home
       const opposingPitcherSeasonStats = onHome ? awayPitcherSeasonStats : homePitcherSeasonStats
       const opposingPitcherSavant = onHome ? awayPitcherSavant : homePitcherSavant
@@ -521,16 +532,24 @@ export async function rankPicks(date: string): Promise<PicksResponse> {
               : 'probable'
 
       const batterSeasonPa = batterSeason?.pa ?? 0
+      const batterCareerPa = batterCareer?.pa ?? 0
+
+      // Pitcher activation aligns with lib/factors/pitcher.ts:31-32 —
+      // factor returns 1.00 when id=0 (TBD) OR recentStarts < 3.
+      const pitcherActive =
+        opposingStarterId > 0 && opposingStarterStartCount >= 3
 
       const { factors: confidenceFactors, product: confidence } = computeConfidenceBreakdown({
         lineupStatus: lineup.status,
         bvpAB: bvp?.ab ?? 0,
-        pitcherStartCount: opposingStarterStartCount,
-        priorSeasonStartsCount: opposingStarterPriorSeasonStarts,
+        pitcherActive,
+        pitcherBf,
         weatherImpact,
-        isOpener,
+        bullpenIp: opposingBullpen?.ip ?? null,
         timeToFirstPitchMin,
+        isOpener,
         batterSeasonPa,
+        batterCareerPa,
         maxCacheAgeSec: scheduleAgeSec,
       })
 
@@ -542,7 +561,8 @@ export async function rankPicks(date: string): Promise<PicksResponse> {
         weather: pickWeather,
         bvp,
         pitcherStartCount: opposingStarterStartCount,
-        pitcherPriorSeasonStarts: opposingStarterPriorSeasonStarts,
+        pitcherActive,
+        pitcherBf,
         pitcherAvgIp: avgIp,
         timeToFirstPitchMin,
         scheduleAgeSec,
@@ -550,6 +570,8 @@ export async function rankPicks(date: string): Promise<PicksResponse> {
         weatherImpact,
         weatherStabilityKind,
         batterSeasonPa,
+        batterCareerPa,
+        bullpenIp: opposingBullpen?.ip ?? null,
         lineup: onHome ? homeLineupSummary : awayLineupSummary,
         confidenceFactors,
         batterStatcast: batterStatcast

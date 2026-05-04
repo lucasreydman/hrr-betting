@@ -219,47 +219,51 @@ bet_dollars = fullKelly × kellyFraction × bankroll`}
 
       <Section heading="Confidence" eyebrow="Data-quality multiplier">
         <p>
-          A product of eight multiplicative factors. Each clamped on its own. Together
-          they cap at 1.00 (best) and bottom around 0.55 in the worst realistic case.
+          A product of nine multiplicative factors. The design principle:{' '}
+          <em>every factor mirrors what its corresponding probability factor
+          actually uses.</em> When a probToday factor is neutralised (returns
+          1.00 — the data isn&apos;t feeding pMatchup), the matching confidence
+          factor pins to 1.00 too. No haircuts for data we&apos;re not using.
         </p>
         <div className="overflow-hidden rounded-lg border border-border">
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[560px] text-sm">
+            <table className="w-full min-w-[640px] text-sm">
               <thead>
                 <tr className="border-b border-border bg-card/50 text-left text-xs uppercase tracking-wider text-ink-muted">
                   <th scope="col" className="px-3 py-2">Factor</th>
-                  <th scope="col" className="px-3 py-2">Mapping</th>
+                  <th scope="col" className="px-3 py-2">Pins to 1.00 when…</th>
+                  <th scope="col" className="px-3 py-2">Active mapping</th>
                 </tr>
               </thead>
               <tbody className="text-ink-subtle">
-                <ConfRow factor="Lineup status" mapping="confirmed 1.00 / partial 0.85 / estimated 0.70" />
-                <ConfRow factor="BvP sample size" mapping="0.90 at 0 AB → 1.00 at ≥20 AB (linear)" />
-                <ConfRow factor="Pitcher start sample" mapping="0.90 at ≤3 effective starts → 1.00 at ≥10 (current × 1.5 + min(5, prior season))" />
-                <ConfRow factor="Weather stability" mapping="stable 1.00 / volatile 0.90" />
-                <ConfRow factor="Time to first pitch" mapping="1.00 ≤ 90 min → 0.95 ≥ 4 hrs" />
-                <ConfRow factor="Opener flag" mapping="normal 1.00 / opener 0.90" />
-                <ConfRow factor="Batter season PA" mapping="0.85 at 0 PA → 1.00 at ≥200 PA" />
-                <ConfRow factor="Data freshness" mapping="1.00 ≤ 5 min stale → 0.90 ≥ 30 min stale" />
+                <ConfRow3 factor="Lineup" inactive="—" mapping="confirmed 1.00 / partial 0.85 / estimated 0.70" />
+                <ConfRow3 factor="BvP" inactive="career AB < 5 (probToday BvP returns 1.00)" mapping="ramp 0.90 at 5 AB → 1.00 at ≥20 AB" />
+                <ConfRow3 factor="Pitcher rates" inactive="TBD pitcher OR < 3 current starts" mapping="ramp 0.90 at 50 BF → 1.00 at ≥200 BF" />
+                <ConfRow3 factor="Weather" inactive="dome / failed forecast / |hrMult−1| ≤ 5%" mapping="continuous: 1.00 → 0.90 between 5% and 20% impact" />
+                <ConfRow3 factor="Bullpen" inactive="bullpen IP unknown" mapping="ramp 0.95 at 0 IP → 1.00 at ≥150 IP" />
+                <ConfRow3 factor="Batter sample" inactive="—" mapping="career ≥ 200 PA: 0.92 → 1.00 over 100 fresh PA;  career < 200: 0.85 → 1.00 over 200 fresh PA" />
+                <ConfRow3 factor="Time to pitch" inactive="lineup confirmed" mapping="1.00 ≤ 30 min → 0.95 ≥ 6 hrs (unconfirmed only)" />
+                <ConfRow3 factor="Opener" inactive="normal starter" mapping="opener 0.90 (relevance haircut, not data quality)" />
+                <ConfRow3 factor="Data freshness" inactive="schedule cache ≤ 5 min stale" mapping="ramp to 0.90 at ≥ 30 min stale" />
               </tbody>
             </table>
           </div>
         </div>
         <p className="text-xs text-ink-muted">
-          The BvP factor here scales confidence by sample size; the BvP factor on
-          p̂ today (above) actually shifts the probability based on observed wOBA.
-          Both read the same career line, in different ways. The signal-derived
-          confidence factors come from the ranker: weather rides a continuous
-          ramp on <Code>|hrMult − 1|</Code> (1.00 at neutral, 0.90 at ±20%,
-          linear in between) so the haircut grows smoothly with forecast
-          exposure rather than flipping in a hard step; opener fires when the
-          listed starter has averaged under 2 IP across recent starts; pitcher
-          sample weighs current-season starts 1.5× and backfills with up to 5
-          prior-season starts, so an established starter doesn&apos;t pin to the
-          floor in early April but still needs ≥4 fresh starts to fully reach
-          the ceiling;
-          freshness reads schedule-cache age (the canonical live-state signal,
-          with a short TTL), so confidence ramps down if the cron stops
-          hitting <Code>/api/refresh</Code>.
+          Three notes worth flagging. <strong>One:</strong> the BvP factor here
+          scales confidence by sample size; the BvP factor on{' '}
+          <Code>p̂ today</Code> actually shifts the probability based on
+          observed wOBA. Both read the same career line and both gate at 5 AB —
+          below that, neither does anything. <strong>Two:</strong> the pitcher
+          factor stabilizes K%, BB%, HR%, and hard-hit% individually. Confidence
+          ramps on batters-faced rather than start count because BF is the
+          underlying unit those rates stabilize against (Russell Carleton:
+          ~70 BF for K%, ~170 BF for BB%/HR%, ~200 BF for hardHit%). 200 BF is
+          the most-binding threshold; that&apos;s where the ramp ceiling sits.{' '}
+          <strong>Three:</strong> the batter sample factor branches on whether
+          <Code>p̂ typical</Code> is using a strong career prior (≥ 200 career
+          PA). When it is, the rates feeding pTypical are anchored by career
+          data; the confidence ramp lifts off the rookie 0.85 floor accordingly.
         </p>
       </Section>
 
@@ -620,11 +624,16 @@ function FactorRow({
   )
 }
 
-function ConfRow({ factor, mapping }: { factor: string; mapping: string }) {
+/**
+ * Confidence-table row: factor name · when it pins to 1.00 (probToday factor
+ * inactive — alignment principle) · how it ramps when active.
+ */
+function ConfRow3({ factor, inactive, mapping }: { factor: string; inactive: string; mapping: string }) {
   return (
     <tr className="border-b border-border/40 last:border-b-0 align-top">
       <td className="px-3 py-2 font-medium text-ink">{factor}</td>
-      <td className="px-3 py-2 font-mono text-xs text-ink-subtle">{mapping}</td>
+      <td className="px-3 py-2 text-xs text-ink-subtle">{inactive}</td>
+      <td className="px-3 py-2 font-mono text-[11px] text-ink-subtle">{mapping}</td>
     </tr>
   )
 }
