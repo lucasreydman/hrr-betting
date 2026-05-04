@@ -24,6 +24,7 @@ import {
   fetchSchedule,
   fetchProbablePitchers,
   fetchPitcherRecentStarts,
+  fetchPitcherPriorSeasonStartsCount,
   fetchPitcherSeasonStats,
   fetchBatterSeasonStats,
   fetchBvP,
@@ -343,7 +344,12 @@ export async function rankPicks(date: string): Promise<PicksResponse> {
 
     // Fetch each probable pitcher's recent-starts count + name in parallel.
     // Also fetch season stats (kPct, bbPct, hrPct, bf) and Savant hardHitRate.
+    // Prior-season start counts feed only the *confidence* sample-size ramp
+    // (cold-start backfill); current-season counts still drive the pitcher-
+    // quality factor and the opener heuristic on their own. 7-day cache
+    // means a steady-state pitcher only re-fetches once a week.
     const pitcherIds = [probables.home, probables.away].filter(id => id > 0)
+    const priorSeason = season - 1
     const [
       homePitcherStarts,
       awayPitcherStarts,
@@ -354,6 +360,8 @@ export async function rankPicks(date: string): Promise<PicksResponse> {
       awayPitcherSavant,
       homeBullpenStats,
       awayBullpenStats,
+      homePitcherPriorSeasonStarts,
+      awayPitcherPriorSeasonStarts,
     ] = await Promise.all([
       probables.home > 0 ? fetchPitcherRecentStarts(probables.home, 10, season).catch(() => []) : Promise.resolve([]),
       probables.away > 0 ? fetchPitcherRecentStarts(probables.away, 10, season).catch(() => []) : Promise.resolve([]),
@@ -365,6 +373,8 @@ export async function rankPicks(date: string): Promise<PicksResponse> {
       // Bullpen for each side: home batters face away bullpen, away batters face home bullpen.
       fetchBullpenStats(game.awayTeam.teamId, season).catch(() => null),
       fetchBullpenStats(game.homeTeam.teamId, season).catch(() => null),
+      probables.home > 0 ? fetchPitcherPriorSeasonStartsCount(probables.home, priorSeason).catch(() => 0) : Promise.resolve(0),
+      probables.away > 0 ? fetchPitcherPriorSeasonStartsCount(probables.away, priorSeason).catch(() => 0) : Promise.resolve(0),
     ])
 
     const pitcherNames = new Map<number, string>()
@@ -434,6 +444,9 @@ export async function rankPicks(date: string): Promise<PicksResponse> {
       const onHome = lineup === homeLineup
       const opposingStarts = onHome ? awayPitcherStarts : homePitcherStarts
       const opposingStarterStartCount = opposingStarts.length
+      const opposingStarterPriorSeasonStarts = onHome
+        ? awayPitcherPriorSeasonStarts
+        : homePitcherPriorSeasonStarts
       const opposingStarterId = onHome ? probables.away : probables.home
       const opposingPitcherSeasonStats = onHome ? awayPitcherSeasonStats : homePitcherSeasonStats
       const opposingPitcherSavant = onHome ? awayPitcherSavant : homePitcherSavant
@@ -504,6 +517,7 @@ export async function rankPicks(date: string): Promise<PicksResponse> {
         lineupStatus: lineup.status,
         bvpAB: bvp?.ab ?? 0,
         pitcherStartCount: opposingStarterStartCount,
+        priorSeasonStartsCount: opposingStarterPriorSeasonStarts,
         weatherImpact,
         isOpener,
         timeToFirstPitchMin,

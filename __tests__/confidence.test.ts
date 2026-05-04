@@ -137,6 +137,73 @@ describe('computeConfidence', () => {
   })
 })
 
+describe('computeConfidenceBreakdown — pitcherStart factor (with prior-season backfill)', () => {
+  const baseGood = {
+    lineupStatus: 'confirmed' as const,
+    bvpAB: 25,
+    weatherImpact: 0,
+    isOpener: false,
+    timeToFirstPitchMin: 60,
+    batterSeasonPa: 200,
+    maxCacheAgeSec: 0,
+  }
+
+  test('rookie (0 prior, 0 current) pins to 0.90 floor', () => {
+    const { factors } = computeConfidenceBreakdown({
+      ...baseGood, pitcherStartCount: 0, priorSeasonStartsCount: 0,
+    })
+    expect(factors.pitcherStart).toBeCloseTo(0.90, 4)
+  })
+
+  test('rookie (0 prior, 6 current) hits the mid-ramp value ~0.943', () => {
+    // No prior backfill → effectiveStarts = 6 → 0.90 + (3/7)*0.10 ≈ 0.9429
+    const { factors } = computeConfidenceBreakdown({
+      ...baseGood, pitcherStartCount: 6, priorSeasonStartsCount: 0,
+    })
+    expect(factors.pitcherStart).toBeCloseTo(0.9429, 3)
+  })
+
+  test('veteran (30 prior, 0 current) lifts to ~0.957 (effective 7)', () => {
+    // min(7, 30) = 7. effective = 0 + 7 = 7. ramp: 0.90 + (4/7)*0.10 ≈ 0.9571
+    const { factors } = computeConfidenceBreakdown({
+      ...baseGood, pitcherStartCount: 0, priorSeasonStartsCount: 30,
+    })
+    expect(factors.pitcherStart).toBeCloseTo(0.9571, 3)
+  })
+
+  test('veteran (30 prior, 3 current) reaches the 1.00 ceiling (effective 10)', () => {
+    const { factors } = computeConfidenceBreakdown({
+      ...baseGood, pitcherStartCount: 3, priorSeasonStartsCount: 30,
+    })
+    expect(factors.pitcherStart).toBeCloseTo(1.0, 4)
+  })
+
+  test('prior-season cap at 7: 100 prior ≡ 7 prior at the same current count', () => {
+    const a = computeConfidenceBreakdown({
+      ...baseGood, pitcherStartCount: 0, priorSeasonStartsCount: 100,
+    })
+    const b = computeConfidenceBreakdown({
+      ...baseGood, pitcherStartCount: 0, priorSeasonStartsCount: 7,
+    })
+    expect(a.factors.pitcherStart).toBeCloseTo(b.factors.pitcherStart, 6)
+  })
+
+  test('omitted priorSeasonStartsCount is current-season-only (backwards compatible)', () => {
+    // 5 current → 0.90 + (2/7)*0.10 ≈ 0.929
+    const { factors } = computeConfidenceBreakdown({
+      ...baseGood, pitcherStartCount: 5,
+    })
+    expect(factors.pitcherStart).toBeCloseTo(0.929, 3)
+  })
+
+  test('negative priorSeasonStartsCount clamps to 0 (no spurious boost)', () => {
+    const { factors } = computeConfidenceBreakdown({
+      ...baseGood, pitcherStartCount: 0, priorSeasonStartsCount: -5,
+    })
+    expect(factors.pitcherStart).toBeCloseTo(0.90, 4)
+  })
+})
+
 describe('computeConfidenceBreakdown — sampleSize factor', () => {
   const baseGood = {
     lineupStatus: 'confirmed' as const,

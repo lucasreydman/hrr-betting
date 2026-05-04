@@ -29,7 +29,18 @@ export function passesHardGates(args: HardGateInputs): boolean {
 export interface ConfidenceInputs {
   lineupStatus: Lineup['status']  // 'confirmed' | 'partial' | 'estimated'
   bvpAB: number  // career at-bats vs starter (0 if no BvP)
-  pitcherStartCount: number  // recent starts available for IP CDF
+  pitcherStartCount: number  // current-season starts available for IP CDF
+  /**
+   * Optional: prior-season regular-season start count for the same pitcher.
+   * Folds into the sample-size confidence ramp so an established starter
+   * isn't pinned at the 0.90 floor on April 5 just because they've only
+   * thrown 1 current-season start. Capped at 7 inside the math
+   * (`effectiveStarts = currentStarts + min(7, priorStarts)`), so a true
+   * rookie with no prior data keeps the original 3→10 ramp, while a
+   * veteran can reach the 1.00 ceiling within ~3 fresh starts. Defaults
+   * to 0 when omitted (current-season-only behaviour).
+   */
+  priorSeasonStartsCount?: number
   weatherImpact: number  // |hrMult - 1|. 0 means no exposure (dome, failed
                          // forecast, or neutral conditions). Bigger = more
                          // exposure to forecast error.
@@ -43,7 +54,8 @@ export interface ConfidenceInputs {
 export interface ConfidenceFactors {
   lineup: number       // 1.00 / 0.85 / 0.70 by lineup status
   bvp: number          // 0.90–1.00 ramp from 0 to 20 BvP at-bats
-  pitcherStart: number // 0.90–1.00 ramp from 3 to 10 recent starts
+  pitcherStart: number // 0.90–1.00 ramp from 3 to 10 effective starts
+                       // (current-season + min(7, prior-season))
   weather: number      // 1.00 at neutral; ramps to 0.90 at ±20% hrMult impact
   time: number         // 1.00 if lineup is confirmed; otherwise ramps from
                        // 1.00 (≤30 min out) to 0.95 (≥6 hrs out)
@@ -66,10 +78,19 @@ export function computeConfidenceBreakdown(args: ConfidenceInputs): {
     args.lineupStatus === 'confirmed' ? 1.00 :
     args.lineupStatus === 'partial' ? 0.85 : 0.70
   const bvp = Math.min(1.0, 0.90 + (args.bvpAB / 20) * 0.10)
+  // Effective sample size for the pitcher confidence ramp. Prior-season
+  // starts are capped at 7 so a current-season ace with 0 fresh starts
+  // sits at ~×0.96 (effective 7) rather than at the 0.90 floor — but a
+  // true rookie (no prior data) still floors. Capping at 7 also means a
+  // veteran needs at least 3 fresh starts to fully reach the 1.00 ceiling,
+  // keeping current form anchored as the primary signal instead of leaning
+  // entirely on a bygone year.
+  const priorStarts = Math.max(0, args.priorSeasonStartsCount ?? 0)
+  const effectiveStarts = args.pitcherStartCount + Math.min(7, priorStarts)
   const pitcherStart =
-    args.pitcherStartCount >= 10 ? 1.0 :
-    args.pitcherStartCount <= 3 ? 0.90 :
-    0.90 + ((args.pitcherStartCount - 3) / 7) * 0.10
+    effectiveStarts >= 10 ? 1.0 :
+    effectiveStarts <= 3 ? 0.90 :
+    0.90 + ((effectiveStarts - 3) / 7) * 0.10
   // Continuous ramp on |hrMult - 1|. Below 0.05 (essentially neutral) the
   // factor pins at 1.00; above 0.20 (Coors-cold or Wrigley-gale territory)
   // it pins at the 0.90 floor; in between it tracks the magnitude linearly.

@@ -1054,6 +1054,54 @@ export async function fetchPitcherRecentStarts(
 }
 
 // ---------------------------------------------------------------------------
+// Public: fetchPitcherPriorSeasonStartsCount
+// ---------------------------------------------------------------------------
+
+/**
+ * Count of regular-season starts (≥ 1 IP) by a pitcher in a single past season.
+ *
+ * Used by the confidence sample-size factor to backfill early-season counts
+ * — a 30-start veteran from 2025 shouldn't read as low-confidence on April 5
+ * of 2026 just because they've only made 1 start so far this year.
+ *
+ * Distinct from `fetchPitcherRecentStarts` (which returns *current-season*
+ * `StartLine[]` used by the pitcher-quality factor's IP CDF and the opener
+ * heuristic — both need *current form*, not historical aggregates). Don't
+ * fold this into those consumers.
+ *
+ * Returns 0 on fetch failure or no data. Cached 7 days — once a season is
+ * over, the count is fully stable; the long TTL keeps a steady-state
+ * pitcher off the network on every slate refresh.
+ */
+export async function fetchPitcherPriorSeasonStartsCount(
+  pitcherId: number,
+  season:    number,
+): Promise<number> {
+  if (pitcherId <= 0 || !Number.isInteger(season) || season < 1900) return 0
+
+  const cacheKey = `hrr:pitcher:starts:season-count:${pitcherId}:${season}`
+  const cached = await kvGet<number>(cacheKey)
+  if (typeof cached === 'number') return cached
+
+  const url = `${MLB_BASE}/people/${pitcherId}/stats?stats=gameLog&group=pitching&season=${season}`
+  const res = await fetch(url, { cache: 'no-store' })
+
+  if (!res.ok) {
+    // Short cache on fetch failure — a transient API blip shouldn't pin a
+    // veteran to "0 prior starts" for 7 days.
+    await kvSet(cacheKey, 0, 5 * 60)
+    return 0
+  }
+
+  const data = await res.json() as { stats?: Array<{ splits?: RawGameLogPitcherStat[] }> }
+  const splits: RawGameLogPitcherStat[] = data.stats?.[0]?.splits ?? []
+  const count = splits.filter(s => parseIP(s.stat.inningsPitched ?? '0') > 0).length
+
+  await kvSet(cacheKey, count, 7 * 24 * 60 * 60)
+  return count
+}
+
+// ---------------------------------------------------------------------------
 // Public: fetchBatterSeasonStats
 // ---------------------------------------------------------------------------
 

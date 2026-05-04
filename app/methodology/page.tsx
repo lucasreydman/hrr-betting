@@ -234,7 +234,7 @@ bet_dollars = fullKelly × kellyFraction × bankroll`}
               <tbody className="text-ink-subtle">
                 <ConfRow factor="Lineup status" mapping="confirmed 1.00 / partial 0.85 / estimated 0.70" />
                 <ConfRow factor="BvP sample size" mapping="0.90 at 0 AB → 1.00 at ≥20 AB (linear)" />
-                <ConfRow factor="Pitcher start sample" mapping="0.90 at ≤3 starts → 1.00 at ≥10 starts" />
+                <ConfRow factor="Pitcher start sample" mapping="0.90 at ≤3 effective starts → 1.00 at ≥10 (current + min(7, prior season))" />
                 <ConfRow factor="Weather stability" mapping="stable 1.00 / volatile 0.90" />
                 <ConfRow factor="Time to first pitch" mapping="1.00 ≤ 90 min → 0.95 ≥ 4 hrs" />
                 <ConfRow factor="Opener flag" mapping="normal 1.00 / opener 0.90" />
@@ -247,13 +247,17 @@ bet_dollars = fullKelly × kellyFraction × bankroll`}
         <p className="text-xs text-ink-muted">
           The BvP factor here scales confidence by sample size; the BvP factor on
           p̂ today (above) actually shifts the probability based on observed wOBA.
-          Both read the same career line, in different ways. The three
-          signal-derived confidence factors come from the ranker: weather stability
-          flips false when the HR multiplier moves more than ±10% off neutral;
-          opener fires when the listed starter has averaged under 2 IP across
-          recent starts; freshness reads schedule-cache age (the canonical
-          live-state signal, with a short TTL), so confidence ramps down if the
-          cron stops hitting <Code>/api/refresh</Code>.
+          Both read the same career line, in different ways. The signal-derived
+          confidence factors come from the ranker: weather rides a continuous
+          ramp on <Code>|hrMult − 1|</Code> (1.00 at neutral, 0.90 at ±20%,
+          linear in between) so the haircut grows smoothly with forecast
+          exposure rather than flipping in a hard step; opener fires when the
+          listed starter has averaged under 2 IP across recent starts; pitcher
+          sample backfills with prior-season starts (capped at 7) so an
+          established starter doesn&apos;t pin to the floor in early April;
+          freshness reads schedule-cache age (the canonical live-state signal,
+          with a short TTL), so confidence ramps down if the cron stops
+          hitting <Code>/api/refresh</Code>.
         </p>
       </Section>
 
