@@ -206,8 +206,9 @@ implied_p   = book's implied probability (with vig)
 fullKelly   = max(0, (p̂_today × b − (1 − p̂_today)) / b)
 bet_dollars = fullKelly × kellyFraction × bankroll
 
-Estimated book line (when no user input):
-bookProb    = clamp(p̂_today + 0.04, 0.01, 0.97)
+Estimated book line (midpoint of pTypical and pToday + ~4pp vig):
+midpoint    = (p̂_typical + p̂_today) / 2
+bookProb    = clamp(midpoint + 0.04, 0.01, 0.97)
 americanOdds = round-to-book-increment(bookProb → moneyline)`}
         </Formula>
         <p className="text-sm text-ink-muted">
@@ -217,10 +218,21 @@ americanOdds = round-to-book-increment(bookProb → moneyline)`}
           optimal but practically too aggressive given even small calibration errors.
           Settings persist to localStorage so reloads don&apos;t reset them.
         </p>
+        <Note label="Why the midpoint of pTypical and pToday">
+          Books are more conservative on matchup adjustments than our model.
+          When we boost <Code>p̂ typical</Code> → <Code>p̂ today</Code> by
+          ~10pp via factor composition (pitcher × park × weather × ...), the
+          book usually moves less aggressively from their own season baseline.
+          Empirically a 0.767 / 0.862 (pTypical / pToday) pick had FanDuel at
+          -500 — implied 0.833, almost exactly the midpoint of our two
+          probabilities plus typical vig. Using <Code>p̂ today</Code> alone
+          (with vig on top) over-extrapolates and produces too-steep estimates
+          like -900 when the real line is -500.
+        </Note>
         <Note label="Estimated vs entered line">
           The 4pp vig assumption is a coarse mid-estimate of FanDuel-class
-          player-prop hold (typical 7–10% total, split across both sides).
-          Real book lines vary on demand and book-specific projections. Use the
+          player-prop hold (typical 7–10% total, split across both sides). Real
+          book lines vary on demand and book-specific projections. Use the
           estimate as a sanity check — &ldquo;this pick is ~+$30 against a
           typical line&rdquo; — then enter the actual line for the real bet size.
           When the actual line is steeper than the estimate (book sees the

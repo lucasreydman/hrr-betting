@@ -267,11 +267,18 @@ function useStoredLine(args: {
   playerId: number
   rung?: 1 | 2 | 3
   /**
-   * Model's pToday for this pick. Used to compute an estimated FanDuel-
-   * style book line when the user hasn't entered one yet, so the wager
-   * cell can still show a sensible default bet size against the estimate.
+   * Model's pToday for this pick. Used together with pTypical to compute
+   * an estimated FanDuel-style book line via midpoint averaging — books
+   * tend to be more conservative on matchup adjustments than the model.
    */
   modelProb: number
+  /**
+   * Model's pTypical (season-stabilized baseline). Folded into the book-
+   * line estimate as the lower anchor of the midpoint. When omitted, the
+   * estimator falls back to using `modelProb` (pToday) alone, which
+   * over-extrapolates relative to actual book lines.
+   */
+  pTypical?: number
 }): {
   input: string                   // raw stored input (empty if not user-entered)
   odds: number | null             // odds parsed from user input; null if empty/invalid
@@ -299,7 +306,7 @@ function useStoredLine(args: {
   }
 
   const odds = parseAmericanOdds(input)
-  const estimatedOdds = estimateBookOddsFromModelProb(args.modelProb)
+  const estimatedOdds = estimateBookOddsFromModelProb(args.modelProb, args.pTypical)
   const effectiveOdds = odds ?? estimatedOdds
   const isEstimate = odds === null
 
@@ -911,6 +918,7 @@ export function PickRow({ pick, rung }: { pick: Pick; rung?: 1 | 2 | 3 }) {
     playerId: pick.player.playerId,
     rung,
     modelProb: pick.pMatchup,
+    pTypical: pick.pTypical,
   })
 
   // Derive "Away at Home" matchup string using team nicknames.

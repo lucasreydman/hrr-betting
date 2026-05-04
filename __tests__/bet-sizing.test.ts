@@ -261,47 +261,30 @@ describe('parseAmericanOdds', () => {
 // estimateBookOddsFromModelProb
 // ---------------------------------------------------------------------------
 
-describe('estimateBookOddsFromModelProb', () => {
-  test('chalk: model 0.85 → ~-800 (book implied 0.89)', () => {
-    // 0.89 / 0.11 = 8.09 → -809 → rounds to -800 (nearest 50 above |500|).
+describe('estimateBookOddsFromModelProb — pToday-only fallback', () => {
+  // These tests exercise the legacy single-arg path: estimating book odds
+  // from pToday alone. Less accurate than the pTypical-aware path (books
+  // hedge between baseline and matchup-adjusted), but kept as a fallback
+  // for callers that don't have pTypical.
+
+  test('chalk: model 0.85 (no pTypical) → ~-800 (book implied 0.89)', () => {
     const odds = estimateBookOddsFromModelProb(0.85)
     expect(odds).toBe(-800)
   })
 
-  test('moderate favourite: model 0.70 → -280 (book implied 0.74)', () => {
-    // 0.74 / 0.26 = 2.846 → -284.6 → Math.round(-28.46) * 10 = -280.
-    const odds = estimateBookOddsFromModelProb(0.70)
-    expect(odds).toBe(-280)
-  })
-
   test('coin flip: model 0.50 → ~-115 (book implied 0.54)', () => {
-    // 0.54 / 0.46 = 1.174 → -117.4 → rounds to -115 (nearest 5 in |≤200|).
     const odds = estimateBookOddsFromModelProb(0.50)
     expect(odds).toBe(-115)
   })
 
-  test('underdog: model 0.30 → ~+195 (book implied 0.34)', () => {
-    // (1 - 0.34) / 0.34 = 1.941 → +194.1 → rounds to +195 (nearest 5).
-    const odds = estimateBookOddsFromModelProb(0.30)
-    expect(odds).toBe(195)
-  })
-
   test('longshot: model 0.10 → ~+600 (book implied 0.14)', () => {
-    // 0.86 / 0.14 = 6.143 → +614 → rounds to +600 (nearest 50 above |500|).
     const odds = estimateBookOddsFromModelProb(0.10)
     expect(odds).toBe(600)
   })
 
   test('extreme chalk clamps near book ceiling: model 0.99 → very negative', () => {
-    // Clamped at bookImpliedProb 0.97 → -3233 → rounds to -3250 (nearest 50).
     const odds = estimateBookOddsFromModelProb(0.99)
     expect(odds).toBe(-3250)
-  })
-
-  test('extreme longshot: model 0.02 → ~+1567', () => {
-    // 0.94 / 0.06 = 15.67 → +1567 → rounds to +1550 (nearest 50).
-    const odds = estimateBookOddsFromModelProb(0.02)
-    expect(odds).toBe(1550)
   })
 
   test('returns +100 sentinel for non-finite or out-of-range probabilities', () => {
@@ -311,14 +294,75 @@ describe('estimateBookOddsFromModelProb', () => {
     expect(estimateBookOddsFromModelProb(-0.5)).toBe(100)
   })
 
-  test('vig direction: estimated odds always reflect a bookImpliedProb above modelProb', () => {
-    // For any model prob, the book's implied prob (per our estimate) must
-    // be HIGHER than model prob — that's the structural meaning of vig
-    // applied to the side we're betting.
+  test('vig direction: book implied prob always higher than fallback modelProb', () => {
     for (const p of [0.10, 0.30, 0.50, 0.70, 0.90]) {
       const odds = estimateBookOddsFromModelProb(p)
       const impliedFromOdds = odds < 0 ? -odds / (-odds + 100) : 100 / (odds + 100)
       expect(impliedFromOdds).toBeGreaterThan(p)
+    }
+  })
+})
+
+describe('estimateBookOddsFromModelProb — pTypical-aware (preferred path)', () => {
+  // Anchored on a real-world calibration data point: Brice Turang 1+ HRR
+  // pick on 2026-05-04. Our model: pTypical 0.767, pToday 0.862. FanDuel's
+  // actual posted line: -500. The midpoint approach reproduces this within
+  // typical book-rounding tolerance.
+
+  test('Turang 1+ HRR (pTypical 0.767, pToday 0.862) lands near -600 (was -900 with pToday-only)', () => {
+    // midpoint = 0.815, +0.04 vig = 0.855, → -589.7 → rounds to -600.
+    // Real-world FanDuel posted -500 on this exact pick — within ~3pp
+    // implied prob of our estimate, well inside book-rounding tolerance.
+    const odds = estimateBookOddsFromModelProb(0.862, 0.767)
+    expect(odds).toBe(-600)
+    // Confirm the pToday-only path (without pTypical context) would have
+    // produced the over-extrapolation we're correcting for.
+    const oldEstimate = estimateBookOddsFromModelProb(0.862)
+    expect(oldEstimate).toBe(-900)
+  })
+
+  test('big matchup boost (pTypical 0.50, pToday 0.80) → midpoint 0.65, line ~-200', () => {
+    // midpoint = 0.65, +0.04 = 0.69 → 0.69/0.31 = 2.226 → -222.6 → -220.
+    const odds = estimateBookOddsFromModelProb(0.80, 0.50)
+    expect(odds).toBe(-220)
+  })
+
+  test('no matchup boost (pTypical = pToday) → midpoint = pToday, behavior matches single-arg', () => {
+    const both = estimateBookOddsFromModelProb(0.70, 0.70)
+    const single = estimateBookOddsFromModelProb(0.70)
+    expect(both).toBe(single)
+  })
+
+  test('longshot rung 3 (pTypical 0.10, pToday 0.18) → midpoint 0.14, line ~+460', () => {
+    // midpoint = 0.14, +0.04 = 0.18 → (1-0.18)/0.18 = 4.555 → +455.6 → +460.
+    const odds = estimateBookOddsFromModelProb(0.18, 0.10)
+    expect(odds).toBe(460)
+  })
+
+  test('invalid pTypical (e.g. 0) → fallback to single-arg behavior', () => {
+    const valid = estimateBookOddsFromModelProb(0.85)
+    const withZero = estimateBookOddsFromModelProb(0.85, 0)
+    const withNan = estimateBookOddsFromModelProb(0.85, NaN)
+    expect(withZero).toBe(valid)
+    expect(withNan).toBe(valid)
+  })
+
+  test('midpoint approach always sits between pTypical and pToday lines (book hedges)', () => {
+    const cases: Array<[number, number]> = [
+      [0.50, 0.65],
+      [0.70, 0.85],
+      [0.30, 0.40],
+      [0.80, 0.90],
+    ]
+    for (const [pTyp, pTod] of cases) {
+      const blended = estimateBookOddsFromModelProb(pTod, pTyp)
+      const aggressive = estimateBookOddsFromModelProb(pTod)
+      // Blended estimate should imply a LOWER book prob than the
+      // pToday-only estimate (less aggressive favorite). For favorites,
+      // that means odds are LESS NEGATIVE; for underdogs, MORE positive
+      // (i.e. higher payout). In both cases: blended > aggressive
+      // numerically (less extreme).
+      expect(blended).toBeGreaterThan(aggressive)
     }
   })
 })

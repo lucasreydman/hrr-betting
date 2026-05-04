@@ -143,29 +143,50 @@ const TYPICAL_BOOK_VIG_PP = 0.04
 
 /**
  * Estimate the American moneyline a sportsbook (FanDuel-class) would post
- * for a player prop given the model's true-probability estimate (`pToday`).
+ * for a player prop. Books tend to be more conservative on matchup
+ * adjustments than the model, so the book's implied probability typically
+ * lands between our `pTypical` (the season-stabilized baseline) and
+ * `pToday` (after factor composition on top of pTypical) — not at pToday
+ * + vig. Empirically observed on a Turang 1+ HRR pick:
+ *
+ *     pTypical  0.767  →  -329
+ *     pToday    0.862  →  -625
+ *     book actual    -500     (implied 0.833 → ~0.79 stripped of vig)
+ *
+ * The book's true-prob estimate (0.79) sits roughly midway between
+ * pTypical (0.767) and pToday (0.862). Suggests the book's own model
+ * applies a smaller matchup boost than our factor product — they hedge
+ * toward the season baseline. Using pToday alone over-extrapolates;
+ * using pTypical alone under-extrapolates.
  *
  * Method:
- *   bookImpliedProb = clamp(modelProb + 0.04, 0.01, 0.97)
- *   raw American odds from bookImpliedProb
- *   round to standard book increments:
+ *   baseProb       = (pTypical + pToday) / 2          // midpoint
+ *   bookImplied    = clamp(baseProb + 0.04, 0.01, 0.97)
+ *   americanOdds   = book-rounded moneyline from bookImplied
+ *
+ * Round to standard book increments:
  *     |odds| ≤ 200  → nearest 5
  *     |odds| ≤ 500  → nearest 10
  *     |odds| > 500  → nearest 50
  *
- * This is intentionally a coarse approximation — books also vary lines
- * on demand, news, and book-specific player projections that we don't
- * have access to. The intent is to give the wager cell a sensible default
- * so the user can see "model says ~$45 at typical book line, what does FD
- * actually have?" before they look up the real number.
+ * `pTypical` is optional for backwards compatibility — when omitted, the
+ * estimator falls back to `modelProb` alone (less accurate but still
+ * yields a sensible starting estimate).
  *
- * Returns 100 (the closest-to-neutral integer in valid American-odds
- * space) for non-finite or out-of-range model probabilities.
+ * Returns 100 (closest-to-neutral integer in valid American-odds space)
+ * for non-finite or out-of-range probabilities.
  */
-export function estimateBookOddsFromModelProb(modelProb: number): number {
+export function estimateBookOddsFromModelProb(
+  modelProb: number,
+  pTypical?: number,
+): number {
   if (!Number.isFinite(modelProb) || modelProb <= 0 || modelProb >= 1) return 100
 
-  const bookImpliedProb = Math.min(0.97, Math.max(0.01, modelProb + TYPICAL_BOOK_VIG_PP))
+  const hasPTypical =
+    pTypical !== undefined && Number.isFinite(pTypical) && pTypical > 0 && pTypical < 1
+  const baseProb = hasPTypical ? (modelProb + (pTypical as number)) / 2 : modelProb
+
+  const bookImpliedProb = Math.min(0.97, Math.max(0.01, baseProb + TYPICAL_BOOK_VIG_PP))
 
   // Convert implied probability → American moneyline.
   const raw = bookImpliedProb >= 0.5
@@ -186,12 +207,8 @@ export function estimateBookOddsFromModelProb(modelProb: number): number {
     rounded = Math.round(raw / 50) * 50
   }
 
-  // Final guard: American odds convention requires |odds| ≥ 100. Round-to-
-  // nearest-5 of a value just-above-±100 (e.g. ±100.5) lands on ±100, fine.
-  // But a model prob exactly at 0.5 gives raw 100.0 → rounds to 100 → OK.
-  // The clamp at 0.97 above keeps us well below the +100 → -100 boundary
-  // crossing risk.
-  if (rounded === 0) return 100  // theoretical only
+  // Final guard: American odds convention requires |odds| ≥ 100.
+  if (rounded === 0) return 100
   if (Math.abs(rounded) < 100) return rounded < 0 ? -100 : 100
   return rounded
 }
