@@ -659,9 +659,7 @@ function MathPanel({ pick, rung, localTime, storedLine }: {
               <>
                 Weather{' '}
                 <span className="text-ink-muted/70">
-                  ({inputs.weatherStable
-                    ? `stable, ${inputs.weatherStabilityKind}`
-                    : 'volatile'})
+                  ({inputs.weatherStabilityKind})
                 </span>
               </>
             }

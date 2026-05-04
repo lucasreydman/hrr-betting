@@ -65,7 +65,7 @@ describe('computeConfidence', () => {
       lineupStatus: 'confirmed',
       bvpAB: 25,
       pitcherStartCount: 12,
-      weatherStable: true,
+      weatherImpact: 0,
       isOpener: false,
       timeToFirstPitchMin: 60,
       batterSeasonPa: 0,
@@ -80,7 +80,7 @@ describe('computeConfidence', () => {
       lineupStatus: 'confirmed',
       bvpAB: 25,
       pitcherStartCount: 12,
-      weatherStable: true,
+      weatherImpact: 0,
       isOpener: false,
       timeToFirstPitchMin: 60,
       batterSeasonPa: 200,
@@ -94,7 +94,7 @@ describe('computeConfidence', () => {
       lineupStatus: 'estimated',
       bvpAB: 0,
       pitcherStartCount: 3,
-      weatherStable: false,
+      weatherImpact: 0.25,  // post-cliff (≥0.20) → factor pins at 0.90
       isOpener: true,
       timeToFirstPitchMin: 240,
       batterSeasonPa: 0,
@@ -111,7 +111,7 @@ describe('computeConfidence', () => {
       lineupStatus: 'partial',
       bvpAB: 20,
       pitcherStartCount: 10,
-      weatherStable: true,
+      weatherImpact: 0,
       isOpener: false,
       timeToFirstPitchMin: 90,
       batterSeasonPa: 200,
@@ -126,7 +126,7 @@ describe('computeConfidence', () => {
       lineupStatus: 'confirmed' as const,
       bvpAB: 25,
       pitcherStartCount: 12,
-      weatherStable: true,
+      weatherImpact: 0,
       timeToFirstPitchMin: 60,
       batterSeasonPa: 200,
       maxCacheAgeSec: 0,
@@ -142,7 +142,7 @@ describe('computeConfidenceBreakdown — sampleSize factor', () => {
     lineupStatus: 'confirmed' as const,
     bvpAB: 25,
     pitcherStartCount: 12,
-    weatherStable: true,
+    weatherImpact: 0,
     isOpener: false,
     timeToFirstPitchMin: 60,
     maxCacheAgeSec: 0,
@@ -179,7 +179,7 @@ describe('computeConfidenceBreakdown — dataFreshness factor', () => {
     lineupStatus: 'confirmed' as const,
     bvpAB: 25,
     pitcherStartCount: 12,
-    weatherStable: true,
+    weatherImpact: 0,
     isOpener: false,
     timeToFirstPitchMin: 60,
     batterSeasonPa: 200,
@@ -209,5 +209,43 @@ describe('computeConfidenceBreakdown — dataFreshness factor', () => {
   test('clamps above 30 min: 60 min → dataFreshness = 0.90', () => {
     const { factors } = computeConfidenceBreakdown({ ...baseGood, maxCacheAgeSec: 3600 })
     expect(factors.dataFreshness).toBeCloseTo(0.90, 4)
+  })
+})
+
+describe('computeConfidenceBreakdown — weather factor', () => {
+  const baseGood = {
+    lineupStatus: 'confirmed' as const,
+    bvpAB: 25,
+    pitcherStartCount: 12,
+    isOpener: false,
+    timeToFirstPitchMin: 60,
+    batterSeasonPa: 200,
+    maxCacheAgeSec: 0,
+  }
+
+  test('neutral (impact = 0) → weather = 1.00', () => {
+    const { factors } = computeConfidenceBreakdown({ ...baseGood, weatherImpact: 0 })
+    expect(factors.weather).toBeCloseTo(1.0, 4)
+  })
+
+  test('within deadband (impact = 0.05) → weather = 1.00', () => {
+    const { factors } = computeConfidenceBreakdown({ ...baseGood, weatherImpact: 0.05 })
+    expect(factors.weather).toBeCloseTo(1.0, 4)
+  })
+
+  test('mid-ramp (impact = 0.10) → weather ≈ 0.967', () => {
+    // 1.0 - ((0.10 - 0.05) / 0.15) * 0.10 = 1.0 - 0.0333 = 0.9667
+    const { factors } = computeConfidenceBreakdown({ ...baseGood, weatherImpact: 0.10 })
+    expect(factors.weather).toBeCloseTo(0.9667, 4)
+  })
+
+  test('hits floor (impact = 0.20) → weather = 0.90', () => {
+    const { factors } = computeConfidenceBreakdown({ ...baseGood, weatherImpact: 0.20 })
+    expect(factors.weather).toBeCloseTo(0.90, 4)
+  })
+
+  test('clamps at floor for extreme impact (impact = 0.50) → weather = 0.90', () => {
+    const { factors } = computeConfidenceBreakdown({ ...baseGood, weatherImpact: 0.50 })
+    expect(factors.weather).toBeCloseTo(0.90, 4)
   })
 })

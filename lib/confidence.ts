@@ -30,7 +30,9 @@ export interface ConfidenceInputs {
   lineupStatus: Lineup['status']  // 'confirmed' | 'partial' | 'estimated'
   bvpAB: number  // career at-bats vs starter (0 if no BvP)
   pitcherStartCount: number  // recent starts available for IP CDF
-  weatherStable: boolean  // forecast volatility
+  weatherImpact: number  // |hrMult - 1|. 0 means no exposure (dome, failed
+                         // forecast, or neutral conditions). Bigger = more
+                         // exposure to forecast error.
   isOpener: boolean  // bullpen-after-opener is harder to predict
   timeToFirstPitchMin: number  // time until first pitch (min); closer = more confident
   batterSeasonPa: number  // batter's PAs this season (0 = no data yet)
@@ -42,7 +44,7 @@ export interface ConfidenceFactors {
   lineup: number       // 1.00 / 0.85 / 0.70 by lineup status
   bvp: number          // 0.90–1.00 ramp from 0 to 20 BvP at-bats
   pitcherStart: number // 0.90–1.00 ramp from 3 to 10 recent starts
-  weather: number      // 1.00 stable / 0.90 volatile
+  weather: number      // 1.00 at neutral; ramps to 0.90 at ±20% hrMult impact
   time: number         // 1.00 within 90 min / 0.95 at 4+ hrs out
   opener: number       // 1.00 normal / 0.90 opener
   sampleSize: number   // 0.85 at 0 PA → 1.00 at ≥200 PA, linear
@@ -67,7 +69,14 @@ export function computeConfidenceBreakdown(args: ConfidenceInputs): {
     args.pitcherStartCount >= 10 ? 1.0 :
     args.pitcherStartCount <= 3 ? 0.90 :
     0.90 + ((args.pitcherStartCount - 3) / 7) * 0.10
-  const weather = args.weatherStable ? 1.0 : 0.90
+  // Continuous ramp on |hrMult - 1|. Below 0.05 (essentially neutral) the
+  // factor pins at 1.00; above 0.20 (Coors-cold or Wrigley-gale territory)
+  // it pins at the 0.90 floor; in between it tracks the magnitude linearly.
+  // Replaces the old boolean step at 0.10 — see commit history for rationale.
+  const weather =
+    args.weatherImpact <= 0.05 ? 1.0 :
+    args.weatherImpact >= 0.20 ? 0.90 :
+    1.0 - ((args.weatherImpact - 0.05) / 0.15) * 0.10
   const time =
     args.timeToFirstPitchMin <= 90 ? 1.0 :
     args.timeToFirstPitchMin >= 240 ? 0.95 :

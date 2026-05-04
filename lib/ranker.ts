@@ -10,7 +10,7 @@
  *
  * V1 simplifications (documented):
  *  - hardHitRate falls back to LG_HARD_HIT_RATE when Savant pitcher data is unavailable
- *  - weatherStable=true, isOpener=false (opener detection deferred to later phase)
+ *  - isOpener=false (opener detection deferred to later phase)
  *  - timeToFirstPitchMin computed live from game.gameDate
  *  - expectedPA hardcoded to 4 per player (hard gates only)
  *  - Hard gates evaluated once per game side (not per rung, not per player)
@@ -106,11 +106,15 @@ export interface PickInputs {
   scheduleAgeSec: number
   /** Whether the model classified the listed starter as an opener. */
   isOpener: boolean
-  /** Whether weather is rated stable (true = ×1.00 confidence, false = ×0.90). */
-  weatherStable: boolean
   /**
-   * The reason behind the stability verdict. Surfaced in the math panel so
-   * the user can see *why* weather is stable (or not):
+   * Magnitude of the weather effect, `|hrMult - 1|`. Drives the weather
+   * confidence factor on a continuous ramp (1.00 at ≤0.05, 0.90 at ≥0.20).
+   * Pinned at 0 when the venue is controlled (dome) or the forecast fetch
+   * failed — both cases mean the model isn't leaning on a forecast at all.
+   */
+  weatherImpact: number
+  /**
+   * Human-readable category for the math panel:
    *  · dome        — venue is controlled, weather doesn't enter
    *  · no forecast — Open-Meteo fetch failed, defaulted to neutral
    *  · mild        — outdoor with HR multiplier within ±10% of neutral
@@ -310,27 +314,22 @@ export async function rankPicks(date: string): Promise<PicksResponse> {
       failure: weatherData.failure,
     }
 
-    // Weather is "stable" (predictable impact) when:
+    // The confidence "weather" factor is a continuous ramp on |hrMult - 1|:
+    // 1.00 at neutral conditions, 0.90 at ±20% impact (see lib/confidence.ts).
+    // Two cases pin to 0 (no exposure to forecast error):
     //  · the venue is controlled (dome / closed roof) — weather doesn't enter
-    //  · the forecast fetch failed — we treat it as neutral, not volatile,
-    //    so a missing forecast can't penalise confidence twice (factor=1.0
-    //    *and* a confidence ding would be double-counting)
-    //  · OR the resulting HR multiplier is within ±10% of neutral — typical
-    //    mid-temp / light-wind games where the model's adjustment is small
-    //    and forecast-vs-actual divergence is unlikely to swing the outcome
-    //
-    // A 1.20× HR multiplier (Wrigley out-wind on a hot day) flips this to
-    // false: the per-pitch impact is large, so forecast volatility matters.
-    const weatherStable =
-      weatherData.controlled ||
-      weatherData.failure ||
-      Math.abs(weatherResult.hrMult - 1) < 0.10
+    //  · the forecast fetch failed — model already neutralised hrMult to 1.0,
+    //    so a confidence ding would be double-counting
+    const weatherImpact =
+      weatherData.controlled || weatherData.failure
+        ? 0
+        : Math.abs(weatherResult.hrMult - 1)
     const weatherStabilityKind: PickInputs['weatherStabilityKind'] =
       weatherData.controlled
         ? 'dome'
         : weatherData.failure
           ? 'no forecast'
-          : Math.abs(weatherResult.hrMult - 1) < 0.10
+          : weatherImpact < 0.10
             ? 'mild'
             : 'volatile'
 
@@ -505,7 +504,7 @@ export async function rankPicks(date: string): Promise<PicksResponse> {
         lineupStatus: lineup.status,
         bvpAB: bvp?.ab ?? 0,
         pitcherStartCount: opposingStarterStartCount,
-        weatherStable,
+        weatherImpact,
         isOpener,
         timeToFirstPitchMin,
         batterSeasonPa,
@@ -524,7 +523,7 @@ export async function rankPicks(date: string): Promise<PicksResponse> {
         timeToFirstPitchMin,
         scheduleAgeSec,
         isOpener,
-        weatherStable,
+        weatherImpact,
         weatherStabilityKind,
         batterSeasonPa,
         lineup: onHome ? homeLineupSummary : awayLineupSummary,

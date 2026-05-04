@@ -227,7 +227,7 @@ npm test
 npm run build
 ```
 
-Test suite covers math primitives (factors, edge, confidence, weather, park, baserunner, **bet-sizing**), data adapters (mlb-api, savant-api, weather-api, lineup, slate-batters, bullpen, discord), API routes (refresh, sim-typical, admin-bvp), security boundary (cron-auth), and pure helpers in `lib/tracker.ts` (`shouldLock`, `computeRollingMetrics`). At time of writing: **392 tests across 36 suites**. New math files **must** ship with a `__tests__/<name>.test.ts` alongside; new API routes need at least an input-validation test when no fetch mock is available. Tests are hermetic — no live network calls without `RUN_LIVE_TESTS=1`.
+Test suite covers math primitives (factors, edge, confidence, weather, park, baserunner, **bet-sizing**), data adapters (mlb-api, savant-api, weather-api, lineup, slate-batters, bullpen, discord), API routes (refresh, sim-typical, admin-bvp), security boundary (cron-auth), and pure helpers in `lib/tracker.ts` (`shouldLock`, `computeRollingMetrics`). At time of writing: **397 tests across 36 suites**. New math files **must** ship with a `__tests__/<name>.test.ts` alongside; new API routes need at least an input-validation test when no fetch mock is available. Tests are hermetic — no live network calls without `RUN_LIVE_TESTS=1`.
 
 ## Deployment
 
