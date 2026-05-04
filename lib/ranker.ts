@@ -632,8 +632,8 @@ export async function rankPicks(date: string): Promise<PicksResponse> {
   const byScoreDesc = (a: Pick, b: Pick) => b.score - a.score
 
   // Live-settle picks for final games. Closes the lifecycle gap between
-  // game-end and the daily settle cron at 6 AM ET — picks now show ✓ HIT or
-  // ✗ MISS on the live board the moment the boxscore is final, instead of
+  // game-end and the daily settle cron at 3:15 AM ET — picks now show ✓ HIT
+  // or ✗ MISS on the live board the moment the boxscore is final, instead of
   // disappearing for the rest of the slate.
   const finalGameIds = new Set(games.filter(g => g.status === 'final').map(g => g.gameId))
   if (finalGameIds.size > 0) {

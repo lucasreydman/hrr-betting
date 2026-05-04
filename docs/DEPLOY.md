@@ -14,11 +14,11 @@ Manual checklist for taking the codebase from "v0.1.0-rc2 on `main`" to "live at
 ### 1a. Link repo
 
 ```bash
-cd C:/Users/lucas/dev/hrr-betting
+cd C:/Users/lucas/dev/hits-runs-rbis
 npx vercel link
 ```
 
-When prompted: "Set up and deploy?" → **Yes** → "Create new project?" → **Yes** → name **`hrr-betting`** → confirm scope.
+When prompted: "Set up and deploy?" → **Yes** → "Create new project?" → **Yes** → name **`hrr-betting`** → confirm scope. The local working directory (`hits-runs-rbis`) and the Vercel project name (`hrr-betting`) intentionally differ — pass `--project=hrr-betting` to `vercel link` if it doesn't auto-detect.
 
 (Or import via dashboard at vercel.com/new → Git Repository → `lucasreydman/hrr-betting`.)
 
@@ -46,7 +46,7 @@ If not done: supabase.com → New Project → name `hrr-betting`, region East US
 The CLI is already installed locally (`devDependency: supabase` in package.json). You need to log in via OAuth and link to your project:
 
 ```bash
-cd C:/Users/lucas/dev/hrr-betting
+cd C:/Users/lucas/dev/hits-runs-rbis
 npx supabase login                                    # browser OAuth — approve in browser
 npx supabase link --project-ref hzfzuemmhjnnlptoyqlg  # paste DB password when prompted
 ```
@@ -57,9 +57,16 @@ npx supabase link --project-ref hzfzuemmhjnnlptoyqlg  # paste DB password when p
 npx supabase db push
 ```
 
-This applies all files in `supabase/migrations/` to your remote project:
+This applies every file in `supabase/migrations/` to your remote project. The
+schema-creating migrations are:
+
 - `20260426000000_initial_schema.sql` — creates `locked_picks` + `settled_picks` (picks history)
 - `20260427000000_cache_table.sql` — creates `cache` (hot key-value cache, replaces Vercel KV / Upstash)
+- `20260503010000_add_discord_notified_at.sql` — adds the `discord_notified_at` column on `locked_picks` for idempotent webhook posting
+
+The remaining migrations are one-shot cache invalidations that ship alongside
+shape-changing code so the orphaned rows from the previous cache key prefix
+get cleared instead of serving stale data until the TTL expires.
 
 All three tables have RLS enabled with no policies (service-role-only access). ~5 sec.
 
@@ -100,7 +107,7 @@ The workflow at `.github/workflows/cron.yml` triggers four jobs on these schedul
 - `typical-sim` — Sunday 8 UTC (full population) and Mon-Sat 8 UTC (slate batters): offline MC baseline refresh
 - `slate-refresh` — every 2 min from 17-23 UTC and 0-7 UTC (slate hours): lineup/weather/probable refresh
 - `lock` — every 5 min from 17-23 UTC and 0-7 UTC (slate hours): lock check
-- `settle` — once daily at 10 UTC (6 AM ET)
+- `settle` — once daily at 7:15 UTC (3:15 AM ET, just after the 3 AM ET slate rollover)
 
 Note: GitHub Actions cron has 5-15 min jitter on free tier — fine for our use case (eventually-consistent refresh, not exact-time triggers). Total compute usage is ~50 min/month against a 2000 min/month free quota.
 
@@ -116,7 +123,7 @@ git push origin main
 
 Or trigger from the Vercel dashboard. Build should:
 - Compile Next.js
-- Bundle all routes (verify in build output: `/`, `/history`, `/methodology`, `/api/picks`, `/api/sim/typical`, `/api/sim/typical-slate-ids`, `/api/refresh`, `/api/lock`, `/api/settle`, `/api/history`)
+- Bundle all routes (verify in build output: `/`, `/history`, `/history/all`, `/methodology`, `/api/picks`, `/api/sim/typical`, `/api/sim/typical-slate-ids`, `/api/refresh`, `/api/lock`, `/api/settle`, `/api/history`, `/api/history/all`, `/api/admin/bvp`)
 - Static-generate `/methodology`
 
 If the build fails, check Vercel logs.
@@ -146,7 +153,7 @@ GitHub Actions tab → "Cron — sim/lock/settle" workflow → see the three job
 ### Verify Supabase rows after first lock + settle
 
 After the first MLB game day completes:
-1. Wait for ~3 AM Pacific settle workflow run
+1. Wait for the 3:15 AM ET settle workflow run (7:15 UTC)
 2. Supabase dashboard → Tables → `locked_picks` and `settled_picks` should have rows
 3. Visit `/history` — should show settled picks for the previous day
 
@@ -196,4 +203,4 @@ These are all noted in the spec (`docs/superpowers/specs/2026-04-26-hrr-betting-
 
 **Offline MC is slow**: the typical-sim cron calls `/api/sim/typical` which runs up to 20k iterations per player. This is a cron-only path; it does not affect request latency. If it exceeds the GitHub Actions timeout, reduce `TYPICAL_ITERATIONS` in `lib/constants.ts` or switch to slate-mode-only runs.
 
-**Cache misses are slow**: each Supabase cache read is ~30-50ms (vs Redis's 5ms). The `/api/picks` endpoint has a 5-min cache layer that masks this — most requests hit the cache. If you find cache reads on the hot path are bottlenecking, switching back to Upstash Redis is a 30-min refactor (revert lib/kv.ts and add Upstash credentials).
+**Cache misses are slow**: each Supabase cache read is ~30-50ms (vs Redis's 5ms). The `/api/picks` endpoint has a 30-second server cache layer that masks this for most polls — the 60s client poll hits the warm cache twice per cycle on average. If you find cache reads on the hot path are bottlenecking, switching back to Upstash Redis is a 30-min refactor (revert lib/kv.ts and add Upstash credentials).

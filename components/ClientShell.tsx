@@ -33,8 +33,9 @@ function ordinalSuffix(n: number): string {
 }
 
 /** How often to re-fetch /api/picks while the tab is visible. The server-side
- *  picks cache is also 60 s, so within-window polls are cheap (cache hits) and
- *  the user sees fresh data within ≤1 min of the cron warming a new sim. */
+ *  picks cache is 30 s, so within-window polls usually hit a fresh server cache
+ *  (or trigger one rebuild per minute), and the user sees new cron-warmed data
+ *  within ≤1 min of it landing. */
 const POLL_INTERVAL_MS = 60_000
 
 export function ClientShell({ initialPicks }: { initialPicks: PicksResponse }) {

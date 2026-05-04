@@ -9,8 +9,8 @@
  *    full-season line). Stored here on the 1.00 scale (i.e. divided by 100).
  *
  * Read at request time by `lib/factors/park.ts` to build a single composite
- * park multiplier (50% hit, 25% run, 25% HR), which then enters the
- * closed-form `probToday` factor product.
+ * park multiplier (45% hit, 20% run, 20% HR, 10% 1/K (contact), 5% BB),
+ * which then enters the closed-form `probToday` factor product.
  *
  * Switch hitters get the average of L and R per hit-type — pragmatic v1
  * choice; a finer model would weight by the pitcher's handedness for that PA.

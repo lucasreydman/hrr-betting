@@ -45,7 +45,7 @@ Live-network smoke tests are opt-in: `RUN_LIVE_TESTS=1 npm test` (not in CI).
 
 ## Development Rules
 
-- **Math files have no I/O.** `factors/*`, `per-pa`, `edge`, `confidence`, `weather-factors`, `park-factors`, `baserunner` are pure + unit-tested. Don't add fetches.
+- **Math files have no I/O.** `factors/*`, `prob-today`, `edge`, `confidence`, `weather-factors`, `park-factors`, `stabilization`, `rates`, `bet-sizing`, `offline-sim/{sim,baserunner}` are pure + unit-tested. Don't add fetches.
 - **Data adapters cache through `lib/kv.ts`.** Cache keys live with the function that owns them.
 - **Bump cache key prefix on shape changes.** Versioned prefixes (`hrr:lineup:` → `hrr:lineup:v2:`) force re-fetch instead of serving stale TTL data. Pair with a one-shot SQL migration in `supabase/migrations/` to free orphaned rows.
 - **Slate boundary is ET 3 AM.** Use `slateDateString()` everywhere — `/api/picks`, `/api/lock`, `/api/settle`, `/api/sim/typical`, `app/page.tsx`. Never hardcode UTC `today`. `pacificDateString()` exists only for callers that genuinely want PT.

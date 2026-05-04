@@ -97,7 +97,7 @@ A "Tracked" tier (high-conviction picks gated by `EDGE` / probability / confiden
 └── vercel.json
 ```
 
-`lib/` enforces a hard split: math files (`per-pa`, `edge`, `confidence`, `factors/*`, `weather-factors`, `park-factors`, `baserunner`) have **no I/O** and are deterministic + unit-testable. Data adapters (`mlb-api`, `savant-api`, `weather-api`, `lineup`, `slate-batters`, `p-typical`, `tracker`) handle caching through `lib/kv.ts`.
+`lib/` enforces a hard split: math files (`prob-today`, `edge`, `confidence`, `factors/*`, `weather-factors`, `park-factors`, `stabilization`, `rates`, `bet-sizing`, `offline-sim/sim`, `offline-sim/baserunner`) have **no I/O** and are deterministic + unit-testable. Data adapters (`mlb-api`, `savant-api`, `weather-api`, `lineup`, `slate-batters`, `bullpen`, `p-typical`, `tracker`, `discord`) handle caching through `lib/kv.ts`.
 
 ## Getting started
 
@@ -207,10 +207,10 @@ Math primitives in `lib/bet-sizing.ts` (`impliedProbFromAmericanOdds`, `evPerDol
 
 ## Important implementation details
 
-- **Math files have no I/O.** Pure functions are unit-tested in `__tests__/`. The split keeps `prob-today.ts`, `edge.ts`, `confidence.ts`, `per-pa.ts`, `factors/*`, `weather-factors`, `park-factors`, and `baserunner` deterministic.
-- **Cache key versioning.** Bump the prefix (e.g. `hrr:lineup:` → `hrr:lineup:v2:`) when the **shape** of cached values changes so existing rows are forcibly re-fetched instead of serving stale data for the TTL window. Pair with a one-shot SQL migration in `supabase/migrations/` to free orphaned rows. There are already 11 such migrations on disk.
+- **Math files have no I/O.** Pure functions are unit-tested in `__tests__/`. The split keeps `prob-today.ts`, `edge.ts`, `confidence.ts`, `factors/*`, `weather-factors`, `park-factors`, `bet-sizing`, and `offline-sim/{sim,baserunner}` deterministic.
+- **Cache key versioning.** Bump the prefix (e.g. `hrr:lineup:` → `hrr:lineup:v3:`) when the **shape** of cached values changes so existing rows are forcibly re-fetched instead of serving stale data for the TTL window. Pair with a one-shot SQL migration in `supabase/migrations/` to free orphaned rows.
 - **Edge formula.** `EDGE = max(P_matchup, 0.01) / max(P_typical, 0.01) − 1`. Symmetric floor on both sides prevents zero-collapse.
-- **Statcast multiplier clamps.** `[0.25, 4]` before sqrt in `lib/per-pa.ts` to prevent zero-collapse on small samples.
+- **Factor product clamp.** The eight closed-form factors in `prob-today.ts` are multiplied together and the product is clamped to `[0.25, 4.0]` before composing onto the odds — no single outlier input (e.g. a tiny-sample pitcher line) can drive a 6× swing on its own.
 - **Tracked tier locking.** `/api/lock` reads the `picks:current:{date}` cache when warm and falls back to a fresh `rankPicks(date)` when cold — without this fallback an empty cache silently dropped the entire slate's tracked picks (see comments in `app/api/lock/route.ts`).
 - **History idempotency.** Both `locked_picks` and `settled_picks` upserts use `onConflict: 'date,game_id,player_id,rung'`, so re-runs are safe.
 - **Cron auth.** `lib/cron-auth.ts` fails **closed** in production (no `CRON_SECRET` → 401) and **open** in dev (so `npm run dev` works without secrets).

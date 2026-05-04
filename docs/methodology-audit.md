@@ -1,7 +1,25 @@
-# Methodology Audit — 2026-05-02
+# Methodology Audit — 2026-05-02 (refreshed 2026-05-04)
 
 Reverse-engineered from the codebase to back the rewritten `/methodology`
 page. Every claim on that page must be traceable to a row in this doc.
+
+> **Refresh note (2026-05-04):** drift items resolved during the production-grade
+> sweep:
+>
+> - Two more closed-form factors landed since this doc was first written —
+>   `lib/factors/bvp.ts` and `lib/factors/batter.ts` — bringing the total to
+>   eight: pitcher, park, weather, handedness, bullpen, paCount, bvp, batter.
+> - The weather factor is now an HRR-weighted multi-outcome composite (not the
+>   old `1 + 0.6 × (hrMult − 1)` HR-only formula).
+> - The park factor is now a 5-input composite (not the old 3-input).
+> - Tracked-tier floors were retuned: `EDGE_FLOORS = {1: 0.10, 2: 0.20, 3: 0.30}`
+>   and `PROB_FLOORS = {1: 0.80, 2: 0.60, 3: 0.40}`. The 0.85/0.55/0.20 +
+>   0.10/0.30/0.60 layout in this doc reflects the pre-pitcher-fix calibration.
+> - `lib/per-pa.ts` and `lib/factors/tto.ts` do not exist — TTO is applied
+>   per-PA inside the offline sim (`lib/p-typical.ts:applyTto`), not as a
+>   separate factor at request time.
+> - Settle cron runs at **3:15 AM ET / 7:15 UTC** (the smallest safe gap after
+>   the 3 AM ET rollover), not the 6 AM ET / 10 UTC noted below.
 
 ## Files inspected (production code paths only)
 
@@ -12,7 +30,6 @@ page. Every claim on that page must be traceable to a row in this doc.
 - `lib/p-typical.ts` — baseline cache reader + offline computer
 - `lib/offline-sim/sim.ts` — Monte Carlo engine (`simSinglePlayerHRR`)
 - `lib/offline-sim/baserunner.ts` — bases / runs / RBIs state machine
-- `lib/per-pa.ts` — per-PA log-5 helper (NOT called from production)
 - `lib/stabilization.ts` — `stabilize`, `stabilizeRates`, `stabilizeScalar`
 - `lib/confidence.ts` — `computeConfidence`, `computeConfidenceBreakdown`, `passesHardGates`
 - `lib/ranker.ts` — orchestration, `classifyTier`, live-settle
@@ -124,7 +141,7 @@ page. Every claim on that page must be traceable to a row in this doc.
 
 - **File**: `lib/ranker.ts:classifyTier`
 - **Tracked** iff all three: `confidence ≥ 0.85`, `edge ≥ EDGE_FLOORS[rung]`, `pMatchup ≥ PROB_FLOORS[rung]`
-- Floors: `EDGE_FLOORS = {1:0.10, 2:0.30, 3:0.60}`; `PROB_FLOORS = {1:0.85, 2:0.55, 3:0.20}`; `CONFIDENCE_FLOOR_TRACKED = 0.85`
+- Floors (current, post-pitcher-fix): `EDGE_FLOORS = {1:0.10, 2:0.20, 3:0.30}`; `PROB_FLOORS = {1:0.80, 2:0.60, 3:0.40}`; `CONFIDENCE_FLOOR_TRACKED = 0.85`
 - Else **watching** if `score ≥ DISPLAY_FLOOR_SCORE` (= 0.05)
 - Else dropped
 
@@ -158,7 +175,7 @@ page. Every claim on that page must be traceable to a row in this doc.
 | Refresh | every 2 min during slate hours | `/api/refresh` | Invalidates picks cache + recomputes |
 | Lock | every 5 min during slate hours | `/api/lock` → `tracker.ts:snapshotLockedPicks` | Inserts Tracked picks into `locked_picks` once a game's lock window opens (confirmed lineup ≤90 min before first pitch, OR ≤30 min regardless) |
 | Live-settle | inside `/api/refresh` | `lib/ranker.ts` post-loop | For finalised games, fetches boxscore and stamps `outcome` + `actualHRR` on every pick (for live board display only) |
-| Settle | 10:00 UTC daily (6 AM ET) | `/api/settle` → `tracker.ts:settlePicks` | Reads previous slate's `locked_picks`, fetches boxscores, upserts to `settled_picks` |
+| Settle | 7:15 UTC daily (3:15 AM ET) | `/api/settle` → `tracker.ts:settlePicks` | Reads previous slate's `locked_picks`, fetches boxscores, upserts to `settled_picks` |
 
 ### Cache TTLs
 
@@ -235,7 +252,7 @@ Request: /api/picks
 Cron (every 5 min during slate)
   → /api/lock → snapshotLockedPicks (insert-only into locked_picks)
 
-Cron (10 UTC daily)
+Cron (7:15 UTC daily / 3:15 AM ET)
   → /api/settle → reads locked_picks, fetchBoxscore, upsert settled_picks
 
 Render: /history

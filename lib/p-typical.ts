@@ -58,7 +58,9 @@ export async function getPTypical(args: {
   return makeFallback(args.playerId)
 }
 
-/** Heavy compute. Called by /api/sim/typical and the lazy backfill path. */
+/** Heavy compute. Called only by `/api/sim/typical` (cron path); never on
+ *  the request path, which reads `getPTypical` and falls back to league avg
+ *  on cache miss rather than running this 20k-iter sim inline. */
 export async function computeTypicalOffline(args: {
   playerId: number
   season?: number

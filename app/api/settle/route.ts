@@ -9,11 +9,15 @@ import { processSettleDigest } from '@/lib/discord'
 export const maxDuration = 10
 
 /**
- * Cron endpoint: 6 AM ET (10 AM UTC).
- * Settle the previous slate's Tracked picks by pulling boxscores.
+ * Cron endpoint: 3:15 AM ET (7:15 UTC), the smallest safe gap after the
+ * 3 AM ET slate rollover. Earlier risks a late-night PT game still being
+ * in_progress; later means yesterday's results don't appear in /history
+ * until well into the next day.
+ *
+ * Settles the previous slate's Tracked picks by pulling boxscores.
  *
  * "Previous slate" = the ET-3AM slate one day before today's. The cron fires
- * after the rollover boundary (6 AM ET ≫ 3 AM ET), so `slateDateString()`
+ * after the rollover boundary (3:15 AM ET > 3 AM ET), so `slateDateString()`
  * returns today's slate and we shift back one day to settle yesterday's.
  *
  * Optional ?date=YYYY-MM-DD override for manual replays. Auth: requires
