@@ -155,45 +155,65 @@ describe('computeConfidenceBreakdown — pitcherStart factor (with prior-season 
     expect(factors.pitcherStart).toBeCloseTo(0.90, 4)
   })
 
-  test('rookie (0 prior, 6 current) hits the mid-ramp value ~0.943', () => {
-    // No prior backfill → effectiveStarts = 6 → 0.90 + (3/7)*0.10 ≈ 0.9429
+  test('rookie (0 prior, 6 current) lifts to ~0.986 (current-weighted ramp)', () => {
+    // 6 × 1.5 + 0 = 9 effective → 0.90 + (6/7)*0.10 ≈ 0.9857
     const { factors } = computeConfidenceBreakdown({
       ...baseGood, pitcherStartCount: 6, priorSeasonStartsCount: 0,
     })
-    expect(factors.pitcherStart).toBeCloseTo(0.9429, 3)
+    expect(factors.pitcherStart).toBeCloseTo(0.9857, 3)
   })
 
-  test('veteran (30 prior, 0 current) lifts to ~0.957 (effective 7)', () => {
-    // min(7, 30) = 7. effective = 0 + 7 = 7. ramp: 0.90 + (4/7)*0.10 ≈ 0.9571
+  test('rookie (0 prior, 7 current) reaches the 1.00 ceiling', () => {
+    // 7 × 1.5 = 10.5 ≥ 10 → ceiling. The current-weight is calibrated so a
+    // rookie hits the ceiling at ~7 fresh starts, when BB%/HR% empirically
+    // stabilize (Russell Carleton: ~170 BF ≈ 7-8 starts).
     const { factors } = computeConfidenceBreakdown({
-      ...baseGood, pitcherStartCount: 0, priorSeasonStartsCount: 30,
-    })
-    expect(factors.pitcherStart).toBeCloseTo(0.9571, 3)
-  })
-
-  test('veteran (30 prior, 3 current) reaches the 1.00 ceiling (effective 10)', () => {
-    const { factors } = computeConfidenceBreakdown({
-      ...baseGood, pitcherStartCount: 3, priorSeasonStartsCount: 30,
+      ...baseGood, pitcherStartCount: 7, priorSeasonStartsCount: 0,
     })
     expect(factors.pitcherStart).toBeCloseTo(1.0, 4)
   })
 
-  test('prior-season cap at 7: 100 prior ≡ 7 prior at the same current count', () => {
+  test('veteran (30 prior, 0 current) lifts off the floor to ~0.929 (effective 5)', () => {
+    // 0 × 1.5 + min(5, 30) = 5 effective → 0.90 + (2/7)*0.10 ≈ 0.9286
+    // Lower than the previous min(7) cap (which produced ~0.957) — current
+    // form is now weighted more heavily, so a 0-fresh-start veteran gets
+    // a clear cold-start lift but doesn't read like an in-form pitcher.
+    const { factors } = computeConfidenceBreakdown({
+      ...baseGood, pitcherStartCount: 0, priorSeasonStartsCount: 30,
+    })
+    expect(factors.pitcherStart).toBeCloseTo(0.9286, 3)
+  })
+
+  test('veteran (30 prior, 4 current) reaches the 1.00 ceiling', () => {
+    // 4 × 1.5 + 5 = 11 ≥ 10 → ceiling. A veteran with the prior-cap boost
+    // needs 4 fresh starts (not 3 as the old min(7) version allowed) to
+    // fully neutralise the sample-size haircut — current form must still
+    // anchor the read.
+    const { factors } = computeConfidenceBreakdown({
+      ...baseGood, pitcherStartCount: 4, priorSeasonStartsCount: 30,
+    })
+    expect(factors.pitcherStart).toBeCloseTo(1.0, 4)
+  })
+
+  test('prior-season cap at 5: 100 prior ≡ 5 prior at the same current count', () => {
+    // The cap exists so a bygone year cannot single-handedly substitute
+    // for current form — any priorStarts ≥ 5 collapses to a +5-effective
+    // contribution.
     const a = computeConfidenceBreakdown({
       ...baseGood, pitcherStartCount: 0, priorSeasonStartsCount: 100,
     })
     const b = computeConfidenceBreakdown({
-      ...baseGood, pitcherStartCount: 0, priorSeasonStartsCount: 7,
+      ...baseGood, pitcherStartCount: 0, priorSeasonStartsCount: 5,
     })
     expect(a.factors.pitcherStart).toBeCloseTo(b.factors.pitcherStart, 6)
   })
 
   test('omitted priorSeasonStartsCount is current-season-only (backwards compatible)', () => {
-    // 5 current → 0.90 + (2/7)*0.10 ≈ 0.929
+    // 5 × 1.5 = 7.5 effective → 0.90 + (4.5/7)*0.10 ≈ 0.9643
     const { factors } = computeConfidenceBreakdown({
       ...baseGood, pitcherStartCount: 5,
     })
-    expect(factors.pitcherStart).toBeCloseTo(0.929, 3)
+    expect(factors.pitcherStart).toBeCloseTo(0.9643, 3)
   })
 
   test('negative priorSeasonStartsCount clamps to 0 (no spurious boost)', () => {
@@ -201,6 +221,20 @@ describe('computeConfidenceBreakdown — pitcherStart factor (with prior-season 
       ...baseGood, pitcherStartCount: 0, priorSeasonStartsCount: -5,
     })
     expect(factors.pitcherStart).toBeCloseTo(0.90, 4)
+  })
+
+  test('current-season starts weigh 1.5× prior — equivalence at the 6+0 vs 0+9 boundary', () => {
+    // 6 current alone: 6 × 1.5 + 0 = 9 effective.
+    // 0 current + 9 prior (cap 5): 0 + 5 = 5 effective. Lower than 6+0.
+    // This pins down the *direction* of the asymmetry: current is the
+    // stronger signal even when raw counts are identical.
+    const currentOnly = computeConfidenceBreakdown({
+      ...baseGood, pitcherStartCount: 6, priorSeasonStartsCount: 0,
+    })
+    const priorOnly = computeConfidenceBreakdown({
+      ...baseGood, pitcherStartCount: 0, priorSeasonStartsCount: 9,
+    })
+    expect(currentOnly.factors.pitcherStart).toBeGreaterThan(priorOnly.factors.pitcherStart)
   })
 })
 

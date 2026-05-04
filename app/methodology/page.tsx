@@ -234,7 +234,7 @@ bet_dollars = fullKelly × kellyFraction × bankroll`}
               <tbody className="text-ink-subtle">
                 <ConfRow factor="Lineup status" mapping="confirmed 1.00 / partial 0.85 / estimated 0.70" />
                 <ConfRow factor="BvP sample size" mapping="0.90 at 0 AB → 1.00 at ≥20 AB (linear)" />
-                <ConfRow factor="Pitcher start sample" mapping="0.90 at ≤3 effective starts → 1.00 at ≥10 (current + min(7, prior season))" />
+                <ConfRow factor="Pitcher start sample" mapping="0.90 at ≤3 effective starts → 1.00 at ≥10 (current × 1.5 + min(5, prior season))" />
                 <ConfRow factor="Weather stability" mapping="stable 1.00 / volatile 0.90" />
                 <ConfRow factor="Time to first pitch" mapping="1.00 ≤ 90 min → 0.95 ≥ 4 hrs" />
                 <ConfRow factor="Opener flag" mapping="normal 1.00 / opener 0.90" />
@@ -253,8 +253,10 @@ bet_dollars = fullKelly × kellyFraction × bankroll`}
           linear in between) so the haircut grows smoothly with forecast
           exposure rather than flipping in a hard step; opener fires when the
           listed starter has averaged under 2 IP across recent starts; pitcher
-          sample backfills with prior-season starts (capped at 7) so an
-          established starter doesn&apos;t pin to the floor in early April;
+          sample weighs current-season starts 1.5× and backfills with up to 5
+          prior-season starts, so an established starter doesn&apos;t pin to the
+          floor in early April but still needs ≥4 fresh starts to fully reach
+          the ceiling;
           freshness reads schedule-cache age (the canonical live-state signal,
           with a short TTL), so confidence ramps down if the cron stops
           hitting <Code>/api/refresh</Code>.

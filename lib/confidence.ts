@@ -34,11 +34,17 @@ export interface ConfidenceInputs {
    * Optional: prior-season regular-season start count for the same pitcher.
    * Folds into the sample-size confidence ramp so an established starter
    * isn't pinned at the 0.90 floor on April 5 just because they've only
-   * thrown 1 current-season start. Capped at 7 inside the math
-   * (`effectiveStarts = currentStarts + min(7, priorStarts)`), so a true
-   * rookie with no prior data keeps the original 3→10 ramp, while a
-   * veteran can reach the 1.00 ceiling within ~3 fresh starts. Defaults
-   * to 0 when omitted (current-season-only behaviour).
+   * thrown 1 current-season start. The exact weighting lives in
+   * `computeConfidenceBreakdown`:
+   *
+   *     effectiveStarts = currentStarts × 1.5 + min(5, priorStarts)
+   *
+   * Current-season starts weigh 1.5× because fresh form is the better
+   * signal for confidence; the prior-season cap of 5 means a bygone year
+   * can lift a veteran off the rookie floor (~×0.93 with 0 fresh starts)
+   * but cannot single-handedly reach the 1.00 ceiling — a veteran still
+   * needs ≥4 fresh starts to fully neutralise the haircut. Defaults to 0
+   * when omitted (current-season-only behaviour).
    */
   priorSeasonStartsCount?: number
   weatherImpact: number  // |hrMult - 1|. 0 means no exposure (dome, failed
@@ -78,15 +84,26 @@ export function computeConfidenceBreakdown(args: ConfidenceInputs): {
     args.lineupStatus === 'confirmed' ? 1.00 :
     args.lineupStatus === 'partial' ? 0.85 : 0.70
   const bvp = Math.min(1.0, 0.90 + (args.bvpAB / 20) * 0.10)
-  // Effective sample size for the pitcher confidence ramp. Prior-season
-  // starts are capped at 7 so a current-season ace with 0 fresh starts
-  // sits at ~×0.96 (effective 7) rather than at the 0.90 floor — but a
-  // true rookie (no prior data) still floors. Capping at 7 also means a
-  // veteran needs at least 3 fresh starts to fully reach the 1.00 ceiling,
-  // keeping current form anchored as the primary signal instead of leaning
-  // entirely on a bygone year.
+  // Effective sample size for the pitcher confidence ramp.
+  //
+  //   effectiveStarts = currentStarts × 1.5 + min(5, priorStarts)
+  //
+  // Two intentional shaping choices:
+  //  · **Current weighted 1.5×** — fresh form is the more relevant signal
+  //    for *today's* read. Y-o-y correlation for pitcher rates (K%, BB%,
+  //    HR%) is roughly 0.5–0.7, so a prior start is worth ~0.67 of a
+  //    current start; the 1.5 weight on current is the inverse of that.
+  //    A rookie now reaches the 1.00 ceiling at ~7 fresh starts instead
+  //    of 10, in line with when BB%/HR% empirically stabilize.
+  //  · **Prior capped at 5** — historical volume earns a real cold-start
+  //    boost (a veteran with 0 fresh starts reads ~0.93 instead of the
+  //    0.90 rookie floor) but cannot reach the ceiling alone. A veteran
+  //    needs at least 4 fresh starts to fully neutralise the haircut,
+  //    keeping current form anchored as the primary signal.
+  //
+  // Floor at ≤3 effective, ceiling at ≥10 effective, linear in between.
   const priorStarts = Math.max(0, args.priorSeasonStartsCount ?? 0)
-  const effectiveStarts = args.pitcherStartCount + Math.min(7, priorStarts)
+  const effectiveStarts = args.pitcherStartCount * 1.5 + Math.min(5, priorStarts)
   const pitcherStart =
     effectiveStarts >= 10 ? 1.0 :
     effectiveStarts <= 3 ? 0.90 :
