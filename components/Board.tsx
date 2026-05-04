@@ -115,10 +115,10 @@ function BetSettingsBar() {
           className="rounded border border-border bg-card/50 px-2 py-1 font-mono text-xs text-ink"
           aria-label="Kelly fraction multiplier"
         >
-          <option value={0.125}>⅛ Kelly</option>
-          <option value={0.25}>¼ Kelly</option>
-          <option value={0.5}>½ Kelly</option>
-          <option value={1}>Full Kelly</option>
+          <option value={0.125}>Eighth</option>
+          <option value={0.25}>Quarter</option>
+          <option value={0.5}>Half</option>
+          <option value={1}>Full</option>
         </select>
       </label>
       <span className="ml-auto text-[11px] text-ink-muted/70">
