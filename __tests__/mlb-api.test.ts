@@ -408,6 +408,12 @@ describe('fetchPitcherSeasonStats', () => {
     expect(s.kPct).toBeCloseTo(220 / 720, 4)
     expect(s.bbPct).toBeCloseTo(50 / 720, 4)
     expect(s.hrPer9).toBeCloseTo(16 * 9 / (180 + 1 / 3), 4)
+    // hrPct must be HR per BF (matches LG_HR_PCT units the pitcher factor
+    // compares against). Regression for the bug where the ranker derived
+    // hrPct as hrPer9/9, which is HR/inning and pegged the pitcher factor
+    // at its 2.0 cap on every pick.
+    expect(s.hrPct).toBeCloseTo(16 / 720, 4)
+    expect(s.hrPct).toBeLessThan(0.10)  // sanity: HR/BF should be a small decimal
     expect(s.fip).toBeGreaterThan(2)
     expect(s.fip).toBeLessThan(7)
   })
@@ -418,6 +424,9 @@ describe('fetchPitcherSeasonStats', () => {
     expect(s.pitcherId).toBe(802002)
     expect(typeof s.fip).toBe('number')
     expect(s.ip).toBe(0)
+    // Fallback hrPct must be a small decimal (HR/BF), not a HR/9 number.
+    expect(s.hrPct).toBeGreaterThan(0)
+    expect(s.hrPct).toBeLessThan(0.10)
   })
 
   test('returns league-avg fallback for empty splits', async () => {

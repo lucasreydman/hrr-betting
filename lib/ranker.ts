@@ -459,9 +459,11 @@ export async function rankPicks(date: string): Promise<PicksResponse> {
         id: opposingStarterId > 0 ? opposingStarterId : 0,
         kPct: opposingPitcherSeasonStats?.kPct ?? LG_K_PCT,
         bbPct: opposingPitcherSeasonStats?.bbPct ?? LG_BB_PCT,
-        hrPct: opposingPitcherSeasonStats
-          ? (opposingPitcherSeasonStats.hrPer9 / 9)  // hrPer9 → hrPct (per BF approx)
-          : LG_HR_PCT,
+        // hrPct is HR per BF (matches LG_HR_PCT units). Computed correctly
+        // in mlb-api.ts:fetchPitcherSeasonStats from raw HR + BF; the v1 of
+        // this code did `hrPer9 / 9` which gave HR/inning instead, pegging
+        // every pitcher at the 2.0 quality cap.
+        hrPct: opposingPitcherSeasonStats?.hrPct ?? LG_HR_PCT,
         hardHitRate: opposingPitcherSavant?.hardHitPctAllowed ?? LG_HARD_HIT_RATE,
         bf: pitcherBf,
         recentStarts: opposingStarterStartCount,

@@ -80,6 +80,8 @@ const LEAGUE_AVG_FIP = 4.05
 const LEAGUE_AVG_K_PCT = 0.222
 const LEAGUE_AVG_BB_PCT = 0.082
 const LEAGUE_AVG_HR_PER9 = 1.28
+/** League-average HR per batter faced. ~1.28 HR/9 / ~37.8 BF/9 ≈ 0.034. */
+const LEAGUE_AVG_HR_PCT = 0.034
 /** FIP constant (2023-era) */
 const FIP_CONSTANT = 3.1
 
@@ -975,6 +977,11 @@ export async function fetchPitcherSeasonStats(
     kPct:    bf > 0 ? stat.strikeOuts / bf : LEAGUE_AVG_K_PCT,
     bbPct:   bf > 0 ? stat.baseOnBalls / bf : LEAGUE_AVG_BB_PCT,
     hrPer9:  ip > 0 ? (stat.homeRuns * 9) / ip : LEAGUE_AVG_HR_PER9,
+    // hrPct (HR per BF) — needed by the pitcher factor, which compares
+    // against LG_HR_PCT in HR/BF units. The previous shortcut "hrPer9 / 9"
+    // gave HR/inning, not HR/BF (off by ~4× since there are ~4 BF/inning),
+    // which pegged the pitcher factor near its 2.0 cap on every pick.
+    hrPct:   bf > 0 ? stat.homeRuns / bf : LEAGUE_AVG_HR_PCT,
   }
 
   await kvSet(cacheKey, result, TTL_24H)
@@ -989,6 +996,7 @@ function fallbackPitcherStats(pitcherId: number): PitcherStats {
     kPct:   LEAGUE_AVG_K_PCT,
     bbPct:  LEAGUE_AVG_BB_PCT,
     hrPer9: LEAGUE_AVG_HR_PER9,
+    hrPct:  LEAGUE_AVG_HR_PCT,
   }
 }
 

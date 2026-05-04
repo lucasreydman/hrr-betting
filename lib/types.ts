@@ -54,6 +54,10 @@ export interface PitcherStats {
   kPct: number
   bbPct: number
   hrPer9: number
+  /** HR per batter faced. The pitcher factor compares this against LG_HR_PCT
+   * (also HR/BF), so it must be in the same units. Computed as HR/BF where
+   * raw stats are available; falls back to LEAGUE_AVG_HR_PCT otherwise. */
+  hrPct: number
   vsR?: OutcomeRates
   vsL?: OutcomeRates
 }
