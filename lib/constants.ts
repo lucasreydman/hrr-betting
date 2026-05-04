@@ -53,11 +53,27 @@ export function blendWeights(month: number): { season: number; l30: number; l15:
   return { season: 0.50, l30: 0.30, l15: 0.20 }
 }
 
-// Tracked tier floors per rung (placeholders, recalibrate after ~30 days).
+// Tracked tier floors per rung (placeholders — recalibrate after ~30 days
+// of post-pitcher-fix settled history accumulates; the 2026-04-26 → 2026-05-03
+// pre-fix sample was contaminated by the broken bullpen + pitcher factors).
+//
 // A pick is Tracked only if confidence >= CONFIDENCE_FLOOR_TRACKED AND
 // EDGE >= EDGE_FLOORS[rung] AND P_matchup >= PROB_FLOORS[rung].
-export const EDGE_FLOORS: Record<Rung, number> = { 1: 0.10, 2: 0.30, 3: 0.60 }
-export const PROB_FLOORS: Record<Rung, number> = { 1: 0.85, 2: 0.55, 3: 0.20 }
+//
+// Symmetric design: as the rung gets harder, we accept lower absolute
+// probability but demand higher relative edge.
+//   · 1+ (easy):     prob 0.80 / edge 0.10 — "high confidence, doesn't need a steal"
+//   · 2+ (moderate): prob 0.60 / edge 0.20 — "decent chance + decent value"
+//   · 3+ (hard):     prob 0.40 / edge 0.30 — "longshot, but only at real value"
+//
+// History: the original 0.85/0.55/0.20 prob and 0.10/0.30/0.60 edge values
+// were calibrated against a buggy model that pegged the pitcher factor at
+// its 2.0 cap on ~72% of picks (see lib/mlb-api.ts hrPct fix). After the
+// fix, the model output deflated proportionally and no slate had any
+// tracked picks under the old floors. These values restore meaningful
+// daily volume while keeping the "high-conviction" semantic.
+export const EDGE_FLOORS: Record<Rung, number> = { 1: 0.10, 2: 0.20, 3: 0.30 }
+export const PROB_FLOORS: Record<Rung, number> = { 1: 0.80, 2: 0.60, 3: 0.40 }
 
 // Display floor: a pick is shown in the "Other plays" section if SCORE >= this.
 // SCORE = Kelly fraction × confidence (post-2026-04-29 switch from EDGE × conf
