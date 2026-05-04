@@ -85,12 +85,12 @@ describe('slateDateString — ET 3AM rollover', () => {
     expect(slateDateString()).toMatch(/^\d{4}-\d{2}-\d{2}$/)
   })
 
-  test('cron firing at 10 UTC = 6 AM ET → slate is current ET date (settle path)', () => {
-    // /api/settle cron runs at 10 UTC. We want to make sure that maps to the
-    // ET calendar date for the day that's just ended.
-    const t = new Date('2026-04-28T10:00:00Z')  // 06:00 EDT Apr 28
+  test('cron firing at 7:15 UTC = 3:15 AM ET → new slate, settle target = previous', () => {
+    // /api/settle cron runs at 7:15 UTC daily, just past the 3 AM ET rollover.
+    // slateDateString() at that moment must already report the new slate so
+    // /api/settle's "yesterday" shift lands on the slate that just ended.
+    const t = new Date('2026-04-28T07:15:00Z')  // 03:15 EDT Apr 28
     expect(slateDateString(t)).toBe('2026-04-28')
-    // shiftIsoDate(slateDateString(t), -1) is what /api/settle uses for "yesterday"
     expect(shiftIsoDate(slateDateString(t), -1)).toBe('2026-04-27')
   })
 })
