@@ -945,7 +945,11 @@ export async function fetchPitcherSeasonStats(
 ): Promise<PitcherStats> {
   // Slate-aligned: data freezes for the entire slate (3am ET → next 3am ET) so
   // mid-game stat updates don't shift previously-given plays.
-  const cacheKey = `hrr:pitcher:season:${pitcherId}:${season}:${slateDateString()}`
+  // v2: hrPct field added (HR/BF). v1 entries lack the field; reading them
+  // back as PitcherStats would silently fall through to the `?? LG_HR_PCT`
+  // default in ranker.ts and produce a degraded factor for the rest of the
+  // slate. Bumping the prefix forces a re-fetch with the new shape.
+  const cacheKey = `hrr:pitcher:season:v2:${pitcherId}:${season}:${slateDateString()}`
   const cached = await kvGet<PitcherStats>(cacheKey)
   if (cached) return cached
 
