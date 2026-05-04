@@ -9,7 +9,7 @@ import { BetSettingsProvider, useBetSettings } from './BetSettingsContext'
 
 export type PickWithRung = Pick & { rung: 1 | 2 | 3 }
 
-type SortKey = 'score' | 'pTypical' | 'pMatchup' | 'edge' | 'confidence'
+export type SortKey = 'score' | 'pTypical' | 'pMatchup' | 'edge' | 'confidence' | 'game'
 
 // p̂ = "p-hat", standard stats notation for an estimated probability. Used in
 // labels and column headers throughout the board. Object key order also drives
@@ -20,6 +20,30 @@ const SORT_LABELS: Record<SortKey, string> = {
   pMatchup: 'p̂ today',
   edge: 'Edge',
   confidence: 'Confidence',
+  game: 'Game (earliest first)',
+}
+
+/**
+ * Sort comparator. Numeric sort keys (score / pTypical / pMatchup / edge /
+ * confidence) sort descending — best on top. The `game` sort groups plays
+ * by first pitch (earliest first) so plays from the same game cluster
+ * together; within a game, score-descending picks the best bet first.
+ *
+ * `gameDate` is optional on `Pick` (settled-history rows hydrated from the
+ * DB don't carry it), so an undefined gameDate sinks to the bottom rather
+ * than crashing on Date.parse(undefined). Same-time picks tiebreak by
+ * gameId so a doubleheader pair can't interleave their players, then by
+ * score so the top play in each game leads the cluster.
+ */
+export function comparePicks(a: PickWithRung, b: PickWithRung, sortKey: SortKey): number {
+  if (sortKey === 'game') {
+    const aTime = a.gameDate ? Date.parse(a.gameDate) : Number.POSITIVE_INFINITY
+    const bTime = b.gameDate ? Date.parse(b.gameDate) : Number.POSITIVE_INFINITY
+    if (aTime !== bTime) return aTime - bTime
+    if (a.gameId !== b.gameId) return a.gameId - b.gameId
+    return b.score - a.score
+  }
+  return b[sortKey] - a[sortKey]
 }
 
 // Built from the live constants so the chip tooltips can never drift from the
@@ -174,11 +198,11 @@ function BoardContents({ picks }: { picks: PickWithRung[] }) {
   )
 
   const tracked = useMemo(
-    () => visible.filter(p => p.tier === 'tracked').sort((a, b) => b[sortKey] - a[sortKey]),
+    () => visible.filter(p => p.tier === 'tracked').sort((a, b) => comparePicks(a, b, sortKey)),
     [visible, sortKey],
   )
   const watching = useMemo(
-    () => visible.filter(p => p.tier === 'watching').sort((a, b) => b[sortKey] - a[sortKey]),
+    () => visible.filter(p => p.tier === 'watching').sort((a, b) => comparePicks(a, b, sortKey)),
     [visible, sortKey],
   )
 
