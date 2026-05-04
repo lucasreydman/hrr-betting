@@ -4,6 +4,18 @@ import { useEffect, useId, useState } from 'react'
 import type { Pick, PickInputs } from '@/lib/ranker'
 import { getTeamNickname } from '@/lib/team-names'
 import { CONFIDENCE_FLOOR_TRACKED, EDGE_FLOORS, PROB_FLOORS } from '@/lib/constants'
+import {
+  evPerDollar,
+  impliedProbFromAmericanOdds,
+  parseAmericanOdds,
+  recommendedBet,
+} from '@/lib/bet-sizing'
+import {
+  lineStorageKey,
+  readStoredLine,
+  useBetSettings,
+  writeStoredLine,
+} from './BetSettingsContext'
 
 /** Per-cell gate-passing helpers. Each returns true when the value clears the
  *  Tracked-tier floor for its respective metric. Used to colour the desktop
@@ -17,24 +29,6 @@ function passesEdgeFloor(edge: number, rung?: 1 | 2 | 3): boolean {
 }
 function passesConfidenceFloor(confidence: number): boolean {
   return confidence >= CONFIDENCE_FLOOR_TRACKED
-}
-
-/**
- * Score → colour gradient. Low scores (just above the display floor of 0.05)
- * read as light blue; high scores (≥ 0.50) read as the same green we use
- * for HIT outcomes. Linear RGB interpolation between sky-300 (#7DD3FC) and
- * hit green (#10B981) — passes through teal/turquoise mid-range.
- *
- * 0.50 is generous as a "max" — typical Tracked plays land 0.15–0.40 — but
- * the saturation stops scaling there so the very top picks max out the
- * green colour.
- */
-function scoreColor(score: number): string {
-  const t = Math.min(1, Math.max(0, (score - 0.05) / (0.50 - 0.05)))
-  const r = Math.round(125 + t * (16 - 125))
-  const g = Math.round(211 + t * (185 - 211))
-  const b = Math.round(252 + t * (129 - 252))
-  return `rgb(${r}, ${g}, ${b})`
 }
 
 function pct(value: number, digits = 1): string {
@@ -256,6 +250,124 @@ function KV({ label, children }: { label: React.ReactNode; children: React.React
 }
 
 /**
+ * Hook: per-pick FanDuel line input, persisted to localStorage. Each
+ * (date, gameId, playerId, rung) combination has its own slot, so different
+ * rungs of the same player on the same slate keep their own lines, and a
+ * page reload mid-slate doesn't lose what you typed.
+ *
+ * Returns:
+ *   · `input` — raw string the user typed (used as the controlled value)
+ *   · `odds` — parsed American odds (number) or null when input is invalid
+ *   · `setInput` — updates state + writes to localStorage
+ */
+function useStoredLine(args: {
+  date: string
+  gameId: number
+  playerId: number
+  rung?: 1 | 2 | 3
+}): {
+  input: string
+  odds: number | null
+  setInput: (v: string) => void
+} {
+  const key = args.rung
+    ? lineStorageKey({ date: args.date, gameId: args.gameId, playerId: args.playerId, rung: args.rung })
+    : null
+  const [input, setInputState] = useState('')
+
+  // Hydrate after mount — localStorage is client-only.
+  useEffect(() => {
+    if (!key) return
+    const stored = readStoredLine(key)
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- one-time hydration of localStorage value
+    if (stored !== null) setInputState(stored)
+  }, [key])
+
+  const setInput = (v: string) => {
+    setInputState(v)
+    if (key) writeStoredLine(key, v)
+  }
+
+  return { input, odds: parseAmericanOdds(input), setInput }
+}
+
+/**
+ * Inline cell that holds the FD-line input + computed bet size in one place.
+ * Used in both the desktop grid (replacing the old Score column) and the
+ * mobile stacked layout. Same component so the formatting can't drift
+ * between viewports.
+ *
+ * When the line is empty/invalid: shows the input + a "—" placeholder for
+ * the bet. When the line is valid AND model prob beats the book's implied
+ * prob: shows the input + the recommended bet in dollars (¼ Kelly default,
+ * controlled via the BetSettings context). When the line is valid but the
+ * book has us over a barrel (implied prob > model prob): shows "skip" so
+ * we don't suggest betting -EV plays.
+ */
+function WagerCell({
+  modelProb,
+  storedLine,
+  variant,
+}: {
+  modelProb: number
+  storedLine: ReturnType<typeof useStoredLine>
+  variant: 'desktop' | 'mobile'
+}) {
+  const { bankroll, kellyMultiplier } = useBetSettings()
+  const { input, odds, setInput } = storedLine
+
+  // Stop click-on-row propagation so typing in the field doesn't toggle
+  // the expanded panel underneath.
+  const stopPropagation = (e: React.SyntheticEvent) => e.stopPropagation()
+
+  let display: { label: string; tone: 'bet' | 'skip' | 'empty' }
+  if (odds === null) {
+    display = { label: '—', tone: 'empty' }
+  } else {
+    const bet = recommendedBet({ modelProb, americanOdds: odds, bankroll, kellyMultiplier })
+    if (bet > 0) {
+      display = { label: `$${bet.toFixed(2).replace(/\.00$/, '')}`, tone: 'bet' }
+    } else {
+      display = { label: 'skip', tone: 'skip' }
+    }
+  }
+
+  const inputClass =
+    'w-full max-w-[5.5rem] rounded border border-border/60 bg-card/40 px-1.5 py-0.5 ' +
+    'text-center font-mono text-xs tabular-nums text-ink ' +
+    'placeholder:text-ink-muted/50 focus:border-tracked/60 focus:outline-none'
+  const betClass =
+    'font-mono text-xs tabular-nums ' +
+    (display.tone === 'bet' ? 'font-semibold text-tracked'
+      : display.tone === 'skip' ? 'text-ink-muted'
+      : 'text-ink-muted/60')
+
+  const wrapper = variant === 'desktop'
+    ? 'flex flex-col items-center gap-0.5'
+    : 'flex items-center gap-2'
+
+  return (
+    <div className={wrapper}>
+      <input
+        type="text"
+        inputMode="numeric"
+        autoComplete="off"
+        spellCheck={false}
+        placeholder="FD line"
+        aria-label="FanDuel American moneyline odds for this prop"
+        value={input}
+        onChange={e => setInput(e.target.value)}
+        onClick={stopPropagation}
+        onKeyDown={stopPropagation}
+        onMouseDown={stopPropagation}
+        className={inputClass}
+      />
+      <span className={betClass}>{display.label}</span>
+    </div>
+  )
+}
+
+/**
  * Multiplicative factor display, unified across probTodayFactors and
  * confidenceFactors so the same visual reads the same everywhere:
  *   · > 1.005 → tracked-orange + ↑   (boosts hitter / above ideal)
@@ -294,9 +406,15 @@ function windDirectionLabel(outMph: number): { text: string; tone: 'in' | 'out' 
   return { text: `${outMph.toFixed(1)} mph in`, tone: 'in' }
 }
 
-function MathPanel({ pick, rung, localTime }: { pick: Pick; rung?: 1 | 2 | 3; localTime: ReturnType<typeof useLocalTime> }) {
+function MathPanel({ pick, rung, localTime, storedLine }: {
+  pick: Pick
+  rung?: 1 | 2 | 3
+  localTime: ReturnType<typeof useLocalTime>
+  storedLine: ReturnType<typeof useStoredLine>
+}) {
   const inputs = pick.inputs
   const isTracked = pick.tier === 'tracked'
+  const { bankroll, kellyMultiplier } = useBetSettings()
 
   // Always-available math (depends only on Pick fields):
   const edgeFloor = 0.01
@@ -568,28 +686,71 @@ function MathPanel({ pick, rung, localTime }: { pick: Pick; rung?: 1 | 2 | 3; lo
         </PanelSection>
       )}
 
-      <PanelSection title="Score" className="sm:mt-auto">
+      <PanelSection title="Wager sizing" className="sm:mt-auto">
         <p className="font-mono text-[11px] leading-relaxed text-ink-muted">
-          score = (p̂<sub>today</sub> − p̂<sub>typical</sub>) ÷ (1 − p̂<sub>typical</sub>) × confidence
-          <span className="ml-1 text-ink-muted/70">(Kelly × conf, ×100 for display)</span>
+          Bet = max(0, fullKelly) × kellyFraction × bankroll. fullKelly compares
+          p̂<sub>today</sub> to the FanDuel implied probability — recommend $0 when
+          the book line is steeper than the model says it should be.
         </p>
-        <KV label="Kelly fraction">
-          <span className="text-ink">
-            {(((pick.pMatchup - pick.pTypical) / Math.max(1 - pick.pTypical, 0.01)) * 100).toFixed(1)}%
-          </span>
-          <span className="ml-2 text-[11px] text-ink-muted">
-            ({pct(pick.pMatchup, 1)} − {pct(pick.pTypical, 1)}) ÷ {pct(1 - pick.pTypical, 1)}
-          </span>
+        <KV label="FanDuel line">
+          <input
+            type="text"
+            inputMode="numeric"
+            autoComplete="off"
+            spellCheck={false}
+            placeholder="e.g. -110"
+            aria-label="FanDuel American moneyline odds"
+            value={storedLine.input}
+            onChange={e => storedLine.setInput(e.target.value)}
+            onClick={e => e.stopPropagation()}
+            onKeyDown={e => e.stopPropagation()}
+            onMouseDown={e => e.stopPropagation()}
+            className="w-24 rounded border border-border/60 bg-card/40 px-2 py-0.5 text-right font-mono text-xs tabular-nums text-ink placeholder:text-ink-muted/50 focus:border-tracked/60 focus:outline-none"
+          />
         </KV>
-        <KV label="× Confidence">
-          <span className="text-ink">{pct(pick.confidence, 1)}</span>
-        </KV>
-        <KV label="= Score">
-          <span className={isTracked ? 'font-semibold text-tracked' : 'font-semibold text-ink'}>
-            {(pick.score * 100).toFixed(1)}
-          </span>
-          <span className="ml-2 text-[11px] uppercase tracking-wider text-ink-muted">
-            ({isTracked ? '🎯 Tracked' : 'Other play'})
+        {(() => {
+          if (storedLine.odds === null) {
+            return (
+              <KV label="Implied book prob">
+                <span className="text-ink-muted">— (enter FD line above)</span>
+              </KV>
+            )
+          }
+          const impliedProb = impliedProbFromAmericanOdds(storedLine.odds)
+          const ev = evPerDollar(pick.pMatchup, storedLine.odds)
+          const bet = recommendedBet({
+            modelProb: pick.pMatchup,
+            americanOdds: storedLine.odds,
+            bankroll,
+            kellyMultiplier,
+          })
+          const edgeOverBookPp = (pick.pMatchup - impliedProb) * 100
+          const evClass = ev > 0 ? 'font-semibold text-tracked' : 'text-ink-muted'
+          const betClass = bet > 0 ? 'font-semibold text-tracked' : 'text-ink-muted'
+          return (
+            <>
+              <KV label="Implied book prob">
+                <span className="text-ink">{pct(impliedProb)}</span>
+                <span className="ml-2 text-[11px] text-ink-muted">
+                  (model {pct(pick.pMatchup)} → {edgeOverBookPp >= 0 ? '+' : ''}{edgeOverBookPp.toFixed(1)}pp over book)
+                </span>
+              </KV>
+              <KV label="EV per $1 wagered">
+                <span className={evClass}>
+                  {ev > 0 ? '+' : ''}{(ev * 100).toFixed(1)}%
+                </span>
+              </KV>
+              <KV label={<>Recommended bet <span className="text-ink-muted/70">(¼ Kelly × ${bankroll.toFixed(0)})</span></>}>
+                <span className={betClass}>
+                  {bet > 0 ? `$${bet.toFixed(2).replace(/\.00$/, '')}` : 'skip — no edge over book'}
+                </span>
+              </KV>
+            </>
+          )
+        })()}
+        <KV label="Tier">
+          <span className={isTracked ? 'font-semibold text-tracked' : 'text-ink-muted'}>
+            {isTracked ? '🎯 Tracked' : 'Other play'}
           </span>
         </KV>
         {rung != null && (
@@ -640,6 +801,15 @@ export function PickRow({ pick, rung }: { pick: Pick; rung?: 1 | 2 | 3 }) {
   const panelId = useId()
   const localTime = useLocalTime(pick.gameDate)
   const firstPitchCountdown = useTimeUntilFirstPitch(pick.gameDate)
+  // Per-pick FanDuel line storage. Lifted to PickRow so the grid cell and
+  // the expanded panel both render off the same hook (single localStorage
+  // read on mount, synchronised typing across both views).
+  const storedLine = useStoredLine({
+    date: pick.gameDate ?? '',
+    gameId: pick.gameId,
+    playerId: pick.player.playerId,
+    rung,
+  })
 
   // Derive "Away at Home" matchup string using team nicknames.
   // Falls back to abbreviation format for locked picks (teamId === 0 sentinel).
@@ -683,8 +853,10 @@ export function PickRow({ pick, rung }: { pick: Pick; rung?: 1 | 2 | 3 }) {
         onKeyDown={onKeyDown}
         className={'group w-full cursor-pointer px-3 py-3 text-left transition-colors sm:px-4 ' + rowFill}
       >
-        {/* Desktop: 10-column grid (bet · batter · pitcher · game · p.typ · p.today · edge · conf · score · caret) */}
-        <div className="hidden sm:grid sm:grid-cols-[0.7fr_1.55fr_1.35fr_1.15fr_0.85fr_0.85fr_0.8fr_1fr_0.6fr_0.3fr] sm:items-center sm:gap-3">
+        {/* Desktop: 10-column grid (bet · batter · pitcher · game · p.typ · p.today · edge · conf · wager · caret).
+            Wager column is wider than the old Score column was (1.3fr vs 0.6fr)
+            because it holds an input field plus a computed bet size. */}
+        <div className="hidden sm:grid sm:grid-cols-[0.7fr_1.55fr_1.35fr_1.15fr_0.85fr_0.85fr_0.8fr_1fr_1.3fr_0.3fr] sm:items-center sm:gap-3">
           {/* BET — rung badge + tracked target */}
           <div className="flex min-w-0 items-center gap-1.5">
             {rung && <RungBadge rung={rung} />}
@@ -793,15 +965,12 @@ export function PickRow({ pick, rung }: { pick: Pick; rung?: 1 | 2 | 3 }) {
             </span>
           </div>
 
-          {/* SCORE — ×100 with one decimal. Gradient blue → green by score
-              intensity (sky-300 at the floor, hit-green at the top). */}
-          <div className="text-center">
-            <div
-              className="font-mono text-base font-semibold tabular-nums"
-              style={{ color: scoreColor(pick.score) }}
-            >
-              {(pick.score * 100).toFixed(1)}
-            </div>
+          {/* WAGER — FD line input + computed bet size. Replaces the old
+              "Score" column. Score is still the silent sort key in Board.tsx
+              so the default order is unchanged, but the abstract 0–100
+              number is gone — the visible value is now the actionable bet. */}
+          <div className="px-1">
+            <WagerCell modelProb={pick.pMatchup} storedLine={storedLine} variant="desktop" />
           </div>
 
           {/* CARET — dedicated 8th column so score numbers don't shift.
@@ -906,15 +1075,12 @@ export function PickRow({ pick, rung }: { pick: Pick; rung?: 1 | 2 | 3 }) {
                   {pct(pick.confidence, 1)}
                 </span>
               </div>
-              <div className="flex items-baseline gap-1">
-                <span className="text-ink-muted">Score</span>
-                <span
-                  className="font-mono font-semibold tabular-nums"
-                  style={{ color: scoreColor(pick.score) }}
-                >
-                  {(pick.score * 100).toFixed(1)}
-                </span>
-              </div>
+            </div>
+            {/* Mobile: FD line + bet on its own row so the inputs don't
+                squeeze the metrics above. */}
+            <div className="mt-1.5 flex items-center justify-between gap-2 text-xs">
+              <span className="text-ink-muted">Wager</span>
+              <WagerCell modelProb={pick.pMatchup} storedLine={storedLine} variant="mobile" />
             </div>
           </div>
         </div>
@@ -933,7 +1099,7 @@ export function PickRow({ pick, rung }: { pick: Pick; rung?: 1 | 2 | 3 }) {
       >
         <div className="min-h-0 overflow-hidden">
           <div className="border-t border-border/40 bg-bg-soft/60">
-            <MathPanel pick={pick} rung={rung} localTime={localTime} />
+            <MathPanel pick={pick} rung={rung} localTime={localTime} storedLine={storedLine} />
           </div>
         </div>
       </div>

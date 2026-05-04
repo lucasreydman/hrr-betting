@@ -5,6 +5,7 @@ import type { Pick } from '@/lib/ranker'
 import { PickRow } from './PickRow'
 import { EmptyState } from './EmptyState'
 import { EDGE_FLOORS, PROB_FLOORS } from '@/lib/constants'
+import { BetSettingsProvider, useBetSettings } from './BetSettingsContext'
 
 export type PickWithRung = Pick & { rung: 1 | 2 | 3 }
 
@@ -76,7 +77,58 @@ const RUNG_QUOTAS: Record<1 | 2 | 3, number> = {
   3: 5,
 }
 
-export function Board({ picks }: { picks: PickWithRung[] }) {
+/**
+ * Settings bar — bankroll input + Kelly-fraction selector. Mounted at the
+ * top of the board, inside the BetSettings provider so changes here
+ * immediately re-render every PickRow's wager-cell calculation.
+ *
+ * Settings are persisted via the provider's localStorage hooks; this
+ * component just reads/writes through the context.
+ */
+function BetSettingsBar() {
+  const { bankroll, kellyMultiplier, setBankroll, setKellyMultiplier } = useBetSettings()
+  return (
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-border/60 bg-card/20 px-3 py-2 sm:px-4">
+      <span className="text-[11px] uppercase tracking-wider text-ink-muted">Bet sizing</span>
+      <label className="flex items-center gap-2">
+        <span className="text-[11px] text-ink-muted">Bankroll</span>
+        <span className="text-xs text-ink-muted">$</span>
+        <input
+          type="number"
+          inputMode="decimal"
+          min={0}
+          step={50}
+          value={bankroll}
+          onChange={e => {
+            const n = Number(e.target.value)
+            if (Number.isFinite(n) && n >= 0) setBankroll(n)
+          }}
+          className="w-24 rounded border border-border bg-card/50 px-2 py-1 font-mono text-xs tabular-nums text-ink focus:border-tracked/60 focus:outline-none"
+          aria-label="Bankroll in dollars"
+        />
+      </label>
+      <label className="flex items-center gap-2">
+        <span className="text-[11px] text-ink-muted">Kelly</span>
+        <select
+          value={kellyMultiplier}
+          onChange={e => setKellyMultiplier(Number(e.target.value))}
+          className="rounded border border-border bg-card/50 px-2 py-1 font-mono text-xs text-ink"
+          aria-label="Kelly fraction multiplier"
+        >
+          <option value={0.125}>⅛ Kelly</option>
+          <option value={0.25}>¼ Kelly</option>
+          <option value={0.5}>½ Kelly</option>
+          <option value={1}>Full Kelly</option>
+        </select>
+      </label>
+      <span className="ml-auto text-[11px] text-ink-muted/70">
+        Recommended bets reload as you change either field. ¼ Kelly is the safe default.
+      </span>
+    </div>
+  )
+}
+
+function BoardContents({ picks }: { picks: PickWithRung[] }) {
   const [sortKey, setSortKey] = useState<SortKey>('score')
   const [enabledRungs, setEnabledRungs] = useState<Set<1 | 2 | 3>>(new Set([1, 2, 3]))
   const [enabledStatuses, setEnabledStatuses] = useState<Set<GameStatusFilter>>(
@@ -169,6 +221,7 @@ export function Board({ picks }: { picks: PickWithRung[] }) {
 
   return (
     <section className="overflow-hidden rounded-lg border border-border bg-card/20" aria-label="Picks board">
+      <BetSettingsBar />
       <header className="flex flex-wrap items-center justify-between gap-x-4 gap-y-3 border-b border-border bg-card/50 px-3 py-3 sm:px-4">
         <div className="flex flex-wrap items-center gap-2">
           <span className="text-[11px] uppercase tracking-wider text-ink-muted">Rung</span>
@@ -242,9 +295,11 @@ export function Board({ picks }: { picks: PickWithRung[] }) {
         </div>
       </header>
 
-      {/* Column headers — desktop only. Mirrors the 10-column grid in PickRow. */}
+      {/* Column headers — desktop only. Mirrors the 10-column grid in PickRow.
+          Wager column took the old Score column's slot but is wider (1.3fr)
+          to fit an input field plus a computed bet size. */}
       <div
-        className="hidden sm:grid sm:grid-cols-[0.7fr_1.55fr_1.35fr_1.15fr_0.85fr_0.85fr_0.8fr_1fr_0.6fr_0.3fr] sm:gap-3 sm:border-b sm:border-border sm:bg-card/30 sm:px-4 sm:py-2"
+        className="hidden sm:grid sm:grid-cols-[0.7fr_1.55fr_1.35fr_1.15fr_0.85fr_0.85fr_0.8fr_1fr_1.3fr_0.3fr] sm:gap-3 sm:border-b sm:border-border sm:bg-card/30 sm:px-4 sm:py-2"
         aria-hidden="true"
       >
         <div className="text-[11px] uppercase tracking-wider text-ink-muted">Bet</div>
@@ -259,7 +314,7 @@ export function Board({ picks }: { picks: PickWithRung[] }) {
         </div>
         <div className="text-center text-[11px] uppercase tracking-wider text-ink-muted">Edge</div>
         <div className="text-center text-[11px] uppercase tracking-wider text-ink-muted">Confidence</div>
-        <div className="text-center text-[11px] uppercase tracking-wider text-ink-muted">Score</div>
+        <div className="text-center text-[11px] uppercase tracking-wider text-ink-muted">Wager</div>
         <div></div>
       </div>
 
@@ -286,5 +341,18 @@ export function Board({ picks }: { picks: PickWithRung[] }) {
         </div>
       )}
     </section>
+  )
+}
+
+/**
+ * Public Board — wraps the inner contents in the BetSettings provider so
+ * the bankroll + Kelly settings are available to BetSettingsBar (top of
+ * board) and to every PickRow's wager cell.
+ */
+export function Board({ picks }: { picks: PickWithRung[] }) {
+  return (
+    <BetSettingsProvider>
+      <BoardContents picks={picks} />
+    </BetSettingsProvider>
   )
 }

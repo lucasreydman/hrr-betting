@@ -161,25 +161,57 @@ p̂_today       = oddsToday / (1 + oddsToday)`}
             </p>
           </Card>
 
-          <Card title="Score" subtitle="Kelly bet fraction × confidence">
+          <Card title="Score (silent sort key)" subtitle="Kelly bet fraction × confidence">
             <Formula>
               {`kelly = (p̂_today − p̂_typical) / max(1 − p̂_typical, 0.01)
 score = kelly × confidence`}
             </Formula>
             <p>
-              Reads as &ldquo;what fraction of bankroll Kelly would bet on this at fair
-              typical odds, scaled by how much we trust the inputs.&rdquo; Score × 100
-              is the displayed number on the board.
+              Drives the default ranking on the board (highest score on top). No
+              longer shown as its own column — the displayed value is the
+              actionable bet size in dollars, computed from the FanDuel line you
+              enter per pick (see <em>Wager sizing</em> below). Score lives on as
+              the math behind &ldquo;which row sorts first&rdquo;; the abstract
+              0–100 number it produced wasn&apos;t directly interpretable.
             </p>
             <Note label="Why Kelly, not relative edge">
               Relative edge scales with rarity, so 3+ HRR longshots (typical ≈ 10%)
-              trivially produce huge edges and would dominate the board. Kelly&apos;s
-              <Code>(1 − p̂ typical)</Code> denominator flips the bias. High-probability
-              plays where you can win a lot of bets get rewarded, and longshot variance
-              gets sized down.
+              trivially produce huge edges and would dominate the sort. Kelly&apos;s
+              <Code>(1 − p̂ typical)</Code> denominator flips the bias. High-
+              probability plays where you can win a lot of bets get rewarded;
+              longshot variance gets sized down.
             </Note>
           </Card>
         </Grid>
+      </Section>
+
+      <Section heading="Wager sizing" eyebrow="Bet size from your FD line">
+        <p>
+          You set a <Code>Bankroll</Code> and a <Code>Kelly fraction</Code>{' '}
+          (default ¼ Kelly) at the top of the board. For every pick, you can type
+          the FanDuel American line into the row&apos;s wager cell — once entered,
+          the row computes the recommended dollar bet size based on Kelly applied
+          to the actual book line you&apos;d hit.
+        </p>
+        <Formula>
+          {`b           = profit per $1 staked at the offered odds
+                                       implied_p   = book's implied probability (with vig)
+                                       fullKelly   = max(0, (p̂_today × b − (1 − p̂_today)) / b)
+                                       bet_dollars = fullKelly × kellyFraction × bankroll`}
+        </Formula>
+        <p className="text-sm text-ink-muted">
+          The Kelly formula recommends $0 (skip) when the book line implies a higher
+          probability than the model believes — i.e. when there&apos;s no edge to
+          extract. ¼ Kelly is the safe default; full Kelly is theoretically optimal
+          but practically too aggressive given even small calibration errors.
+        </p>
+        <Note label="Why FanDuel-line-driven">
+          The model&apos;s p̂ today gives the predicted probability; profitability
+          depends on whether that beats the *book&apos;s* implied probability,
+          which has vig baked in. Without your FD line, the system can only show
+          model factors — it can&apos;t tell you whether a given play is +EV at
+          the odds you&apos;d actually hit.
+        </Note>
       </Section>
 
       <Section heading="Confidence" eyebrow="Data-quality multiplier">
