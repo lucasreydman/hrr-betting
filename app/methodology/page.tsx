@@ -191,15 +191,24 @@ score = kelly × confidence`}
         <p>
           You set a <Code>Bankroll</Code> and a <Code>Kelly Fraction</Code>{' '}
           (Eighth / Quarter / Half / Full, default Quarter) at the top of the board.
-          For every pick, you can type the FanDuel American line into the row&apos;s
-          wager cell — once entered, the row computes the recommended dollar bet
-          size based on Kelly applied to the actual book line you&apos;d hit.
+          For every pick, the wager cell is pre-filled with an{' '}
+          <em>estimated</em> FanDuel line derived from <Code>p̂ today</Code> + a
+          typical ~4pp vig — when you haven&apos;t entered the actual line yet,
+          the row still shows a rough bet size against that estimate (italicised{' '}
+          <span className="text-tracked/70 italic">est</span> badge tells you
+          it&apos;s a model-derived line, not the real book price). Type the
+          actual FanDuel line over the estimate and the row recomputes against
+          the real number.
         </p>
         <Formula>
           {`b           = profit per $1 staked at the offered odds
 implied_p   = book's implied probability (with vig)
 fullKelly   = max(0, (p̂_today × b − (1 − p̂_today)) / b)
-bet_dollars = fullKelly × kellyFraction × bankroll`}
+bet_dollars = fullKelly × kellyFraction × bankroll
+
+Estimated book line (when no user input):
+bookProb    = clamp(p̂_today + 0.04, 0.01, 0.97)
+americanOdds = round-to-book-increment(bookProb → moneyline)`}
         </Formula>
         <p className="text-sm text-ink-muted">
           The Kelly formula recommends $0 (skip) when the book line implies a higher
@@ -208,12 +217,15 @@ bet_dollars = fullKelly × kellyFraction × bankroll`}
           optimal but practically too aggressive given even small calibration errors.
           Settings persist to localStorage so reloads don&apos;t reset them.
         </p>
-        <Note label="Why FanDuel-line-driven">
-          The model&apos;s p̂ today gives the predicted probability; profitability
-          depends on whether that beats the <em>book&apos;s</em> implied probability,
-          which has vig baked in. Without your FD line, the system can only show
-          model factors — it can&apos;t tell you whether a given play is +EV at
-          the odds you&apos;d actually hit.
+        <Note label="Estimated vs entered line">
+          The 4pp vig assumption is a coarse mid-estimate of FanDuel-class
+          player-prop hold (typical 7–10% total, split across both sides).
+          Real book lines vary on demand and book-specific projections. Use the
+          estimate as a sanity check — &ldquo;this pick is ~+$30 against a
+          typical line&rdquo; — then enter the actual line for the real bet size.
+          When the actual line is steeper than the estimate (book sees the
+          matchup as more lopsided than the model does), the recommended bet
+          shrinks or goes to skip.
         </Note>
       </Section>
 

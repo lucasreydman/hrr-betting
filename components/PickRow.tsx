@@ -6,6 +6,7 @@ import { getTeamNickname } from '@/lib/team-names'
 import { CONFIDENCE_FLOOR_TRACKED, EDGE_FLOORS, PROB_FLOORS } from '@/lib/constants'
 import {
   evPerDollar,
+  estimateBookOddsFromModelProb,
   impliedProbFromAmericanOdds,
   parseAmericanOdds,
   recommendedBet,
@@ -265,9 +266,18 @@ function useStoredLine(args: {
   gameId: number
   playerId: number
   rung?: 1 | 2 | 3
+  /**
+   * Model's pToday for this pick. Used to compute an estimated FanDuel-
+   * style book line when the user hasn't entered one yet, so the wager
+   * cell can still show a sensible default bet size against the estimate.
+   */
+  modelProb: number
 }): {
-  input: string
-  odds: number | null
+  input: string                   // raw stored input (empty if not user-entered)
+  odds: number | null             // odds parsed from user input; null if empty/invalid
+  effectiveOdds: number           // user input when valid, else estimated book line
+  estimatedOdds: number           // pure book-line estimate from model prob (no user input)
+  isEstimate: boolean             // true when no user input → bet computed against estimate
   setInput: (v: string) => void
 } {
   const key = args.rung
@@ -288,7 +298,12 @@ function useStoredLine(args: {
     if (key) writeStoredLine(key, v)
   }
 
-  return { input, odds: parseAmericanOdds(input), setInput }
+  const odds = parseAmericanOdds(input)
+  const estimatedOdds = estimateBookOddsFromModelProb(args.modelProb)
+  const effectiveOdds = odds ?? estimatedOdds
+  const isEstimate = odds === null
+
+  return { input, odds, effectiveOdds, estimatedOdds, isEstimate, setInput }
 }
 
 /**
@@ -297,12 +312,17 @@ function useStoredLine(args: {
  * mobile stacked layout. Same component so the formatting can't drift
  * between viewports.
  *
- * When the line is empty/invalid: shows the input + a "—" placeholder for
- * the bet. When the line is valid AND model prob beats the book's implied
- * prob: shows the input + the recommended bet in dollars (¼ Kelly default,
- * controlled via the BetSettings context). When the line is valid but the
- * book has us over a barrel (implied prob > model prob): shows "skip" so
- * we don't suggest betting -EV plays.
+ * Behavior:
+ *  · Empty input: placeholder shows the *estimated* FD line derived from
+ *    `pToday` + a typical book vig (~4pp). Bet is computed against that
+ *    estimate so the row still shows a sensible $ value before the user
+ *    looks up the actual line.
+ *  · User typed odds: parsed value used directly. Estimate disappears.
+ *  · Bet is `skip` when `recommendedBet` returns $0 (the model probability
+ *    isn't beating the book's implied price).
+ *
+ * The `est` indicator on the bet label tells the user "this is computed
+ * against an estimated line, not the real FD price you'd hit."
  */
 function WagerCell({
   modelProb,
@@ -314,33 +334,38 @@ function WagerCell({
   variant: 'desktop' | 'mobile'
 }) {
   const { bankroll, kellyMultiplier } = useBetSettings()
-  const { input, odds, setInput } = storedLine
+  const { input, effectiveOdds, estimatedOdds, isEstimate, setInput } = storedLine
 
   // Stop click-on-row propagation so typing in the field doesn't toggle
   // the expanded panel underneath.
   const stopPropagation = (e: React.SyntheticEvent) => e.stopPropagation()
 
-  let display: { label: string; tone: 'bet' | 'skip' | 'empty' }
-  if (odds === null) {
-    display = { label: '—', tone: 'empty' }
+  const bet = recommendedBet({
+    modelProb,
+    americanOdds: effectiveOdds,
+    bankroll,
+    kellyMultiplier,
+  })
+  let display: { label: string; tone: 'bet' | 'skip' }
+  if (bet > 0) {
+    const dollar = `$${bet.toFixed(2).replace(/\.00$/, '')}`
+    display = { label: isEstimate ? `${dollar} est` : dollar, tone: 'bet' }
   } else {
-    const bet = recommendedBet({ modelProb, americanOdds: odds, bankroll, kellyMultiplier })
-    if (bet > 0) {
-      display = { label: `$${bet.toFixed(2).replace(/\.00$/, '')}`, tone: 'bet' }
-    } else {
-      display = { label: 'skip', tone: 'skip' }
-    }
+    display = { label: isEstimate ? 'skip est' : 'skip', tone: 'skip' }
   }
+
+  // Format estimated odds for the placeholder ("-110" / "+150" style).
+  const placeholder = `${estimatedOdds > 0 ? '+' : ''}${estimatedOdds}`
 
   const inputClass =
     'w-full max-w-[5.5rem] rounded border border-border/60 bg-card/40 px-1.5 py-0.5 ' +
     'text-center font-mono text-xs tabular-nums text-ink ' +
-    'placeholder:text-ink-muted/50 focus:border-tracked/60 focus:outline-none'
+    'placeholder:text-ink-muted/40 placeholder:italic focus:border-tracked/60 focus:outline-none'
   const betClass =
     'font-mono text-xs tabular-nums ' +
-    (display.tone === 'bet' ? 'font-semibold text-tracked'
-      : display.tone === 'skip' ? 'text-ink-muted'
-      : 'text-ink-muted/60')
+    (display.tone === 'bet'
+      ? (isEstimate ? 'text-tracked/70 italic' : 'font-semibold text-tracked')
+      : 'text-ink-muted')
 
   const wrapper = variant === 'desktop'
     ? 'flex flex-col items-center gap-0.5'
@@ -353,8 +378,8 @@ function WagerCell({
         inputMode="numeric"
         autoComplete="off"
         spellCheck={false}
-        placeholder="FD line"
-        aria-label="FanDuel American moneyline odds for this prop"
+        placeholder={placeholder}
+        aria-label="FanDuel American moneyline odds for this prop (placeholder shows estimated book line)"
         value={input}
         onChange={e => setInput(e.target.value)}
         onClick={stopPropagation}
@@ -757,51 +782,68 @@ function MathPanel({ pick, rung, localTime, storedLine }: {
             inputMode="numeric"
             autoComplete="off"
             spellCheck={false}
-            placeholder="e.g. -110"
-            aria-label="FanDuel American moneyline odds"
+            placeholder={`${storedLine.estimatedOdds > 0 ? '+' : ''}${storedLine.estimatedOdds} (est)`}
+            aria-label="FanDuel American moneyline odds (placeholder shows estimated book line)"
             value={storedLine.input}
             onChange={e => storedLine.setInput(e.target.value)}
             onClick={e => e.stopPropagation()}
             onKeyDown={e => e.stopPropagation()}
             onMouseDown={e => e.stopPropagation()}
-            className="w-24 rounded border border-border/60 bg-card/40 px-2 py-0.5 text-right font-mono text-xs tabular-nums text-ink placeholder:text-ink-muted/50 focus:border-tracked/60 focus:outline-none"
+            className="w-24 rounded border border-border/60 bg-card/40 px-2 py-0.5 text-right font-mono text-xs tabular-nums text-ink placeholder:text-ink-muted/40 placeholder:italic focus:border-tracked/60 focus:outline-none"
           />
         </KV>
         {(() => {
-          if (storedLine.odds === null) {
-            return (
-              <KV label="Implied book prob">
-                <span className="text-ink-muted">— (enter FD line above)</span>
-              </KV>
-            )
-          }
-          const impliedProb = impliedProbFromAmericanOdds(storedLine.odds)
-          const ev = evPerDollar(pick.pMatchup, storedLine.odds)
+          // Use the user's odds when entered, otherwise the model-derived
+          // estimate so the EV / bet rows stay populated. The `est` badge
+          // tells the user when they're looking at the estimate vs. the
+          // actual line they entered.
+          const odds = storedLine.effectiveOdds
+          const isEstimate = storedLine.isEstimate
+          const impliedProb = impliedProbFromAmericanOdds(odds)
+          const ev = evPerDollar(pick.pMatchup, odds)
           const bet = recommendedBet({
             modelProb: pick.pMatchup,
-            americanOdds: storedLine.odds,
+            americanOdds: odds,
             bankroll,
             kellyMultiplier,
           })
           const edgeOverBookPp = (pick.pMatchup - impliedProb) * 100
-          const evClass = ev > 0 ? 'font-semibold text-tracked' : 'text-ink-muted'
-          const betClass = bet > 0 ? 'font-semibold text-tracked' : 'text-ink-muted'
+          const evClass = ev > 0
+            ? (isEstimate ? 'text-tracked/70 italic' : 'font-semibold text-tracked')
+            : 'text-ink-muted'
+          const betClass = bet > 0
+            ? (isEstimate ? 'text-tracked/70 italic' : 'font-semibold text-tracked')
+            : 'text-ink-muted'
+          const estTag = isEstimate ? ' (est)' : ''
           return (
             <>
-              <KV label="Implied book prob">
-                <span className="text-ink">{pct(impliedProb)}</span>
+              <KV
+                label={
+                  <>
+                    Implied book prob
+                    {isEstimate && (
+                      <span className="ml-1 text-[10px] uppercase tracking-wider text-ink-muted/60">
+                        from model + ~4pp vig
+                      </span>
+                    )}
+                  </>
+                }
+              >
+                <span className={isEstimate ? 'text-ink-muted italic' : 'text-ink'}>{pct(impliedProb)}{estTag}</span>
                 <span className="ml-2 text-[11px] text-ink-muted">
                   (model {pct(pick.pMatchup)} → {edgeOverBookPp >= 0 ? '+' : ''}{edgeOverBookPp.toFixed(1)}pp over book)
                 </span>
               </KV>
               <KV label="EV per $1 wagered">
                 <span className={evClass}>
-                  {ev > 0 ? '+' : ''}{(ev * 100).toFixed(1)}%
+                  {ev > 0 ? '+' : ''}{(ev * 100).toFixed(1)}%{estTag}
                 </span>
               </KV>
               <KV label={<>Recommended bet <span className="text-ink-muted/70">(¼ Kelly × ${bankroll.toFixed(0)})</span></>}>
                 <span className={betClass}>
-                  {bet > 0 ? `$${bet.toFixed(2).replace(/\.00$/, '')}` : 'skip — no edge over book'}
+                  {bet > 0
+                    ? `$${bet.toFixed(2).replace(/\.00$/, '')}${estTag}`
+                    : `skip${estTag} — no edge over book`}
                 </span>
               </KV>
             </>
@@ -868,6 +910,7 @@ export function PickRow({ pick, rung }: { pick: Pick; rung?: 1 | 2 | 3 }) {
     gameId: pick.gameId,
     playerId: pick.player.playerId,
     rung,
+    modelProb: pick.pMatchup,
   })
 
   // Derive "Away at Home" matchup string using team nicknames.

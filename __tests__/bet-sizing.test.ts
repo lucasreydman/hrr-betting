@@ -5,6 +5,7 @@ import {
   kellyFraction,
   recommendedBet,
   parseAmericanOdds,
+  estimateBookOddsFromModelProb,
 } from '@/lib/bet-sizing'
 
 // ---------------------------------------------------------------------------
@@ -253,5 +254,71 @@ describe('parseAmericanOdds', () => {
     // string|null and pre-typed casts upstream might let other types through.
     expect(parseAmericanOdds(null as unknown as string)).toBeNull()
     expect(parseAmericanOdds(undefined as unknown as string)).toBeNull()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// estimateBookOddsFromModelProb
+// ---------------------------------------------------------------------------
+
+describe('estimateBookOddsFromModelProb', () => {
+  test('chalk: model 0.85 → ~-800 (book implied 0.89)', () => {
+    // 0.89 / 0.11 = 8.09 → -809 → rounds to -800 (nearest 50 above |500|).
+    const odds = estimateBookOddsFromModelProb(0.85)
+    expect(odds).toBe(-800)
+  })
+
+  test('moderate favourite: model 0.70 → -280 (book implied 0.74)', () => {
+    // 0.74 / 0.26 = 2.846 → -284.6 → Math.round(-28.46) * 10 = -280.
+    const odds = estimateBookOddsFromModelProb(0.70)
+    expect(odds).toBe(-280)
+  })
+
+  test('coin flip: model 0.50 → ~-115 (book implied 0.54)', () => {
+    // 0.54 / 0.46 = 1.174 → -117.4 → rounds to -115 (nearest 5 in |≤200|).
+    const odds = estimateBookOddsFromModelProb(0.50)
+    expect(odds).toBe(-115)
+  })
+
+  test('underdog: model 0.30 → ~+195 (book implied 0.34)', () => {
+    // (1 - 0.34) / 0.34 = 1.941 → +194.1 → rounds to +195 (nearest 5).
+    const odds = estimateBookOddsFromModelProb(0.30)
+    expect(odds).toBe(195)
+  })
+
+  test('longshot: model 0.10 → ~+600 (book implied 0.14)', () => {
+    // 0.86 / 0.14 = 6.143 → +614 → rounds to +600 (nearest 50 above |500|).
+    const odds = estimateBookOddsFromModelProb(0.10)
+    expect(odds).toBe(600)
+  })
+
+  test('extreme chalk clamps near book ceiling: model 0.99 → very negative', () => {
+    // Clamped at bookImpliedProb 0.97 → -3233 → rounds to -3250 (nearest 50).
+    const odds = estimateBookOddsFromModelProb(0.99)
+    expect(odds).toBe(-3250)
+  })
+
+  test('extreme longshot: model 0.02 → ~+1567', () => {
+    // 0.94 / 0.06 = 15.67 → +1567 → rounds to +1550 (nearest 50).
+    const odds = estimateBookOddsFromModelProb(0.02)
+    expect(odds).toBe(1550)
+  })
+
+  test('returns +100 sentinel for non-finite or out-of-range probabilities', () => {
+    expect(estimateBookOddsFromModelProb(NaN)).toBe(100)
+    expect(estimateBookOddsFromModelProb(0)).toBe(100)
+    expect(estimateBookOddsFromModelProb(1)).toBe(100)
+    expect(estimateBookOddsFromModelProb(-0.5)).toBe(100)
+  })
+
+  test('vig direction: estimated odds always reflect a bookImpliedProb above modelProb', () => {
+    // For any model prob, the book's implied prob (per our estimate) must
+    // be HIGHER than model prob — that's the structural meaning of vig
+    // applied to the side we're betting.
+    for (const p of [0.10, 0.30, 0.50, 0.70, 0.90]) {
+      const odds = estimateBookOddsFromModelProb(p)
+      const impliedFromOdds = odds < 0 ? -odds / (-odds + 100) : 100 / (odds + 100)
+      expect(impliedFromOdds).toBeGreaterThan(p)
+    }
   })
 })

@@ -127,3 +127,71 @@ export function parseAmericanOdds(input: string): number | null {
   if (!Number.isFinite(num) || num < 100) return null
   return match[1] === '-' ? -num : num
 }
+
+// ---------------------------------------------------------------------------
+// Book-line estimation from model probability
+// ---------------------------------------------------------------------------
+
+/**
+ * Typical vig added to model probability to approximate the book's implied
+ * probability. Player props on FanDuel-class books typically run ~7-10%
+ * total hold (split across both sides of a Yes/No market); 4pp on the side
+ * we're betting is a reasonable middle estimate. Lower for sharper books
+ * (DK reduced juice promotions), higher for less competitive markets.
+ */
+const TYPICAL_BOOK_VIG_PP = 0.04
+
+/**
+ * Estimate the American moneyline a sportsbook (FanDuel-class) would post
+ * for a player prop given the model's true-probability estimate (`pToday`).
+ *
+ * Method:
+ *   bookImpliedProb = clamp(modelProb + 0.04, 0.01, 0.97)
+ *   raw American odds from bookImpliedProb
+ *   round to standard book increments:
+ *     |odds| ≤ 200  → nearest 5
+ *     |odds| ≤ 500  → nearest 10
+ *     |odds| > 500  → nearest 50
+ *
+ * This is intentionally a coarse approximation — books also vary lines
+ * on demand, news, and book-specific player projections that we don't
+ * have access to. The intent is to give the wager cell a sensible default
+ * so the user can see "model says ~$45 at typical book line, what does FD
+ * actually have?" before they look up the real number.
+ *
+ * Returns 100 (the closest-to-neutral integer in valid American-odds
+ * space) for non-finite or out-of-range model probabilities.
+ */
+export function estimateBookOddsFromModelProb(modelProb: number): number {
+  if (!Number.isFinite(modelProb) || modelProb <= 0 || modelProb >= 1) return 100
+
+  const bookImpliedProb = Math.min(0.97, Math.max(0.01, modelProb + TYPICAL_BOOK_VIG_PP))
+
+  // Convert implied probability → American moneyline.
+  const raw = bookImpliedProb >= 0.5
+    ? -(bookImpliedProb / (1 - bookImpliedProb)) * 100
+    : ((1 - bookImpliedProb) / bookImpliedProb) * 100
+
+  // Round to typical book increments. Books quote tight increments at
+  // chalk lines (-110 vs -115) and wider ones at extreme prices (-700 vs
+  // -750) where a few percentage points of implied prob doesn't change
+  // the bet's economics meaningfully.
+  const abs = Math.abs(raw)
+  let rounded: number
+  if (abs <= 200) {
+    rounded = Math.round(raw / 5) * 5
+  } else if (abs <= 500) {
+    rounded = Math.round(raw / 10) * 10
+  } else {
+    rounded = Math.round(raw / 50) * 50
+  }
+
+  // Final guard: American odds convention requires |odds| ≥ 100. Round-to-
+  // nearest-5 of a value just-above-±100 (e.g. ±100.5) lands on ±100, fine.
+  // But a model prob exactly at 0.5 gives raw 100.0 → rounds to 100 → OK.
+  // The clamp at 0.97 above keeps us well below the +100 → -100 boundary
+  // crossing risk.
+  if (rounded === 0) return 100  // theoretical only
+  if (Math.abs(rounded) < 100) return rounded < 0 ? -100 : 100
+  return rounded
+}
