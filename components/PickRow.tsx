@@ -255,21 +255,26 @@ function KV({ label, children }: { label: React.ReactNode; children: React.React
   )
 }
 
-/** A multiplicative factor (×1.07 ↑ / ×0.93 ↓ / ×1.00). Coloured by direction. */
+/**
+ * Multiplicative factor display, unified across probTodayFactors and
+ * confidenceFactors so the same visual reads the same everywhere:
+ *   · > 1.005 → tracked-orange + ↑   (boosts hitter / above ideal)
+ *   · < 0.995 → accent-cyan + ↓      (penalises hitter / below ideal)
+ *   · ≈ 1.000 → ink-white + ↔        (neutral / no effect)
+ *
+ * Confidence factors only ever sit in [0, 1.00] so they hit ↓ or ↔ in
+ * practice; probTodayFactors hit all three. Same component, same arrows,
+ * same colour mapping — the eye learns one rule and applies it anywhere.
+ */
 function FactorCell({ factor }: { factor: number }) {
   if (factor > 1.005) return <span className="text-tracked">×{factor.toFixed(2)} ↑</span>
   if (factor < 0.995) return <span className="text-accent">×{factor.toFixed(2)} ↓</span>
-  return <span className="text-ink-muted">×{factor.toFixed(2)}</span>
+  return <span className="text-ink">×{factor.toFixed(2)} ↔</span>
 }
 
-/** Confidence multiplier — neutral if 1.00, warn-amber otherwise. */
-function MultCell({ value, ideal = 1.0 }: { value: number; ideal?: number }) {
-  const isIdeal = Math.abs(value - ideal) < 0.001
-  return (
-    <span className={isIdeal ? 'text-ink' : 'text-warn'}>
-      ×{value.toFixed(2)}
-    </span>
-  )
+/** Alias kept so existing call sites compile; visual is identical to FactorCell. */
+function MultCell({ value }: { value: number; ideal?: number }) {
+  return <FactorCell factor={value} />
 }
 
 /** 16-point compass label for a "wind FROM" bearing. */

@@ -1,7 +1,12 @@
+import { CONFIDENCE_FLOOR_TRACKED, EDGE_FLOORS, PROB_FLOORS } from '@/lib/constants'
+
 export const metadata = {
   title: 'Methodology',
   description: 'How the HRR Betting model actually works. Every factor, every formula, traced to the code.',
 }
+
+// Format a [0,1] probability as a 2-decimal string ("0.85") for the floors block.
+const fmtFloor = (n: number) => n.toFixed(2)
 
 export default function Methodology() {
   return (
@@ -223,23 +228,24 @@ score = kelly × confidence`}
           when all three floors clear:
         </p>
         <ul className="ml-5 list-disc space-y-1 text-sm marker:text-ink-muted">
-          <li><Code>confidence ≥ 0.85</Code></li>
+          <li><Code>confidence ≥ {fmtFloor(CONFIDENCE_FLOOR_TRACKED)}</Code></li>
           <li>
-            <Code>edge ≥ floor(rung)</Code>: 0.10 / 0.30 / 0.60 for{' '}
+            <Code>edge ≥ floor(rung)</Code>: {fmtFloor(EDGE_FLOORS[1])} / {fmtFloor(EDGE_FLOORS[2])} / {fmtFloor(EDGE_FLOORS[3])} for{' '}
             <RungTag rung={1} compact /> / <RungTag rung={2} compact /> /{' '}
             <RungTag rung={3} compact />
           </li>
           <li>
-            <Code>p̂ today ≥ floor(rung)</Code>: 0.85 / 0.55 / 0.20 for{' '}
+            <Code>p̂ today ≥ floor(rung)</Code>: {fmtFloor(PROB_FLOORS[1])} / {fmtFloor(PROB_FLOORS[2])} / {fmtFloor(PROB_FLOORS[3])} for{' '}
             <RungTag rung={1} compact /> / <RungTag rung={2} compact /> /{' '}
             <RungTag rung={3} compact />
           </li>
         </ul>
         <p className="text-sm text-ink-muted">
-          Both the edge and probability floors must clear because each catches a
-          different failure mode: a 30% prob at 3+ has huge relative edge but is still
-          a coin-flip on the bad side; an Aaron Judge 1+ in a neutral matchup has high
-          prob but no real edge.
+          Symmetric design: as the rung gets harder, the bar shifts from raw value to
+          raw conviction. Easy 1+ picks just need a high probability with a small edge;
+          hard 3+ picks need a real chance of clearing (40%+) with meaningful edge.
+          Both gates fire in tandem so a borderline-prob longshot with massive edge
+          and a high-prob favourite with no edge both stay out.
         </p>
         <p>
           A pick that misses the Tracked thresholds but still has{' '}

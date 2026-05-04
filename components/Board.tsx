@@ -4,6 +4,7 @@ import { useMemo, useState } from 'react'
 import type { Pick } from '@/lib/ranker'
 import { PickRow } from './PickRow'
 import { EmptyState } from './EmptyState'
+import { EDGE_FLOORS, PROB_FLOORS } from '@/lib/constants'
 
 export type PickWithRung = Pick & { rung: 1 | 2 | 3 }
 
@@ -20,10 +21,13 @@ const SORT_LABELS: Record<SortKey, string> = {
   confidence: 'Confidence',
 }
 
+// Built from the live constants so the chip tooltips can never drift from the
+// actual gate values in lib/constants.ts.
+const fmtPct = (n: number) => `${Math.round(n * 100)}%`
 const RUNG_TOOLTIPS: Record<1 | 2 | 3, string> = {
-  1: '1+ HRR · floor: prob ≥ 85%, edge ≥ 10%',
-  2: '2+ HRR · floor: prob ≥ 55%, edge ≥ 30%',
-  3: '3+ HRR · floor: prob ≥ 20%, edge ≥ 60%',
+  1: `1+ HRR · floor: prob ≥ ${fmtPct(PROB_FLOORS[1])}, edge ≥ ${fmtPct(EDGE_FLOORS[1])}`,
+  2: `2+ HRR · floor: prob ≥ ${fmtPct(PROB_FLOORS[2])}, edge ≥ ${fmtPct(EDGE_FLOORS[2])}`,
+  3: `3+ HRR · floor: prob ≥ ${fmtPct(PROB_FLOORS[3])}, edge ≥ ${fmtPct(EDGE_FLOORS[3])}`,
 }
 
 type GameStatusFilter = 'upcoming' | 'live' | 'settled'
