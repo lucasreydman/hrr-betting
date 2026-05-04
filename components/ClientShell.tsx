@@ -124,18 +124,19 @@ export function ClientShell({ initialPicks }: { initialPicks: PicksResponse }) {
         meta={picks.meta}
         totalTracked={totalTracked}
         onRefresh={async () => {
-          // POST to /api/refresh (Phase 6 will implement the route; until then
-          // the button gracefully shows the 404 error state).
-          const res = await fetch('/api/refresh', {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ scope: 'today' }),
-          })
-          if (!res.ok && res.status !== 404) {
-            throw new Error(`HTTP ${res.status}`)
-          }
-          // Always refetch picks after refresh attempt so stale data is cleared.
-          await refetch()
+          // GET /api/picks?nocache=1 invalidates `picks:current:{date}` and
+          // rebuilds via rankPicks() in one round-trip. Public route, no auth
+          // needed, so the button works in both dev and prod.
+          //
+          // Replaces an older POST /api/refresh path that 401'd in production
+          // because /api/refresh is gated by `x-cron-secret`, which the
+          // browser can't legitimately carry (embedding it would leak the
+          // secret into the public bundle).
+          const res = await fetch('/api/picks?nocache=1', { cache: 'no-store' })
+          if (!res.ok) throw new Error(`HTTP ${res.status}`)
+          const data: PicksResponse = await res.json()
+          setPicks(data)
+          setError(null)
         }}
       />
 
