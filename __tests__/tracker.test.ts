@@ -65,6 +65,78 @@ describe('shouldLock', () => {
       lineupStatus: 'confirmed',
     })).toBe(true)
   })
+
+  // Regression guard: the lock decision must depend ONLY on the UTC ms
+  // delta between now and firstPitch — never on process.env.TZ, system
+  // locale, DST status, or any timezone-aware date math. If someone later
+  // refactors shouldLock to use new Date().getHours() or similar, this
+  // test fails and forces the discussion. Directly relevant to the user
+  // promise that lock notifications fire at exactly T-90 / T-30 of first
+  // pitch regardless of where the cron runs or where the user is.
+  test('decision is invariant under process.env.TZ (UTC ms math only)', () => {
+    const args = {
+      now: new Date('2025-07-04T22:30:00Z').getTime(),
+      firstPitch: new Date('2025-07-04T23:30:00Z').getTime(),
+      lineupStatus: 'confirmed' as const,
+    }
+    const originalTZ = process.env.TZ
+    try {
+      const decisions = ['UTC', 'America/New_York', 'America/Los_Angeles', 'Asia/Tokyo', 'Pacific/Auckland'].map(tz => {
+        process.env.TZ = tz
+        return shouldLock(args)
+      })
+      // All five timezones must agree.
+      expect(new Set(decisions).size).toBe(1)
+      expect(decisions[0]).toBe(true)  // T-60 with confirmed lineup → fires
+    } finally {
+      if (originalTZ === undefined) delete process.env.TZ
+      else process.env.TZ = originalTZ
+    }
+  })
+
+  // Regression guard: a Pacific-coast late game crossing UTC-day rollover
+  // must still compute the right delta. ms-since-epoch arithmetic handles
+  // this trivially, but a future refactor that does string YYYY-MM-DD
+  // comparisons could silently break it.
+  test('handles games that span the UTC date boundary', () => {
+    // First pitch 10:10 PM PT on Apr 26 = 05:10 UTC Apr 27.
+    // Now: 8:00 PM PT on Apr 26 = 03:00 UTC Apr 27. 130 min before.
+    // Confirmed lineup → does NOT fire (still > 90 min out).
+    expect(shouldLock({
+      now: new Date('2026-04-27T03:00:00Z').getTime(),
+      firstPitch: new Date('2026-04-27T05:10:00Z').getTime(),
+      lineupStatus: 'confirmed',
+    })).toBe(false)
+
+    // 8:45 PM PT on Apr 26 = 03:45 UTC Apr 27. 85 min before. Fires.
+    expect(shouldLock({
+      now: new Date('2026-04-27T03:45:00Z').getTime(),
+      firstPitch: new Date('2026-04-27T05:10:00Z').getTime(),
+      lineupStatus: 'confirmed',
+    })).toBe(true)
+  })
+
+  // Regression guard: DST transition day. If shouldLock were to convert
+  // through a local timezone, you'd get a 60-min error around DST jumps.
+  // ms-math is immune.
+  test('DST-transition day computes correct delta', () => {
+    // 2026 US DST starts Sun Mar 8 at 2 AM local.
+    // Set "now" 2 hours before a 1:05 PM ET first pitch on DST day.
+    // 1:05 PM EDT = 17:05 UTC. now = 15:05 UTC = T-120.
+    // Confirmed lineup → does NOT fire (still > 90 min out).
+    expect(shouldLock({
+      now: new Date('2026-03-08T15:05:00Z').getTime(),
+      firstPitch: new Date('2026-03-08T17:05:00Z').getTime(),
+      lineupStatus: 'confirmed',
+    })).toBe(false)
+
+    // T-89 → fires.
+    expect(shouldLock({
+      now: new Date('2026-03-08T15:36:00Z').getTime(),
+      firstPitch: new Date('2026-03-08T17:05:00Z').getTime(),
+      lineupStatus: 'confirmed',
+    })).toBe(true)
+  })
 })
 
 describe('snapshotLockedPicks (in-memory KV)', () => {
