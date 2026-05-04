@@ -17,7 +17,7 @@ HRR Betting ranks every batter on the day's MLB slate against three player-prop 
 The model is a **two-stage hybrid**:
 
 1. **Offline Monte Carlo** (`probTypical`) — 20,000-iteration lineup-aware simulation per batter against a league-average opponent, recomputed weekly (Sunday full sweep) and nightly (Mon–Sat slate batters). Cached in Supabase for 14 days.
-2. **Closed-form `probToday`** (request-time) — `probTypical × pitcherFactor × parkFactor × weatherFactor × handednessFactor × bullpenFactor × paCountFactor`. Sub-millisecond on the hot path so the page can stay on Vercel Hobby with no `maxDuration` overrides.
+2. **Closed-form `probToday`** (request-time) — eight multiplicative factors composed on the odds scale: `pitcher · park · weather · handedness · bullpen · paCount · bvp · batter`. Sub-millisecond on the hot path so the page can stay on Vercel Hobby with no `maxDuration` overrides. See `/methodology` for what each factor captures and its bounds.
 
 A "Tracked" tier (high-conviction picks gated by `EDGE` / probability / confidence floors) is locked at lineup-confirmation time and auto-settled the next morning from MLB boxscores. A `/history` page exposes hit rate and Brier score by rung over all settled history.
 
