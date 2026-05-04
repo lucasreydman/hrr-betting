@@ -13,14 +13,15 @@ export type SortKey = 'score' | 'pTypical' | 'pMatchup' | 'edge' | 'confidence' 
 
 // p̂ = "p-hat", standard stats notation for an estimated probability. Used in
 // labels and column headers throughout the board. Object key order also drives
-// the `<select>` option order — Score first since it's the default.
+// the `<select>` option order — Default (Kelly score) first, Game second since
+// "by game start" is the most-used alternative ordering.
 const SORT_LABELS: Record<SortKey, string> = {
-  score: 'Score (default)',
+  score: 'Default',
+  game: 'Game',
   pTypical: 'p̂ typical',
   pMatchup: 'p̂ today',
   edge: 'Edge',
   confidence: 'Confidence',
-  game: 'Game (earliest first)',
 }
 
 /**
