@@ -233,12 +233,12 @@ bet_dollars = fullKelly × kellyFraction × bankroll`}
               </thead>
               <tbody className="text-ink-subtle">
                 <ConfRow factor="Lineup status" mapping="confirmed 1.00 / partial 0.85 / estimated 0.70" />
-                <ConfRow factor="BvP sample size" mapping="1.00 below 5 AB (probToday neutral) → 0.90 at 5 AB → 1.00 at ≥20 AB" />
+                <ConfRow factor="BvP sample size" mapping="0.90 at 0 AB → 1.00 at ≥20 AB (linear)" />
                 <ConfRow factor="Pitcher start sample" mapping="0.90 at ≤3 effective starts → 1.00 at ≥10 (current × 1.5 + min(5, prior season))" />
                 <ConfRow factor="Weather stability" mapping="stable 1.00 / volatile 0.90" />
                 <ConfRow factor="Time to first pitch" mapping="1.00 ≤ 90 min → 0.95 ≥ 4 hrs" />
                 <ConfRow factor="Opener flag" mapping="normal 1.00 / opener 0.90" />
-                <ConfRow factor="Batter season PA" mapping="0.85 at 0 effective PA → 1.00 at ≥200 (current × 1.5 + min(100, prior season))" />
+                <ConfRow factor="Batter season PA" mapping="0.85 at 0 PA → 1.00 at ≥200 PA" />
                 <ConfRow factor="Data freshness" mapping="1.00 ≤ 5 min stale → 0.90 ≥ 30 min stale" />
               </tbody>
             </table>
@@ -256,12 +256,7 @@ bet_dollars = fullKelly × kellyFraction × bankroll`}
           sample weighs current-season starts 1.5× and backfills with up to 5
           prior-season starts, so an established starter doesn&apos;t pin to the
           floor in early April but still needs ≥4 fresh starts to fully reach
-          the ceiling; batter sample applies the same shape (current × 1.5 +
-          min(100, prior-season PA)) so a known regular with 12 fresh PAs
-          isn&apos;t indistinguishable from a true rookie; BvP sample-size
-          confidence pins at 1.00 below 5 AB to mirror the probToday BvP
-          factor&apos;s activation threshold (no signal contributing → no
-          haircut);
+          the ceiling;
           freshness reads schedule-cache age (the canonical live-state signal,
           with a short TTL), so confidence ramps down if the cron stops
           hitting <Code>/api/refresh</Code>.

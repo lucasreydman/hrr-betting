@@ -16,7 +16,6 @@ import {
   fetchPitcherRecentStarts,
   fetchPitcherPriorSeasonStartsCount,
   fetchBatterSeasonStats,
-  fetchBatterPriorSeasonPa,
   fetchBatterGameLog,
   fetchBvP,
   fetchPlayerSlotFrequency,
@@ -522,45 +521,6 @@ describe('fetchPitcherPriorSeasonStartsCount', () => {
     const fetchSpy = mockFetch(() => jsonResp({ stats: [] }))
     expect(await fetchPitcherPriorSeasonStartsCount(805004, NaN)).toBe(0)
     expect(await fetchPitcherPriorSeasonStartsCount(805004, 1850)).toBe(0)
-    expect(fetchSpy).not.toHaveBeenCalled()
-  })
-})
-
-// ---------------------------------------------------------------------------
-// fetchBatterPriorSeasonPa
-// ---------------------------------------------------------------------------
-
-describe('fetchBatterPriorSeasonPa', () => {
-  test('returns plateAppearances from the season stat block', async () => {
-    mockFetch(() => jsonResp({
-      stats: [{ splits: [{ stat: { plateAppearances: 612, atBats: 540, hits: 165 } }] }],
-    }))
-    const pa = await fetchBatterPriorSeasonPa(806001, 2024)
-    expect(pa).toBe(612)
-  })
-
-  test('returns 0 when no splits exist', async () => {
-    mockFetch(() => jsonResp({ stats: [{ splits: [] }] }))
-    const pa = await fetchBatterPriorSeasonPa(806002, 2024)
-    expect(pa).toBe(0)
-  })
-
-  test('returns 0 when plateAppearances is missing from the stat block', async () => {
-    mockFetch(() => jsonResp({ stats: [{ splits: [{ stat: { hits: 50 } }] }] }))
-    const pa = await fetchBatterPriorSeasonPa(806003, 2024)
-    expect(pa).toBe(0)
-  })
-
-  test('returns 0 on HTTP failure', async () => {
-    mockFetch(() => jsonResp({}, { ok: false, status: 500 }))
-    const pa = await fetchBatterPriorSeasonPa(806004, 2024)
-    expect(pa).toBe(0)
-  })
-
-  test('rejects non-positive batterId without hitting the network', async () => {
-    const fetchSpy = mockFetch(() => jsonResp({ stats: [] }))
-    expect(await fetchBatterPriorSeasonPa(0, 2024)).toBe(0)
-    expect(await fetchBatterPriorSeasonPa(-1, 2024)).toBe(0)
     expect(fetchSpy).not.toHaveBeenCalled()
   })
 })

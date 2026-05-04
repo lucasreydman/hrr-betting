@@ -1102,51 +1102,6 @@ export async function fetchPitcherPriorSeasonStartsCount(
 }
 
 // ---------------------------------------------------------------------------
-// Public: fetchBatterPriorSeasonPa
-// ---------------------------------------------------------------------------
-
-/**
- * Plate-appearance count for a batter in a single past season.
- *
- * Used by the confidence sample-size factor to backfill early-season counts
- * — a 600-PA veteran with 12 PAs in early April shouldn't read like a true
- * rookie with 12 PAs. Same shape as `fetchPitcherPriorSeasonStartsCount`.
- *
- * Distinct from `fetchBatterSeasonStats` (slate-aligned, full stat line for
- * pTypical / current-form factors). This one is lean: a single integer,
- * 7-day TTL, only the confidence layer reads it.
- *
- * Returns 0 on fetch failure or no data.
- */
-export async function fetchBatterPriorSeasonPa(
-  batterId: number,
-  season:   number,
-): Promise<number> {
-  if (batterId <= 0 || !Number.isInteger(season) || season < 1900) return 0
-
-  const cacheKey = `hrr:batter:pa:season-count:${batterId}:${season}`
-  const cached = await kvGet<number>(cacheKey)
-  if (typeof cached === 'number') return cached
-
-  const url = `${MLB_BASE}/people/${batterId}/stats?stats=season&group=hitting&season=${season}`
-  const res = await fetch(url, { cache: 'no-store' })
-
-  if (!res.ok) {
-    // Short cache on fetch failure — same rationale as the pitcher version:
-    // a transient API blip shouldn't pin a veteran to "0 prior PAs" for 7 days.
-    await kvSet(cacheKey, 0, 5 * 60)
-    return 0
-  }
-
-  const data: RawStatsResponse<RawBatterStat> = await res.json()
-  const stat: RawBatterStat | null = data.stats?.[0]?.splits?.[0]?.stat ?? null
-  const pa = stat?.plateAppearances ?? 0
-
-  await kvSet(cacheKey, pa, 7 * 24 * 60 * 60)
-  return pa
-}
-
-// ---------------------------------------------------------------------------
 // Public: fetchBatterSeasonStats
 // ---------------------------------------------------------------------------
 
