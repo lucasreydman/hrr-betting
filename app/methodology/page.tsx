@@ -198,10 +198,11 @@ score = kelly × confidence`}
           You set a <Code>Bankroll</Code> and a <Code>Kelly Fraction</Code>{' '}
           (Eighth / Quarter / Half / Full, default Quarter) at the top of the board.
           For every pick, the wager cell is pre-filled with an{' '}
-          <em>estimated</em> FanDuel line derived from <Code>p̂ today</Code> + a
-          typical ~4pp vig — when you haven&apos;t entered the actual line yet,
-          the row still shows a rough bet size against that estimate (italicised{' '}
-          <span className="text-tracked/70 italic">est</span> badge tells you
+          <em>estimated</em> FanDuel line — the vig-free midpoint of{' '}
+          <Code>p̂ typical</Code> and <Code>p̂ today</Code> converted to American
+          moneyline. When you haven&apos;t entered the actual line yet, the row
+          still shows a rough bet size against that estimate (italicised, with
+          a leading <span className="text-tracked/70 italic">≈</span> tells you
           it&apos;s a model-derived line, not the real book price). Type the
           actual FanDuel line over the estimate and the row recomputes against
           the real number.
@@ -212,9 +213,9 @@ implied_p   = book's implied probability (with vig)
 fullKelly   = max(0, (p̂_today × b − (1 − p̂_today)) / b)
 bet_dollars = fullKelly × kellyFraction × bankroll
 
-Estimated book line (midpoint of pTypical and pToday + ~4pp vig):
+Estimated book line (vig-free midpoint of pTypical and pToday):
 midpoint    = (p̂_typical + p̂_today) / 2
-bookProb    = clamp(midpoint + 0.04, 0.01, 0.97)
+bookProb    = clamp(midpoint, 0.01, 0.97)
 americanOdds = round-to-book-increment(bookProb → moneyline)`}
         </Formula>
         <p className="text-sm text-ink-muted">

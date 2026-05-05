@@ -340,7 +340,7 @@ function useStoredLine(args: {
  *  · Bet is `skip` when `recommendedBet` returns $0 (the model probability
  *    isn't beating the book's implied price).
  *
- * The `est` indicator on the bet label tells the user "this is computed
+ * The `≈` prefix on the bet label tells the user "this is computed
  * against an estimated line, not the real FD price you'd hit."
  */
 function WagerCell({
@@ -368,9 +368,9 @@ function WagerCell({
   let display: { label: string; tone: 'bet' | 'skip' }
   if (bet > 0) {
     const dollar = `$${bet.toFixed(2).replace(/\.00$/, '')}`
-    display = { label: isEstimate ? `${dollar} est` : dollar, tone: 'bet' }
+    display = { label: isEstimate ? `≈ ${dollar}` : dollar, tone: 'bet' }
   } else {
-    display = { label: isEstimate ? 'skip est' : 'skip', tone: 'skip' }
+    display = { label: 'skip', tone: 'skip' }
   }
 
   // Format estimated odds for the placeholder ("-110" / "+150" style).
@@ -810,7 +810,7 @@ function MathPanel({ pick, rung, localTime, storedLine }: {
             inputMode="numeric"
             autoComplete="off"
             spellCheck={false}
-            placeholder={`${storedLine.estimatedOdds > 0 ? '+' : ''}${storedLine.estimatedOdds} (est)`}
+            placeholder={`≈ ${storedLine.estimatedOdds > 0 ? '+' : ''}${storedLine.estimatedOdds}`}
             aria-label="FanDuel American moneyline odds (placeholder shows estimated book line)"
             value={storedLine.input}
             onChange={e => storedLine.setInput(e.target.value)}
@@ -822,7 +822,7 @@ function MathPanel({ pick, rung, localTime, storedLine }: {
         </KV>
         {(() => {
           // Use the user's odds when entered, otherwise the model-derived
-          // estimate so the EV / bet rows stay populated. The `est` badge
+          // estimate so the EV / bet rows stay populated. The `≈` prefix
           // tells the user when they're looking at the estimate vs. the
           // actual line they entered.
           const odds = storedLine.effectiveOdds
@@ -842,7 +842,7 @@ function MathPanel({ pick, rung, localTime, storedLine }: {
           const betClass = bet > 0
             ? (isEstimate ? 'text-tracked/70 italic' : 'font-semibold text-tracked')
             : 'text-ink-muted'
-          const estTag = isEstimate ? ' (est)' : ''
+          const approxPrefix = isEstimate ? '≈ ' : ''
           return (
             <>
               <KV
@@ -851,27 +851,27 @@ function MathPanel({ pick, rung, localTime, storedLine }: {
                     Implied book prob
                     {isEstimate && (
                       <span className="ml-1 text-[10px] uppercase tracking-wider text-ink-muted/60">
-                        from model + ~4pp vig
+                        from midpoint(p̂ typical, p̂ today)
                       </span>
                     )}
                   </>
                 }
               >
-                <span className={isEstimate ? 'text-ink-muted italic' : 'text-ink'}>{pct(impliedProb)}{estTag}</span>
+                <span className={isEstimate ? 'text-ink-muted italic' : 'text-ink'}>{approxPrefix}{pct(impliedProb)}</span>
                 <span className="ml-2 text-[11px] text-ink-muted">
                   (model {pct(pick.pMatchup)} → {edgeOverBookPp >= 0 ? '+' : ''}{edgeOverBookPp.toFixed(1)}pp over book)
                 </span>
               </KV>
               <KV label="EV per $1 wagered">
                 <span className={evClass}>
-                  {ev > 0 ? '+' : ''}{(ev * 100).toFixed(1)}%{estTag}
+                  {approxPrefix}{ev > 0 ? '+' : ''}{(ev * 100).toFixed(1)}%
                 </span>
               </KV>
               <KV label={<>Recommended bet <span className="text-ink-muted/70">(¼ Kelly × ${bankroll.toFixed(0)})</span></>}>
                 <span className={betClass}>
                   {bet > 0
-                    ? `$${bet.toFixed(2).replace(/\.00$/, '')}${estTag}`
-                    : `skip${estTag} — no edge over book`}
+                    ? `${approxPrefix}$${bet.toFixed(2).replace(/\.00$/, '')}`
+                    : `skip${isEstimate ? ' ≈' : ''} — no edge over book`}
                 </span>
               </KV>
             </>
