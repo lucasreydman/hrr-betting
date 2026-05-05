@@ -1,4 +1,10 @@
-import { CONFIDENCE_FLOOR_TRACKED, EDGE_FLOORS, PROB_FLOORS, SCORE_FLOORS_TRACKED } from '@/lib/constants'
+import {
+  CONFIDENCE_FLOOR_TRACKED,
+  EDGE_FLOORS,
+  PROB_FLOORS,
+  P_TYPICAL_FLOORS_TRACKED,
+  SCORE_FLOORS_TRACKED,
+} from '@/lib/constants'
 
 export const metadata = {
   title: 'Methodology',
@@ -300,7 +306,7 @@ americanOdds = round-to-book-increment(bookProb → moneyline)`}
 
       <Section heading="Tracked vs Watching" eyebrow="Tier classification">
         <p>
-          A pick is <strong>Tracked</strong> only when all four floors clear:
+          A pick is <strong>Tracked</strong> only when all five floors clear:
         </p>
         <ul className="ml-5 list-disc space-y-1 text-sm marker:text-ink-muted">
           <li><Code>confidence ≥ {fmtFloor(CONFIDENCE_FLOOR_TRACKED)}</Code></li>
@@ -311,6 +317,11 @@ americanOdds = round-to-book-increment(bookProb → moneyline)`}
           </li>
           <li>
             <Code>p̂ today ≥ floor(rung)</Code>: {fmtFloor(PROB_FLOORS[1])} / {fmtFloor(PROB_FLOORS[2])} / {fmtFloor(PROB_FLOORS[3])} for{' '}
+            <RungTag rung={1} compact /> / <RungTag rung={2} compact /> /{' '}
+            <RungTag rung={3} compact />
+          </li>
+          <li>
+            <Code>p̂ typical ≥ floor(rung)</Code>: {fmtFloor(P_TYPICAL_FLOORS_TRACKED[1])} / {fmtFloor(P_TYPICAL_FLOORS_TRACKED[2])} / {fmtFloor(P_TYPICAL_FLOORS_TRACKED[3])} for{' '}
             <RungTag rung={1} compact /> / <RungTag rung={2} compact /> /{' '}
             <RungTag rung={3} compact />
           </li>
@@ -329,11 +340,23 @@ americanOdds = round-to-book-increment(bookProb → moneyline)`}
           out.
         </p>
         <p className="text-sm text-ink-muted">
-          The fourth gate, <strong>score</strong>, is rung-agnostic conviction —
-          Kelly fraction × confidence. The first three floors check whether each
+          The fourth gate, <strong>p̂ typical</strong>, is the quality-first robustness
+          floor. The PROB and EDGE gates check whether the *slate-adjusted* probability
+          is high enough and whether the lift over baseline is meaningful. Neither one
+          prevents a *weak baseline rescued by huge slate factors* from clearing — for
+          example, a 47% baseline boosted to 61% by a Coors stack passes both PROB[2]
+          and EDGE[2], but the bet leans heavily on factor accuracy. If any factor is
+          mismeasured, the implied probability collapses. The p̂ typical floor forces
+          &ldquo;quality first, slate second&rdquo;: every tracked pick must come from
+          a player whose underlying skill already justifies the bet at this rung. Slate
+          factors lift quality players, not rescue weak ones.
+        </p>
+        <p className="text-sm text-ink-muted">
+          The fifth gate, <strong>score</strong>, is rung-agnostic conviction —
+          Kelly fraction × confidence. The first four floors check whether each
           metric *individually* clears its bar, but they don&apos;t speak to whether
           the pick is a good Kelly bet. On a hot slate (Coors with a weak starter)
-          one player can clear all three rung floors at every rung simultaneously,
+          one player can clear all the per-metric floors at every rung simultaneously,
           producing 30+ tracked picks of which only ~10 represent meaningful
           conviction. The score floor cuts the borderline tail uniformly. Per-rung
           floors ({fmtFloor(SCORE_FLOORS_TRACKED[1])} /{' '}

@@ -57,10 +57,11 @@ export function blendWeights(month: number): { season: number; l30: number; l15:
 // of post-pitcher-fix settled history accumulates; the 2026-04-26 → 2026-05-03
 // pre-fix sample was contaminated by the broken bullpen + pitcher factors).
 //
-// Four gates — a pick is Tracked iff ALL of these clear:
+// Five gates — a pick is Tracked iff ALL of these clear:
 //   confidence ≥ CONFIDENCE_FLOOR_TRACKED
 //   edge       ≥ EDGE_FLOORS[rung]
 //   p_matchup  ≥ PROB_FLOORS[rung]
+//   p_typical  ≥ P_TYPICAL_FLOORS_TRACKED[rung]
 //   score      ≥ SCORE_FLOORS_TRACKED[rung]
 //
 // Symmetric design on the first three: as the rung gets harder, we accept
@@ -77,6 +78,32 @@ export function blendWeights(month: number): { season: number; l30: number; l15:
 // daily volume while keeping the "high-conviction" semantic.
 export const EDGE_FLOORS: Record<Rung, number> = { 1: 0.10, 2: 0.20, 3: 0.30 }
 export const PROB_FLOORS: Record<Rung, number> = { 1: 0.80, 2: 0.60, 3: 0.40 }
+
+// p̂ typical floor — the quality-first robustness gate added 2026-05-05.
+//
+// The PROB_FLOORS gate (p̂ today) checks whether the slate-adjusted
+// probability is high enough; the EDGE gate checks whether the lift over
+// baseline is meaningful. Neither one prevents a *weak baseline rescued
+// by huge slate factors* from clearing — e.g., Bauers 2+ p_typical=0.47
+// boosted to p_today=0.61 by a Coors stack passes both PROB[2]=0.60 and
+// EDGE[2]=0.20, but the bet leans heavily on factor accuracy. If any
+// factor is mismeasured by even a few percentage points, the implied
+// probability collapses.
+//
+// p̂ typical floor forces "quality first, slate second": every tracked
+// pick must come from a player whose underlying skill already justifies
+// the bet at this rung. Slate factors lift quality players, not rescue
+// weak ones.
+//
+// Conservative levels — these gate out only the bottom of each tier:
+//   · 1+ ≥ 0.70 — virtually every regular MLB starter clears this
+//   · 2+ ≥ 0.50 — moderate hitters and up
+//   · 3+ ≥ 0.30 — power-leaning quality bats
+//
+// On the 2026-05-04 slate this gates out exactly one pick (Bauers 2+ at
+// 0.47), keeping his 3+ at 0.32 since his baseline is reasonable at *that*
+// rung. Recalibrate alongside other floors via npm run recalibrate.
+export const P_TYPICAL_FLOORS_TRACKED: Record<Rung, number> = { 1: 0.70, 2: 0.50, 3: 0.30 }
 
 // Per-rung score floors — the conviction-thinning gate added 2026-05-05.
 //

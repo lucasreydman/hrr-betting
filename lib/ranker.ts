@@ -48,6 +48,7 @@ import { getPitcherStatcast, getBatterStatcast } from './savant-api'
 import {
   EDGE_FLOORS,
   PROB_FLOORS,
+  P_TYPICAL_FLOORS_TRACKED,
   SCORE_FLOORS_TRACKED,
   CONFIDENCE_FLOOR_TRACKED,
   DISPLAY_FLOOR_SCORE,
@@ -275,6 +276,7 @@ export function classifyTier(args: {
   rung: Rung
   edge: number
   pMatchup: number
+  pTypical: number
   confidence: number
   score: number
 }): 'tracked' | 'watching' | null {
@@ -282,6 +284,7 @@ export function classifyTier(args: {
     args.confidence >= CONFIDENCE_FLOOR_TRACKED &&
     args.edge >= EDGE_FLOORS[args.rung] &&
     args.pMatchup >= PROB_FLOORS[args.rung] &&
+    args.pTypical >= P_TYPICAL_FLOORS_TRACKED[args.rung] &&
     args.score >= SCORE_FLOORS_TRACKED[args.rung]
   ) {
     return 'tracked'
@@ -759,7 +762,7 @@ export async function rankPicks(date: string): Promise<PicksResponse> {
         const finalConfidence = lockedRow?.confidence ?? confidence
         const finalScore = lockedRow?.score ?? score
 
-        const baseTier = classifyTier({ rung, edge, pMatchup, confidence, score })
+        const baseTier = classifyTier({ rung, edge, pMatchup, pTypical: pTyp, confidence, score })
 
         // Post-first-pitch handling:
         //

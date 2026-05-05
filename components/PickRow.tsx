@@ -3,7 +3,13 @@
 import { useEffect, useId, useState } from 'react'
 import type { Pick, PickInputs } from '@/lib/ranker'
 import { getTeamNickname } from '@/lib/team-names'
-import { CONFIDENCE_FLOOR_TRACKED, EDGE_FLOORS, PROB_FLOORS, SCORE_FLOORS_TRACKED } from '@/lib/constants'
+import {
+  CONFIDENCE_FLOOR_TRACKED,
+  EDGE_FLOORS,
+  PROB_FLOORS,
+  P_TYPICAL_FLOORS_TRACKED,
+  SCORE_FLOORS_TRACKED,
+} from '@/lib/constants'
 import {
   evPerDollar,
   estimateBookOddsFromModelProb,
@@ -24,6 +30,9 @@ import {
  *  shared across rungs; prob and edge floors vary per rung. */
 function passesProbFloor(pMatchup: number, rung?: 1 | 2 | 3): boolean {
   return rung != null && pMatchup >= PROB_FLOORS[rung]
+}
+function passesPTypicalFloor(pTypical: number, rung?: 1 | 2 | 3): boolean {
+  return rung != null && pTypical >= P_TYPICAL_FLOORS_TRACKED[rung]
 }
 function passesEdgeFloor(edge: number, rung?: 1 | 2 | 3): boolean {
   return rung != null && edge >= EDGE_FLOORS[rung]
@@ -887,7 +896,11 @@ function MathPanel({ pick, rung, localTime, storedLine }: {
           <KV label={<>Floors <span className="text-ink-muted/70">(for {rung}+)</span></>}>
             <span className="font-mono text-[11px]">
               <span className={passesProbFloor(pick.pMatchup, rung) ? 'text-hit' : 'text-miss'}>
-                p̂ ≥ {pct(PROB_FLOORS[rung], 0)} {passesProbFloor(pick.pMatchup, rung) ? '✓' : '✗'}
+                p̂<sub>today</sub> ≥ {pct(PROB_FLOORS[rung], 0)} {passesProbFloor(pick.pMatchup, rung) ? '✓' : '✗'}
+              </span>
+              <span className="text-ink-muted"> · </span>
+              <span className={passesPTypicalFloor(pick.pTypical, rung) ? 'text-hit' : 'text-miss'}>
+                p̂<sub>typ</sub> ≥ {pct(P_TYPICAL_FLOORS_TRACKED[rung], 0)} {passesPTypicalFloor(pick.pTypical, rung) ? '✓' : '✗'}
               </span>
               <span className="text-ink-muted"> · </span>
               <span className={passesEdgeFloor(pick.edge, rung) ? 'text-hit' : 'text-miss'}>
@@ -1085,10 +1098,23 @@ export function PickRow({ pick, rung }: { pick: Pick; rung?: 1 | 2 | 3 }) {
             ) : null}
           </div>
 
-          {/* PROB. TYPICAL — % over American odds. Light blue marks it as
-              the baseline/context column rather than a gate-passing column. */}
+          {/* PROB. TYPICAL — % over American odds. Now a gate-passing column
+              (5th tracked-tier gate, the quality-first robustness floor —
+              rung floors 0.70 / 0.50 / 0.30). Green when ≥ rung floor;
+              plain ink otherwise. Sky-300 baseline color is gone since the
+              cell now carries pass/fail information. */}
           <div className="text-center">
-            <div className="font-mono text-sm tabular-nums text-sky-300">
+            <div
+              className={
+                'font-mono text-sm tabular-nums ' +
+                (passesPTypicalFloor(pick.pTypical, rung) ? 'font-semibold text-hit' : 'text-ink')
+              }
+              title={
+                rung
+                  ? `Tracked-tier p̂ typical floor for ${rung}+: ${(P_TYPICAL_FLOORS_TRACKED[rung] * 100).toFixed(0)}%`
+                  : undefined
+              }
+            >
               {pct(pick.pTypical, 1)}
             </div>
             <div className="font-mono text-[10px] tabular-nums text-ink-muted">
@@ -1250,7 +1276,17 @@ export function PickRow({ pick, rung }: { pick: Pick; rung?: 1 | 2 | 3 }) {
           <div className="mt-2 border-t border-border/30 pt-2">
             <div className="flex justify-between text-xs">
               <span className="text-ink-muted">Typical</span>
-              <span className="font-mono tabular-nums text-sky-300">
+              <span
+                className={
+                  'font-mono tabular-nums ' +
+                  (passesPTypicalFloor(pick.pTypical, rung) ? 'font-semibold text-hit' : 'text-ink')
+                }
+                title={
+                  rung
+                    ? `Tracked-tier p̂ typical floor for ${rung}+: ${(P_TYPICAL_FLOORS_TRACKED[rung] * 100).toFixed(0)}%`
+                    : undefined
+                }
+              >
                 {pct(pick.pTypical, 1)} <span className="text-[10px] text-ink-muted">/ {americanOdds(pick.pTypical)}</span>
               </span>
             </div>
