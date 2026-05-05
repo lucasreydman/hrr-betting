@@ -58,11 +58,15 @@ export async function GET(): Promise<NextResponse<HistoryResponse>> {
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([date, stats]) => ({ date, ...stats }))
 
-  // "Recent" = last 3 slate dates (today + 2 previous). slateDateString() − 2
-  // is the cutoff: a pick from that date or later qualifies. Rows beyond
-  // that live on the dedicated /history/all archive page; the dashboard
-  // stays small so it stays fast to skim.
-  const recentCutoff = shiftIsoDate(slateDateString(), -2)
+  // "Recent" = the last 3 slate dates that have settled data. Today's slate
+  // settles overnight (3:15 AM ET cron), so during the active day today's
+  // row is empty. Cutoff at today − 3 keeps the window consistently three
+  // settled days regardless of when in the day you check:
+  //   · During slate hours: today is empty, recent = today−3 ... today−1 (3 dates).
+  //   · Post-settle pre-rollover: today is empty (next slate started),
+  //     recent = today−3 ... today−1 (still 3 settled dates).
+  // Rows beyond that live on the dedicated /history/all archive page.
+  const recentCutoff = shiftIsoDate(slateDateString(), -3)
   const recentPicks = rows
     .filter(r => r.date >= recentCutoff)
     .map(rowToSettledPick)
