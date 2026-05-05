@@ -617,6 +617,13 @@ function MathPanel({ pick, rung, localTime, storedLine }: {
           <p className="font-mono text-[11px] leading-relaxed text-ink-muted">
             p̂<sub>today</sub> = odds(p̂<sub>typical</sub>) × Π factors → probability. TTO is baked into p̂<sub>typical</sub>.
           </p>
+          {pick.wasLocked && (
+            <p className="text-[11px] italic text-ink-muted/80">
+              🔒 Top-line numbers below are <strong>frozen at lock-time</strong>.
+              Factors show CURRENT live values — they may not multiply to the
+              displayed p̂ today. Settlement uses the locked snapshot regardless.
+            </p>
+          )}
           <KV label="Pitcher quality">
             <FactorCell factor={inputs.probTodayFactors.pitcher} />
           </KV>
@@ -862,7 +869,7 @@ function MathPanel({ pick, rung, localTime, storedLine }: {
               ? '🔒 Tracked (locked)'
               : isTracked
                 ? '🎯 Tracked (live)'
-                : 'Other play'}
+                : '👀 Watching'}
             {pick.wasLocked && (
               <span
                 className="ml-2 text-[10px] font-medium normal-case tracking-normal text-ink-muted"
@@ -982,9 +989,15 @@ export function PickRow({ pick, rung }: { pick: Pick; rung?: 1 | 2 | 3 }) {
           {/* BET — rung badge + tracked target */}
           <div className="flex min-w-0 items-center gap-1.5">
             {rung && <RungBadge rung={rung} />}
-            {/* 🎯 = tracked, lock cron hasn't fired yet (could still drop).
-                🔒 = locked at lock-time, tier pinned through to settlement.
-                Mutually exclusive — once locked, the target becomes a lock. */}
+            {/* Three mutually exclusive states:
+                🔒 locked — settlement-bound, tier frozen
+                🎯 tracked (not locked yet) — passes all floors, lock window
+                                              hasn't fired or pick not locked
+                👀 watching — below at least one tracked floor; we're
+                              monitoring but not committing.
+                Watching picks for live/final games are dropped upstream
+                in ranker.ts — the badge only appears on pre-first-pitch
+                picks that haven't locked. */}
             {pick.wasLocked ? (
               <span
                 className="text-ink-muted/80"
@@ -1001,7 +1014,15 @@ export function PickRow({ pick, rung }: { pick: Pick; rung?: 1 | 2 | 3 }) {
               >
                 🎯
               </span>
-            ) : null}
+            ) : (
+              <span
+                className="text-ink-muted/70"
+                title="Watching — below at least one tracked floor right now. Could still cross into Tracked before lock window."
+                aria-label="Pick in watching tier"
+              >
+                👀
+              </span>
+            )}
           </div>
 
           {/* BATTER — name + hand + lineup-status-with-slot pill */}
@@ -1154,7 +1175,15 @@ export function PickRow({ pick, rung }: { pick: Pick; rung?: 1 | 2 | 3 }) {
               >
                 🎯
               </span>
-            ) : null}
+            ) : (
+              <span
+                className="text-ink-muted/70"
+                title="Watching — below at least one tracked floor right now"
+                aria-label="Pick in watching tier"
+              >
+                👀
+              </span>
+            )}
           </div>
           <div className="mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs text-ink-muted">
             <span>{pick.player.bats}</span>

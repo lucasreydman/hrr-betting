@@ -298,7 +298,7 @@ americanOdds = round-to-book-increment(bookProb → moneyline)`}
         </p>
       </Section>
 
-      <Section heading="Tracked vs Other plays" eyebrow="Tier classification">
+      <Section heading="Tracked vs Watching" eyebrow="Tier classification">
         <p>
           A pick is <strong>Tracked</strong> only when all three floors clear:
         </p>
@@ -324,8 +324,10 @@ americanOdds = round-to-book-increment(bookProb → moneyline)`}
         </p>
         <p>
           A pick that misses the Tracked thresholds but still has{' '}
-          <Code>score ≥ 0.05</Code> shows under <em>Other plays</em>. Below that, the
-          pick is dropped from the board. The board caps at 30 plays per slate via
+          <Code>score ≥ 0.05</Code> shows under <em>👀 Watching</em>. Below that, the
+          pick is dropped from the board. Watching picks for in-progress or final
+          games are dropped automatically — once first pitch has fired, a pick that
+          didn&apos;t commit to Tracked is no longer actionable. The board caps at 30 plays per slate via
           per-rung quotas (15 / 10 / 5) so 3+ longshots don&apos;t get crowded out by
           high-prob 1+ plays.
         </p>
@@ -381,7 +383,26 @@ americanOdds = round-to-book-increment(bookProb → moneyline)`}
             window. Insert-only semantics mean late additions don&apos;t conflict
             with anything already locked.
           </li>
+          <li>
+            <strong>Once a game starts, non-locked picks can&apos;t become
+            Tracked.</strong> Live boxscore stats, weather becoming irrelevant,
+            and schedule-cache-age shifts can all nudge a pick&apos;s confidence
+            above the 0.85 floor mid-game or post-game — but if it wasn&apos;t
+            committed during the lock window, those drifts don&apos;t earn a
+            tracked badge after the fact. Picks for in-progress / final games
+            get capped at Watching unless they were already locked.
+          </li>
         </ul>
+        <p className="text-sm">
+          When a pick locks, the displayed top-line numbers (p̂ today, p̂
+          typical, edge, confidence, score) are also <strong>frozen at
+          lock-time</strong> — they no longer drift with live data. The
+          probability factor breakdown in the math panel still shows the
+          <em> current</em> state of inputs (so you can see what&apos;s
+          changed since lock), but the headline numbers reflect what you
+          committed to at decision time. Settlement always uses the locked
+          snapshot regardless.
+        </p>
         <p className="text-sm text-ink-muted">
           Why the 30-min threshold: by then, lineups are posted, pitcher status
           is committed, and the weather forecast for first pitch is essentially
@@ -480,7 +501,7 @@ p < 0.5  →  odds = +round(100 × (1 − p) / p)        (underdog)`}
             into Watching. The probability / edge / confidence numbers in the math
             panel still update live so you can see *why* the model has softened
             on the pick, but the tier itself is frozen at lock-time. See{' '}
-            <em>Tracked vs Other plays</em> above for the full badge spec.
+            <em>Tracked vs Watching</em> above for the full badge spec.
           </li>
           <li>
             <strong className="text-ink">Live.</strong> Once a game ends, the next

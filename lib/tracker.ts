@@ -395,19 +395,15 @@ async function settlePicksKv(date: string): Promise<{ settled: number; pending: 
 /**
  * Return the set of (game_id, player_id, rung) keys for picks already
  * locked into `locked_picks` for a slate. Used by the live ranker to
- * overlay tier='tracked' on picks whose lock window has fired — once a
- * pick has been frozen by `/api/lock`, the live board should keep showing
- * it as tracked even if real-time data (weather, lineup churn) drifts the
- * raw confidence below the floor.
+ * overlay tier='tracked' on picks whose lock window has fired.
  *
  * Returns each entry as the canonical lookup string `"{gameId}:{playerId}:{rung}"`.
- * Empty set on Supabase unavailable, fetch failure, or unlocked slate —
- * the live board falls back to its computed-from-current-data tier in
- * those cases (no tier overlay, behavior unchanged from pre-overlay model).
+ * Empty set on Supabase unavailable, fetch failure, or unlocked slate.
  *
- * Cheap: single SELECT of three integer columns; ~30-50ms against the
- * Supabase free tier. Caller can run it in parallel with other slate-prep
- * fetches.
+ * For the *full* row data (needed to also overlay frozen p_matchup /
+ * p_typical / edge / confidence / score values from lock-time), use
+ * `getLockedPickRowsForDate` instead — both functions are kept because
+ * the keys-only path is cheaper for callers that only need tier overlay.
  */
 export async function getLockedPickKeysForDate(date: string): Promise<Set<string>> {
   if (!isSupabaseAvailable()) return new Set()
@@ -421,6 +417,39 @@ export async function getLockedPickKeysForDate(date: string): Promise<Set<string
     return new Set(data.map(r => `${r.game_id}:${r.player_id}:${r.rung}`))
   } catch {
     return new Set()
+  }
+}
+
+/**
+ * Map keyed by `"{gameId}:{playerId}:{rung}"` of the full locked-pick rows
+ * for a slate. Used by the live ranker to overlay BOTH tier='tracked'
+ * AND the lock-time snapshot values (p_matchup, p_typical, edge,
+ * confidence, score) so the displayed top-line numbers don't drift after
+ * a pick has been committed.
+ *
+ * The probability factors in the math panel still show LIVE values (we
+ * don't store factor breakdowns in `locked_picks`), so a reader can see
+ * what's changed since lock — but the final p̂ / edge / confidence are
+ * frozen at decision-time. Settlement always uses the locked snapshot.
+ *
+ * Empty map on Supabase unavailable / fetch failure (graceful
+ * degradation — live values displayed instead, behavior unchanged).
+ */
+export async function getLockedPickRowsForDate(
+  date: string,
+): Promise<Map<string, LockedPickRow>> {
+  if (!isSupabaseAvailable()) return new Map()
+  const supabase = getSupabase()!
+  try {
+    const { data, error } = await supabase
+      .from('locked_picks')
+      .select('*')
+      .eq('date', date)
+    if (error || !data) return new Map()
+    const rows = data as LockedPickRow[]
+    return new Map(rows.map(r => [`${r.game_id}:${r.player_id}:${r.rung}`, r]))
+  } catch {
+    return new Map()
   }
 }
 

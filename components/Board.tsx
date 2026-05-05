@@ -74,12 +74,12 @@ type BetTypeFilter = 'tracked' | 'other'
 
 const BET_TYPE_LABELS: Record<BetTypeFilter, string> = {
   tracked: 'Tracked',
-  other: 'Other',
+  other: 'Watching',
 }
 
 const BET_TYPE_TOOLTIPS: Record<BetTypeFilter, string> = {
-  tracked: 'High-conviction picks that pass the floors (prob/edge/confidence)',
-  other: 'Solid matchups outside the tracked tier',
+  tracked: 'Picks passing all floors right now (🎯) or already locked (🔒)',
+  other: 'Picks below at least one tracked floor (👀). Watching picks for live/final games are dropped automatically.',
 }
 
 /** Map a Pick's gameStatus to one of the three filter buckets. */
@@ -349,7 +349,7 @@ function BoardContents({ picks }: { picks: PickWithRung[] }) {
 
       {watching.length > 0 && tracked.length > 0 && (
         <div className="border-y border-border/50 bg-card/10 px-4 py-1.5 text-xs uppercase tracking-wider text-ink-muted">
-          Other plays · solid matchups outside the tracked tier
+          👀 Watching · below at least one tracked floor right now
         </div>
       )}
 

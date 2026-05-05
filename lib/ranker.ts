@@ -20,7 +20,7 @@ import { computeEdge, computeScore } from './edge'
 import { computeConfidenceBreakdown, passesHardGates, type ConfidenceFactors } from './confidence'
 import { getPTypical } from './p-typical'
 import { computeProbTodayWithBreakdown, type ProbTodayBreakdown } from './prob-today'
-import { getLockedPickKeysForDate } from './tracker'
+import { getLockedPickRowsForDate } from './tracker'
 import {
   fetchSchedule,
   fetchProbablePitchers,
@@ -294,15 +294,19 @@ export async function rankPicks(date: string): Promise<PicksResponse> {
   // Schedule cache age — feeds the confidence `dataFreshness` factor below.
   // null means "unknown freshness" (no meta record yet); we pass 0 in that
   // case so the factor is neutral, not penalising for missing telemetry.
-  // Locked-pick overlay: pulls (game, player, rung) keys for every pick
-  // that's already been snapshotted into `locked_picks` this slate.
-  // Picks in this set get tier='tracked' overridden into the live
-  // response regardless of current real-time confidence — the lock cron
-  // froze them at decision time, weather/lineup drift after that point
-  // shouldn't bounce them out of the tracked tier on the user's screen.
-  const [scheduleAgeSec, lockedKeys] = await Promise.all([
+  // Locked-pick overlay: pulls FULL rows for every pick that's already
+  // been snapshotted into `locked_picks` this slate. We use the rows for
+  // a two-part overlay on the live response:
+  //   1. tier = 'tracked' is forced regardless of current floors
+  //   2. p_matchup / p_typical / edge / confidence / score are restored
+  //      to their lock-time values so the displayed top-line numbers
+  //      don't drift after the pick was committed.
+  // The math panel's factor breakdown still shows LIVE values (factors
+  // aren't stored in locked_picks), so the reader can see what's changed
+  // since lock — but the final probability/edge/confidence are pinned.
+  const [scheduleAgeSec, lockedRows] = await Promise.all([
     getScheduleAgeSec(date).then(age => age ?? 0),
-    getLockedPickKeysForDate(date),
+    getLockedPickRowsForDate(date),
   ])
 
   // Separate accumulators per rung (avoids adding `rung` to the public Pick type)
@@ -725,17 +729,48 @@ export async function rankPicks(date: string): Promise<PicksResponse> {
         if (!sidePassesGates) continue
 
         // Locked-pick overlay: once a pick has been written into
-        // `locked_picks` by /api/lock for this slate, we pin its tier
-        // at 'tracked' on the live board regardless of how confidence
-        // has drifted in the interim. Real-time data continues to
-        // recompute (probability/edge/confidence still reflect current
-        // weather, lineups, etc.) so the user can see *why* the pick
-        // softened, but the tier badge stays put. Settlement still
-        // works off the locked snapshot, not the live values.
-        const wasLocked = lockedKeys.has(`${game.gameId}:${player.playerId}:${rung}`)
+        // `locked_picks` by /api/lock for this slate, both its tier
+        // AND its top-line numbers (p_matchup, p_typical, edge,
+        // confidence, score) are pinned to the lock-time values. The
+        // user sees the same probability/edge/confidence they committed
+        // to at lock-time, even as live inputs drift. The probability
+        // factor breakdown in the math panel still shows live values
+        // (factors aren't stored in locked_picks) so the reader can
+        // see what's changed — but the final numbers don't move.
+        const lockKey = `${game.gameId}:${player.playerId}:${rung}`
+        const lockedRow = lockedRows.get(lockKey)
+        const wasLocked = !!lockedRow
+
+        // Locked-pick numeric overlay: prefer the snapshot values when
+        // the pick is locked. classifyTier still runs against the LIVE
+        // values to determine baseTier (informational; overridden when
+        // wasLocked), but the displayed Pick reflects the locked state.
+        const finalPMatchup = lockedRow?.p_matchup ?? pMatchup
+        const finalPTypical = lockedRow?.p_typical ?? pTyp
+        const finalEdge = lockedRow?.edge ?? edge
+        const finalConfidence = lockedRow?.confidence ?? confidence
+        const finalScore = lockedRow?.score ?? score
+
         const baseTier = classifyTier({ rung, edge, pMatchup, confidence, score })
-        const tier: 'tracked' | 'watching' | null =
-          wasLocked ? 'tracked' : baseTier
+
+        // Post-first-pitch handling:
+        //
+        //  · Locked picks → tier='tracked' (frozen, badge 🔒). Settlement
+        //    uses the locked snapshot regardless of how live data drifts.
+        //
+        //  · Non-locked picks → DROPPED entirely once the game is live.
+        //    The lock window already passed; if a pick wasn't committed
+        //    during it, surfacing post-game gymnastics (boxscore stats
+        //    pushing confidence over the floor, schedule-cache shifts,
+        //    etc.) just adds noise. The user's decision-window has
+        //    closed for any pick that didn't lock.
+        //
+        // Pre-first-pitch: classifyTier as normal — picks can be 🎯 or 👀
+        // depending on whether they currently meet the tracked floors.
+        const gameIsLive = game.status === 'in_progress' || game.status === 'final'
+        if (gameIsLive && !wasLocked) continue
+
+        const tier: 'tracked' | 'watching' | null = wasLocked ? 'tracked' : baseTier
         if (tier === null) continue
 
         const pick: Pick = {
@@ -762,11 +797,11 @@ export async function rankPicks(date: string): Promise<PicksResponse> {
           gameDate: game.gameDate,
           lineupSlot: entry.slot,
           lineupStatus: lineup.status,
-          pMatchup,
-          pTypical: pTyp,
-          edge,
-          confidence,
-          score,
+          pMatchup: finalPMatchup,
+          pTypical: finalPTypical,
+          edge: finalEdge,
+          confidence: finalConfidence,
+          score: finalScore,
           tier,
           ...(wasLocked ? { wasLocked: true } : {}),
           inputs,
