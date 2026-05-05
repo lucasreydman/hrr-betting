@@ -349,11 +349,11 @@ function BoardContents({ picks }: { picks: PickWithRung[] }) {
         </div>
       </header>
 
-      {/* Column headers — desktop only. Mirrors the 10-column grid in PickRow.
-          Wager column took the old Score column's slot but is wider (1.3fr)
-          to fit an input field plus a computed bet size. */}
+      {/* Column headers — desktop only. Mirrors the 11-column grid in PickRow.
+          Score column sits between Confidence and Wager: it's the 4th and final
+          tracked-tier gate (Kelly-weighted conviction, per-rung floor). */}
       <div
-        className="hidden sm:grid sm:grid-cols-[0.7fr_1.55fr_1.35fr_1.15fr_0.85fr_0.85fr_0.8fr_1fr_1.3fr_0.3fr] sm:gap-3 sm:border-b sm:border-border sm:bg-card/30 sm:px-4 sm:py-2"
+        className="hidden sm:grid sm:grid-cols-[0.7fr_1.5fr_1.3fr_1.1fr_0.8fr_0.8fr_0.75fr_0.95fr_0.7fr_1.2fr_0.3fr] sm:gap-3 sm:border-b sm:border-border sm:bg-card/30 sm:px-4 sm:py-2"
         aria-hidden="true"
       >
         <div className="text-[11px] uppercase tracking-wider text-ink-muted">Bet</div>
@@ -368,6 +368,7 @@ function BoardContents({ picks }: { picks: PickWithRung[] }) {
         </div>
         <div className="text-center text-[11px] uppercase tracking-wider text-ink-muted">Edge</div>
         <div className="text-center text-[11px] uppercase tracking-wider text-ink-muted">Confidence</div>
+        <div className="text-center text-[11px] uppercase tracking-wider text-ink-muted">Score</div>
         <div className="text-center text-[11px] uppercase tracking-wider text-ink-muted">Wager</div>
         <div></div>
       </div>

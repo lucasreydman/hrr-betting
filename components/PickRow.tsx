@@ -3,7 +3,7 @@
 import { useEffect, useId, useState } from 'react'
 import type { Pick, PickInputs } from '@/lib/ranker'
 import { getTeamNickname } from '@/lib/team-names'
-import { CONFIDENCE_FLOOR_TRACKED, EDGE_FLOORS, PROB_FLOORS } from '@/lib/constants'
+import { CONFIDENCE_FLOOR_TRACKED, EDGE_FLOORS, PROB_FLOORS, SCORE_FLOORS_TRACKED } from '@/lib/constants'
 import {
   evPerDollar,
   estimateBookOddsFromModelProb,
@@ -27,6 +27,9 @@ function passesProbFloor(pMatchup: number, rung?: 1 | 2 | 3): boolean {
 }
 function passesEdgeFloor(edge: number, rung?: 1 | 2 | 3): boolean {
   return rung != null && edge >= EDGE_FLOORS[rung]
+}
+function passesScoreFloor(score: number, rung?: 1 | 2 | 3): boolean {
+  return rung != null && score >= SCORE_FLOORS_TRACKED[rung]
 }
 function passesConfidenceFloor(confidence: number): boolean {
   return confidence >= CONFIDENCE_FLOOR_TRACKED
@@ -894,6 +897,10 @@ function MathPanel({ pick, rung, localTime, storedLine }: {
               <span className={passesConfidenceFloor(pick.confidence) ? 'text-hit' : 'text-miss'}>
                 conf ≥ {pct(CONFIDENCE_FLOOR_TRACKED, 0)} {passesConfidenceFloor(pick.confidence) ? '✓' : '✗'}
               </span>
+              <span className="text-ink-muted"> · </span>
+              <span className={passesScoreFloor(pick.score, rung) ? 'text-hit' : 'text-miss'}>
+                score ≥ {SCORE_FLOORS_TRACKED[rung].toFixed(2)} {passesScoreFloor(pick.score, rung) ? '✓' : '✗'}
+              </span>
             </span>
           </KV>
         )}
@@ -982,10 +989,11 @@ export function PickRow({ pick, rung }: { pick: Pick; rung?: 1 | 2 | 3 }) {
         onKeyDown={onKeyDown}
         className={'group w-full cursor-pointer px-3 py-3 text-left transition-colors sm:px-4 ' + rowFill}
       >
-        {/* Desktop: 10-column grid (bet · batter · pitcher · game · p.typ · p.today · edge · conf · wager · caret).
-            Wager column is wider than the old Score column was (1.3fr vs 0.6fr)
-            because it holds an input field plus a computed bet size. */}
-        <div className="hidden sm:grid sm:grid-cols-[0.7fr_1.55fr_1.35fr_1.15fr_0.85fr_0.85fr_0.8fr_1fr_1.3fr_0.3fr] sm:items-center sm:gap-3">
+        {/* Desktop: 11-column grid (bet · batter · pitcher · game · p.typ · p.today · edge · conf · score · wager · caret).
+            Score column re-added 2026-05-05 as the 4th tracked-tier gate
+            (per-rung Kelly-conviction floor: 0.25 / 0.20 / 0.15). Greens
+            when ≥ rung floor; identical visual pattern as prob/edge/conf. */}
+        <div className="hidden sm:grid sm:grid-cols-[0.7fr_1.5fr_1.3fr_1.1fr_0.8fr_0.8fr_0.75fr_0.95fr_0.7fr_1.2fr_0.3fr] sm:items-center sm:gap-3">
           {/* BET — rung badge + tracked target */}
           <div className="flex min-w-0 items-center gap-1.5">
             {rung && <RungBadge rung={rung} />}
@@ -1127,10 +1135,29 @@ export function PickRow({ pick, rung }: { pick: Pick; rung?: 1 | 2 | 3 }) {
             </span>
           </div>
 
-          {/* WAGER — FD line input + computed bet size. Replaces the old
-              "Score" column. Score is still the silent sort key in Board.tsx
-              so the default order is unchanged, but the abstract 0–100
-              number is gone — the visible value is now the actionable bet. */}
+          {/* SCORE — 4th tracked-tier gate. Kelly-weighted conviction,
+              per-rung floor (0.25 / 0.20 / 0.15). Green when ≥ floor for
+              this rung. Two decimal places — score lives in 0.0–0.5 range
+              so an extra digit aids comparison without bloating the cell. */}
+          <div className="text-center">
+            <span
+              className={
+                'font-mono text-sm tabular-nums ' +
+                (passesScoreFloor(pick.score, rung) ? 'font-semibold text-hit' : 'text-ink')
+              }
+              title={
+                rung
+                  ? `Tracked-tier score floor for ${rung}+: ${SCORE_FLOORS_TRACKED[rung].toFixed(2)}`
+                  : undefined
+              }
+            >
+              {pick.score.toFixed(2)}
+            </span>
+          </div>
+
+          {/* WAGER — FD line input + computed bet size. Score column was
+              originally repurposed for this; now both coexist (Score got
+              pulled back when a 4th tracked-tier gate was added on score). */}
           <div className="px-1">
             <WagerCell modelProb={pick.pMatchup} storedLine={storedLine} variant="desktop" />
           </div>
@@ -1259,6 +1286,22 @@ export function PickRow({ pick, rung }: { pick: Pick; rung?: 1 | 2 | 3 }) {
                   }
                 >
                   {pct(pick.confidence, 1)}
+                </span>
+              </div>
+              <div className="flex items-baseline gap-1">
+                <span className="text-ink-muted">Score</span>
+                <span
+                  className={
+                    'font-mono tabular-nums ' +
+                    (passesScoreFloor(pick.score, rung) ? 'font-semibold text-hit' : 'text-ink')
+                  }
+                  title={
+                    rung
+                      ? `Tracked-tier score floor for ${rung}+: ${SCORE_FLOORS_TRACKED[rung].toFixed(2)}`
+                      : undefined
+                  }
+                >
+                  {pick.score.toFixed(2)}
                 </span>
               </div>
             </div>

@@ -48,6 +48,7 @@ import { getPitcherStatcast, getBatterStatcast } from './savant-api'
 import {
   EDGE_FLOORS,
   PROB_FLOORS,
+  SCORE_FLOORS_TRACKED,
   CONFIDENCE_FLOOR_TRACKED,
   DISPLAY_FLOOR_SCORE,
   LG_K_PCT,
@@ -280,7 +281,8 @@ export function classifyTier(args: {
   if (
     args.confidence >= CONFIDENCE_FLOOR_TRACKED &&
     args.edge >= EDGE_FLOORS[args.rung] &&
-    args.pMatchup >= PROB_FLOORS[args.rung]
+    args.pMatchup >= PROB_FLOORS[args.rung] &&
+    args.score >= SCORE_FLOORS_TRACKED[args.rung]
   ) {
     return 'tracked'
   }

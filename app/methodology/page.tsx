@@ -1,4 +1,4 @@
-import { CONFIDENCE_FLOOR_TRACKED, EDGE_FLOORS, PROB_FLOORS } from '@/lib/constants'
+import { CONFIDENCE_FLOOR_TRACKED, EDGE_FLOORS, PROB_FLOORS, SCORE_FLOORS_TRACKED } from '@/lib/constants'
 
 export const metadata = {
   title: 'Methodology',
@@ -300,7 +300,7 @@ americanOdds = round-to-book-increment(bookProb → moneyline)`}
 
       <Section heading="Tracked vs Watching" eyebrow="Tier classification">
         <p>
-          A pick is <strong>Tracked</strong> only when all three floors clear:
+          A pick is <strong>Tracked</strong> only when all four floors clear:
         </p>
         <ul className="ml-5 list-disc space-y-1 text-sm marker:text-ink-muted">
           <li><Code>confidence ≥ {fmtFloor(CONFIDENCE_FLOOR_TRACKED)}</Code></li>
@@ -314,13 +314,33 @@ americanOdds = round-to-book-increment(bookProb → moneyline)`}
             <RungTag rung={1} compact /> / <RungTag rung={2} compact /> /{' '}
             <RungTag rung={3} compact />
           </li>
+          <li>
+            <Code>score ≥ floor(rung)</Code>: {fmtFloor(SCORE_FLOORS_TRACKED[1])} / {fmtFloor(SCORE_FLOORS_TRACKED[2])} / {fmtFloor(SCORE_FLOORS_TRACKED[3])} for{' '}
+            <RungTag rung={1} compact /> / <RungTag rung={2} compact /> /{' '}
+            <RungTag rung={3} compact />
+          </li>
         </ul>
         <p className="text-sm text-ink-muted">
-          Symmetric design: as the rung gets harder, the bar shifts from raw value to
-          raw conviction. Easy 1+ picks just need a high probability with a small edge;
-          hard 3+ picks need a real chance of clearing (40%+) with meaningful edge.
-          Both gates fire in tandem so a borderline-prob longshot with massive edge
-          and a high-prob favourite with no edge both stay out.
+          Symmetric design across the first three: as the rung gets harder, the bar
+          shifts from raw value to raw conviction. Easy 1+ picks just need a high
+          probability with a small edge; hard 3+ picks need a real chance of
+          clearing (40%+) with meaningful edge. Both fire in tandem so a borderline-prob
+          longshot with massive edge and a high-prob favourite with no edge both stay
+          out.
+        </p>
+        <p className="text-sm text-ink-muted">
+          The fourth gate, <strong>score</strong>, is rung-agnostic conviction —
+          Kelly fraction × confidence. The first three floors check whether each
+          metric *individually* clears its bar, but they don&apos;t speak to whether
+          the pick is a good Kelly bet. On a hot slate (Coors with a weak starter)
+          one player can clear all three rung floors at every rung simultaneously,
+          producing 30+ tracked picks of which only ~10 represent meaningful
+          conviction. The score floor cuts the borderline tail uniformly. Per-rung
+          floors ({fmtFloor(SCORE_FLOORS_TRACKED[1])} /{' '}
+          {fmtFloor(SCORE_FLOORS_TRACKED[2])} / {fmtFloor(SCORE_FLOORS_TRACKED[3])})
+          are necessary because Kelly&apos;s variance penalty compresses scores
+          hardest at longer rungs — a flat floor would erase 3+ from the board
+          entirely on most slates.
         </p>
         <p>
           A pick that misses the Tracked thresholds but still has{' '}

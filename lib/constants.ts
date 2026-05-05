@@ -57,11 +57,14 @@ export function blendWeights(month: number): { season: number; l30: number; l15:
 // of post-pitcher-fix settled history accumulates; the 2026-04-26 → 2026-05-03
 // pre-fix sample was contaminated by the broken bullpen + pitcher factors).
 //
-// A pick is Tracked only if confidence >= CONFIDENCE_FLOOR_TRACKED AND
-// EDGE >= EDGE_FLOORS[rung] AND P_matchup >= PROB_FLOORS[rung].
+// Four gates — a pick is Tracked iff ALL of these clear:
+//   confidence ≥ CONFIDENCE_FLOOR_TRACKED
+//   edge       ≥ EDGE_FLOORS[rung]
+//   p_matchup  ≥ PROB_FLOORS[rung]
+//   score      ≥ SCORE_FLOORS_TRACKED[rung]
 //
-// Symmetric design: as the rung gets harder, we accept lower absolute
-// probability but demand higher relative edge.
+// Symmetric design on the first three: as the rung gets harder, we accept
+// lower absolute probability but demand higher relative edge.
 //   · 1+ (easy):     prob 0.80 / edge 0.10 — "high confidence, doesn't need a steal"
 //   · 2+ (moderate): prob 0.60 / edge 0.20 — "decent chance + decent value"
 //   · 3+ (hard):     prob 0.40 / edge 0.30 — "longshot, but only at real value"
@@ -74,6 +77,31 @@ export function blendWeights(month: number): { season: number; l30: number; l15:
 // daily volume while keeping the "high-conviction" semantic.
 export const EDGE_FLOORS: Record<Rung, number> = { 1: 0.10, 2: 0.20, 3: 0.30 }
 export const PROB_FLOORS: Record<Rung, number> = { 1: 0.80, 2: 0.60, 3: 0.40 }
+
+// Per-rung score floors — the conviction-thinning gate added 2026-05-05.
+//
+// The first three floors are individually-rung-conviction gates, but they
+// don't speak to whether a pick is a *good Kelly bet*. On a hot slate (e.g.
+// Coors with a weak starter) a single player can clear all three floors
+// at every rung simultaneously, which produces 30+ tracked picks of which
+// only the top 5–10 represent meaningful conviction. The score floor cuts
+// the borderline tail uniformly using Kelly-weighted score.
+//
+// Per-rung tuning is necessary because Kelly's variance penalty compresses
+// scores hardest at the longshot end:
+//   · 1+ scores: ~0.30–0.40 typical → floor 0.25
+//   · 2+ scores: ~0.20–0.34 typical → floor 0.20
+//   · 3+ scores: ~0.13–0.28 typical → floor 0.15
+//
+// A flat floor would produce roughly equal counts per rung but never let
+// a 3+ longshot through unless it's truly elite. Per-rung floors preserve
+// 3+/2+ presence on slates where they're genuinely the best Kelly bet for
+// that variance class while still cutting the marginal tail.
+//
+// Calibrated against the 2026-05-04 slate (33 tracked → expected ~17 with
+// these floors). Recalibrate via npm run recalibrate after 30 days of
+// settled history accumulate.
+export const SCORE_FLOORS_TRACKED: Record<Rung, number> = { 1: 0.25, 2: 0.20, 3: 0.15 }
 
 // Display floor: a pick is shown in the "Other plays" section if SCORE >= this.
 // SCORE = Kelly fraction × confidence (post-2026-04-29 switch from EDGE × conf
