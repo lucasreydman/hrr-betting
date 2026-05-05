@@ -64,19 +64,24 @@ export function blendWeights(month: number): { season: number; l30: number; l15:
 //   p_typical  ≥ P_TYPICAL_FLOORS_TRACKED[rung]
 //   score      ≥ SCORE_FLOORS_TRACKED[rung]
 //
-// Symmetric design on the first three: as the rung gets harder, we accept
-// lower absolute probability but demand higher relative edge.
-//   · 1+ (easy):     prob 0.80 / edge 0.10 — "high confidence, doesn't need a steal"
-//   · 2+ (moderate): prob 0.60 / edge 0.20 — "decent chance + decent value"
-//   · 3+ (hard):     prob 0.40 / edge 0.30 — "longshot, but only at real value"
+// Per-rung scaling on the first three:
+//   · 1+ (easy):     prob 0.80 / edge 0.10 — "high confidence, small lift"
+//   · 2+ (moderate): prob 0.60 / edge 0.15 — "decent chance + meaningful lift"
+//   · 3+ (hard):     prob 0.40 / edge 0.20 — "longshot, real lift"
+//
+// Edge floors retuned 2026-05-05 from the steeper {0.10, 0.20, 0.30} curve.
+// Rationale: a 10% relative lift is a meaningful slate-specific claim
+// regardless of rung. The original aggressive ramp (0.30 at 3+) was
+// over-restricting on harder rungs where the model already filters
+// hard via PROB_FLOORS + the new pTypical/score gates. Edge stays
+// monotonic in rung but the spacing is gentler.
 //
 // History: the original 0.85/0.55/0.20 prob and 0.10/0.30/0.60 edge values
 // were calibrated against a buggy model that pegged the pitcher factor at
 // its 2.0 cap on ~72% of picks (see lib/mlb-api.ts hrPct fix). After the
 // fix, the model output deflated proportionally and no slate had any
-// tracked picks under the old floors. These values restore meaningful
-// daily volume while keeping the "high-conviction" semantic.
-export const EDGE_FLOORS: Record<Rung, number> = { 1: 0.10, 2: 0.20, 3: 0.30 }
+// tracked picks under the old floors.
+export const EDGE_FLOORS: Record<Rung, number> = { 1: 0.10, 2: 0.15, 3: 0.20 }
 export const PROB_FLOORS: Record<Rung, number> = { 1: 0.80, 2: 0.60, 3: 0.40 }
 
 // p̂ typical floor — the quality-first robustness gate added 2026-05-05.
