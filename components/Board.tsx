@@ -5,6 +5,8 @@ import type { Pick } from '@/lib/ranker'
 import { PickRow } from './PickRow'
 import { EmptyState } from './EmptyState'
 import { EDGE_FLOORS, PROB_FLOORS } from '@/lib/constants'
+import { buildBoardCsv } from '@/lib/board-csv'
+import { slateDateString } from '@/lib/date-utils'
 import { BetSettingsProvider, useBetSettings } from './BetSettingsContext'
 
 export type PickWithRung = Pick & { rung: 1 | 2 | 3 }
@@ -110,7 +112,7 @@ const RUNG_QUOTAS: Record<1 | 2 | 3, number> = {
  * Settings are persisted via the provider's localStorage hooks; this
  * component just reads/writes through the context.
  */
-function BetSettingsBar() {
+function BetSettingsBar({ picks }: { picks: PickWithRung[] }) {
   const { bankroll, kellyMultiplier, setBankroll, setKellyMultiplier } = useBetSettings()
   return (
     <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-border/60 bg-card/20 px-3 py-2 sm:px-4">
@@ -146,10 +148,37 @@ function BetSettingsBar() {
           <option value={1}>Full</option>
         </select>
       </label>
-      <span className="ml-auto text-[11px] text-ink-muted/70">
-        Recommended bets reload as you change either field. Quarter Kelly is the safe default.
-      </span>
+      <ExportCsvButton picks={picks} />
     </div>
+  )
+}
+
+function ExportCsvButton({ picks }: { picks: PickWithRung[] }) {
+  const onClick = () => {
+    const date = slateDateString()
+    const csv = buildBoardCsv(picks, date)
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
+    a.href = url
+    a.download = `hrr-board-${date}-${stamp}.csv`
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    URL.revokeObjectURL(url)
+  }
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={picks.length === 0}
+      title="Download every pick on the board (with full inputs + factor breakdowns) as a CSV. One row per pick, ~60 columns wide — paste back to the assistant for error triage."
+      className="ml-auto rounded border border-border bg-card/50 px-2 py-1 font-mono text-[11px] text-ink hover:bg-card disabled:cursor-not-allowed disabled:opacity-40"
+      aria-label={`Export ${picks.length} picks to CSV`}
+    >
+      Export CSV ({picks.length})
+    </button>
   )
 }
 
@@ -246,7 +275,7 @@ function BoardContents({ picks }: { picks: PickWithRung[] }) {
 
   return (
     <section className="overflow-hidden rounded-lg border border-border bg-card/20" aria-label="Picks board">
-      <BetSettingsBar />
+      <BetSettingsBar picks={visible} />
       <header className="flex flex-wrap items-center justify-between gap-x-4 gap-y-3 border-b border-border bg-card/50 px-3 py-3 sm:px-4">
         <div className="flex flex-wrap items-center gap-2">
           <span className="text-[11px] uppercase tracking-wider text-ink-muted">Rung</span>
