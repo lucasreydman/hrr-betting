@@ -5,7 +5,8 @@ Short, repo-specific guidance for Claude. The README has the full picture — th
 ## Project Context
 
 - MLB Hits + Runs + RBIs prop ranker. Three independently-ranked rungs (1+, 2+, 3+ HRR), auto-tracked picks, rolling calibration metrics.
-- Hybrid model: an offline 20k-iter Monte Carlo (`probTypical`) cached in Supabase, multiplied at request time by closed-form factors (`probToday = probTypical × pitcher × park × weather × handedness × bullpen × paCount`).
+- Hybrid model: an offline 20k-iter Monte Carlo (`probTypical`) cached in Supabase, multiplied at request time by **8 closed-form factors** composed on the odds scale — `pitcher · park · weather · handedness · bullpen · paCount · bvp · batter`.
+- **Five-gate tracked tier**: `confidence ≥ 0.85`, `edge ≥ EDGE_FLOORS[rung]`, `p̂ today ≥ PROB_FLOORS[rung]`, `p̂ typical ≥ P_TYPICAL_FLOORS_TRACKED[rung]`, `score ≥ SCORE_FLOORS_TRACKED[rung]`. Picks lock at T-30 min before first pitch; live board surfaces three statuses (🔒 Tracking / 🎯 Targeting / 👀 Watching).
 - Stack: Next.js 16 App Router (Turbopack), React 19, Tailwind v4, TypeScript 6 (strict), Jest 30 + ts-jest, Supabase Postgres.
 - Hosted on Vercel Hobby; cron driven by GitHub Actions (free tier).
 
@@ -37,6 +38,8 @@ Live-network smoke tests are opt-in: `RUN_LIVE_TESTS=1 npm test` (not in CI).
 - `lib/tracker.ts` — lock + settle, plus pure metric helpers (`shouldLock`, `computeRollingMetrics`).
 - `lib/kv.ts` · `lib/db.ts` · `lib/env.ts` · `lib/cron-auth.ts` — Supabase + cache plumbing + `x-cron-secret` check.
 - `lib/discord.ts` — Discord webhook notifier. Pure embed builders + thin POST wrapper. Idempotent via `locked_picks.discord_notified_at` (per-game lock alerts) and a KV flag (per-day settle digest).
+- `lib/board-csv.ts` — flat one-row-per-pick CSV serializer used by the board's "Export CSV" button. Wide format (~60 columns) for off-line triage of the model's per-pick inputs.
+- `scripts/cleanup-failing-locked-picks.ts` — one-shot tool to drop `locked_picks` rows whose snapshot fails current floors after a retroactive floor change. Documented playbook for the 2026-05-05 5-gate rollout.
 - `lib/date-utils.ts` — `slateDateString()` (ET 3 AM rollover, the slate helper).
 - `__tests__/` — Jest tests; one alongside each math primitive.
 - `supabase/migrations/` — schema + one-shot cache invalidations.
@@ -52,7 +55,7 @@ Live-network smoke tests are opt-in: `RUN_LIVE_TESTS=1 npm test` (not in CI).
 - **API input validation is strict.** All `?date=` go through `isValidIsoDate`. All IDs must be positive integers. Bad input → 400.
 - **Cron routes 401 on bad secret.** `verifyCronRequest` fails closed in production, opens in dev.
 - **Picks history is idempotent.** `locked_picks` / `settled_picks` upserts use `onConflict: 'date,game_id,player_id,rung'`.
-- **Tracked-tier floors are placeholders.** `EDGE_FLOORS`, `PROB_FLOORS`, `CONFIDENCE_FLOOR_TRACKED` in `lib/constants.ts` need ≥30 days of settled history before tuning. Use `npm run recalibrate`.
+- **Tracked-tier floors are placeholders.** All five floors in `lib/constants.ts` (`CONFIDENCE_FLOOR_TRACKED`, `EDGE_FLOORS`, `PROB_FLOORS`, `P_TYPICAL_FLOORS_TRACKED`, `SCORE_FLOORS_TRACKED`) need ≥30 days of settled history before tuning. Use `npm run recalibrate`. The `classifyTier` contract in `lib/ranker.ts` is locked by `__tests__/classify-tier.test.ts` — update that suite when changing gate logic.
 - **Auto-refresh cadence.** Server cache 30 s; client polls every 60 s + on `visibilitychange`/`online`. Don't push lower without raising cron cadence.
 - **New math primitive → unit test alongside.** New API route → at least an input-validation test.
 

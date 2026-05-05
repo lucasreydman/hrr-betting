@@ -28,12 +28,13 @@ export default function Methodology() {
       <Section heading="What the board ranks" eyebrow="Overview">
         <p>
           Every row is a single prop bet: one batter, one rung. The board is sorted
-          by an internal <Code>Score</Code> (Kelly bet fraction × confidence) that
-          answers &ldquo;how much would Kelly bet on this at the model&apos;s
-          fair-typical odds, weighted by data quality.&rdquo; Score is no longer
-          shown as its own column; the visible wager column shows the recommended
-          bet in dollars once you enter the FanDuel line for a row (see{' '}
-          <em>Wager sizing</em> below).
+          by <Code>Score</Code> (Kelly bet fraction × confidence) — &ldquo;how much
+          would Kelly bet on this at the model&apos;s fair-typical odds, weighted by
+          data quality.&rdquo; Score is shown in its own column on the board (green
+          when ≥ the rung&apos;s tracked-tier floor) and is the 5th and final gate
+          a pick must clear to be Tracked or Targeting. The wager column to its
+          right shows the recommended bet in dollars once you enter the FanDuel
+          line for a row (see <em>Wager sizing</em> below).
         </p>
         <p>
           Three rungs per player: <RungTag rung={1} />,{' '}
@@ -169,18 +170,16 @@ p̂_today       = oddsToday / (1 + oddsToday)`}
             </p>
           </Card>
 
-          <Card title="Score (silent sort key)" subtitle="Kelly bet fraction × confidence">
+          <Card title="Score" subtitle="Kelly bet fraction × confidence">
             <Formula>
               {`kelly = (p̂_today − p̂_typical) / max(1 − p̂_typical, 0.01)
 score = kelly × confidence`}
             </Formula>
             <p>
-              Drives the default ranking on the board (highest score on top). No
-              longer shown as its own column — the displayed value is the
-              actionable bet size in dollars, computed from the FanDuel line you
-              enter per pick (see <em>Wager sizing</em> below). Score lives on as
-              the math behind &ldquo;which row sorts first&rdquo;; the abstract
-              0–100 number it produced wasn&apos;t directly interpretable.
+              Shown in its own column on the board (green when ≥ the rung&apos;s
+              tracked-tier floor) and drives the default sort (highest on top).
+              Score also acts as the 5th and final tracked-tier gate — see{' '}
+              <em>Tracking · Targeting · Watching</em> below.
             </p>
             <Note label="Why Kelly, not relative edge">
               Relative edge scales with rarity, so 3+ HRR longshots (typical ≈ 10%)
@@ -231,20 +230,21 @@ americanOdds = round-to-book-increment(bookProb → moneyline)`}
           ~10pp via factor composition (pitcher × park × weather × ...), the
           book usually moves less aggressively from their own season baseline.
           Empirically a 0.767 / 0.862 (pTypical / pToday) pick had FanDuel at
-          -500 — implied 0.833, almost exactly the midpoint of our two
-          probabilities plus typical vig. Using <Code>p̂ today</Code> alone
-          (with vig on top) over-extrapolates and produces too-steep estimates
-          like -900 when the real line is -500.
+          -500 — implied 0.833, very close to the midpoint of our two
+          probabilities (0.815). Using <Code>p̂ today</Code> alone over-
+          extrapolates and produces too-steep estimates (around -550 here)
+          while the real line was -500.
         </Note>
-        <Note label="Estimated vs entered line">
-          The 4pp vig assumption is a coarse mid-estimate of FanDuel-class
-          player-prop hold (typical 7–10% total, split across both sides). Real
-          book lines vary on demand and book-specific projections. Use the
-          estimate as a sanity check — &ldquo;this pick is ~+$30 against a
-          typical line&rdquo; — then enter the actual line for the real bet size.
-          When the actual line is steeper than the estimate (book sees the
-          matchup as more lopsided than the model does), the recommended bet
-          shrinks or goes to skip.
+        <Note label="No vig assumption">
+          The displayed estimate is the <em>fair-line</em> American moneyline
+          for the midpoint probability — no book-vig nudge is added. We dropped
+          a previous +0.04 vig assumption because hold varies by book and market
+          and any constant introduces a systematic bias that&apos;s hard to back
+          out later. The estimate is meant as a sanity check (&ldquo;this pick
+          is roughly a -440 favourite by the model&rdquo;); type the actual
+          FanDuel line over it for the real bet size. When the entered line is
+          steeper than the estimate (book sees the matchup as more lopsided
+          than the model), the recommended bet shrinks or skips.
         </Note>
       </Section>
 
@@ -313,13 +313,13 @@ americanOdds = round-to-book-increment(bookProb → moneyline)`}
         </p>
         <ul className="ml-5 list-disc space-y-2 text-sm marker:text-ink-muted">
           <li>
-            <span className="text-ink-muted">🔒 Tracking</span> — the pick has
-            been snapshotted into <Code>locked_picks</Code> by the lock cron at
-            T-30 min and is settlement-bound. Top-line numbers (p̂ today,
-            p̂ typical, edge, confidence, score) are <strong>frozen at
-            lock-time</strong>. The math panel still shows live factor values
-            so you can see what has shifted since lock, but the headline
-            numbers and the tracked tier won&apos;t move.
+            <span className="text-ink-muted/80">🔒 Tracking</span> — the pick
+            has been snapshotted into <Code>locked_picks</Code> by the lock
+            cron at T-30 min and is settlement-bound. Top-line numbers (p̂
+            today, p̂ typical, edge, confidence, score) are{' '}
+            <strong>frozen at lock-time</strong>. The math panel still shows
+            live factor values so you can see what has shifted since lock,
+            but the headline numbers and the tracked tier won&apos;t move.
           </li>
           <li>
             <span className="text-tracked">🎯 Targeting</span> — the pick is
@@ -331,7 +331,7 @@ americanOdds = round-to-book-increment(bookProb → moneyline)`}
             committed yet.&rdquo;
           </li>
           <li>
-            <span className="text-ink-muted/80">👀 Watching</span> — the pick
+            <span className="text-ink-muted/70">👀 Watching</span> — the pick
             is below at least one tracked-tier floor right now but its score
             still clears the display floor (<Code>0.05</Code>). It might cross
             into Targeting before the lock window if conditions improve. Once
@@ -557,7 +557,7 @@ p < 0.5  →  odds = +round(100 × (1 − p) / p)        (underdog)`}
             (e.g. a late-recovering pick that crossed back into Targeting at T-15)
             still land. Once a pick is locked, its status flips from{' '}
             <span className="text-tracked">🎯 Targeting</span> to{' '}
-            <span className="text-ink-muted">🔒 Tracking</span> and the displayed
+            <span className="text-ink-muted/80">🔒 Tracking</span> and the displayed
             top-line numbers (p̂ today, p̂ typical, edge, confidence, score)
             are <strong>frozen at lock-time</strong>. The probability factor
             breakdown in the math panel still shows the *current* live values,

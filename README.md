@@ -19,14 +19,14 @@ The model is a **two-stage hybrid**:
 1. **Offline Monte Carlo** (`probTypical`) — 20,000-iteration lineup-aware simulation per batter against a league-average opponent, recomputed weekly (Sunday full sweep) and nightly (Mon–Sat slate batters). Cached in Supabase for 14 days.
 2. **Closed-form `probToday`** (request-time) — eight multiplicative factors composed on the odds scale: `pitcher · park · weather · handedness · bullpen · paCount · bvp · batter`. Sub-millisecond on the hot path so the page can stay on Vercel Hobby with no `maxDuration` overrides. See `/methodology` for what each factor captures and its bounds.
 
-A "Tracked" tier (high-conviction picks gated by `EDGE` / probability / confidence floors) is locked at lineup-confirmation time and auto-settled the next morning from MLB boxscores. A `/history` page exposes hit rate and Brier score by rung over all settled history.
+A "Tracked" tier (high-conviction picks gated by **five floors**: confidence, edge, p̂ today, p̂ typical, and Kelly score — all per-rung) is locked at T-30 min before first pitch and auto-settled the next morning from MLB boxscores. The board surfaces three mutually-exclusive bet statuses: 🔒 **Tracking** (locked), 🎯 **Targeting** (passing all five floors but not yet locked), and 👀 **Watching** (below at least one floor). A `/history` page exposes hit rate and Brier score by rung over all settled history.
 
 ## Features
 
 - Three independently-ranked rung boards (1+, 2+, 3+ HRR) sourced from a single slate.
 - Hybrid ranking model with offline MC baseline + closed-form request-time factors.
 - Auto-refresh: server cache 30 s, client polls every 60 s, instant refetch on tab focus / network reconnect.
-- High-conviction "Tracked" picks auto-locked at lineup confirmation, auto-settled at 3:15 AM ET via MLB boxscore.
+- High-conviction "Tracked" picks auto-locked at ≤30 min before first pitch, auto-settled at 3:15 AM ET via MLB boxscore.
 - Optional Discord webhook notifications: per-game lock alerts when picks newly enter the tracked tier (with `@everyone` mention so phone push fires reliably), plus a daily settle-recap digest.
 - **Per-pick wager sizing** — type the FanDuel American line into a row and it computes a Kelly-sized bet in dollars against your bankroll. User-controlled bankroll + Kelly fraction (Eighth / Quarter / Half / Full) at the top of the board, both persisted to localStorage.
 - `/history` dashboard with all-time hit rate, per-rung Brier score, predicted-vs-actual calibration, and recent settled picks.
@@ -197,13 +197,13 @@ The board top has two settings that control bet sizing across every row, both pe
 - **Bankroll** — typed dollar amount (default `$500`). Recommended bet sizes scale linearly with this number.
 - **Kelly Fraction** — dropdown (Eighth / Quarter / Half / Full, default Quarter). Multiplied against the full Kelly fraction so theoretical-optimal bets get scaled down to absorb model error. Quarter Kelly is the safe default; Full Kelly assumes a perfectly calibrated model and is rarely the right choice in practice.
 
-Each row has a small input cell (replacing the old "Score" column) where you type the FanDuel American line you see on the actual book (e.g. `-110`, `+150`, `-300`). Once a valid line is entered:
+Each row has a wager cell where you type the FanDuel American line you see on the actual book (e.g. `-110`, `+150`, `-300`). Until you enter a line, the cell shows an estimated bet against the **vig-free midpoint** of `p̂ typical` and `p̂ today` (italicised, prefixed `≈`). Once a valid line is entered:
 
 - The row immediately shows the recommended bet in dollars.
 - The expanded details panel shows the full breakdown: implied book probability with edge over book in pp, EV per `$1` wagered, and the Kelly-sized bet.
 - `-EV` plays (book line implies higher prob than the model's `p̂_today`) recommend `$0` ("skip") so you never bet against the math.
 
-Math primitives in `lib/bet-sizing.ts` (`impliedProbFromAmericanOdds`, `evPerDollar`, `kellyFraction`, `recommendedBet`, `parseAmericanOdds`) are pure functions covered by 38 unit tests. The Score column is gone from the visible board; Score lives on as the silent default sort key.
+Math primitives in `lib/bet-sizing.ts` (`impliedProbFromAmericanOdds`, `evPerDollar`, `kellyFraction`, `recommendedBet`, `parseAmericanOdds`, `estimateBookOddsFromModelProb`) are pure functions covered by ~40 unit tests. The Score column sits between Confidence and Wager on the board and acts as the 5th tracked-tier gate (Kelly-weighted conviction, per-rung floor).
 
 ## Important implementation details
 
@@ -214,7 +214,7 @@ Math primitives in `lib/bet-sizing.ts` (`impliedProbFromAmericanOdds`, `evPerDol
 - **Tracked tier locking.** `/api/lock` reads the `picks:current:{date}` cache when warm and falls back to a fresh `rankPicks(date)` when cold — without this fallback an empty cache silently dropped the entire slate's tracked picks (see comments in `app/api/lock/route.ts`).
 - **History idempotency.** Both `locked_picks` and `settled_picks` upserts use `onConflict: 'date,game_id,player_id,rung'`, so re-runs are safe.
 - **Cron auth.** `lib/cron-auth.ts` fails **closed** in production (no `CRON_SECRET` → 401) and **open** in dev (so `npm run dev` works without secrets).
-- **Tracked-tier floors.** `EDGE_FLOORS`, `PROB_FLOORS`, `CONFIDENCE_FLOOR_TRACKED` in `lib/constants.ts` are placeholders; tune via `npm run recalibrate` after ≥30 days of settled history.
+- **Tracked-tier floors.** Five gates in `lib/constants.ts` — `CONFIDENCE_FLOOR_TRACKED`, `EDGE_FLOORS`, `PROB_FLOORS`, `P_TYPICAL_FLOORS_TRACKED`, `SCORE_FLOORS_TRACKED` — are placeholders; tune via `npm run recalibrate` after ≥30 days of settled history.
 
 ## Testing and quality checks
 
@@ -227,7 +227,7 @@ npm test
 npm run build
 ```
 
-Test suite covers math primitives (factors, edge, confidence, weather, park, baserunner, **bet-sizing**), data adapters (mlb-api, savant-api, weather-api, lineup, slate-batters, bullpen, discord), API routes (refresh, sim-typical, admin-bvp), security boundary (cron-auth), and pure helpers in `lib/tracker.ts` (`shouldLock`, `computeRollingMetrics`). At time of writing: **404 tests across 36 suites**. New math files **must** ship with a `__tests__/<name>.test.ts` alongside; new API routes need at least an input-validation test when no fetch mock is available. Tests are hermetic — no live network calls without `RUN_LIVE_TESTS=1`.
+Test suite covers math primitives (factors, edge, confidence, weather, park, baserunner, **bet-sizing**, **classify-tier** for the 5-gate contract), data adapters (mlb-api, savant-api, weather-api, lineup, slate-batters, bullpen, discord), API routes (refresh, sim-typical, admin-bvp), security boundary (cron-auth), and pure helpers in `lib/tracker.ts` (`shouldLock`, `computeRollingMetrics`). At time of writing: **473 tests across 38 suites**. New math files **must** ship with a `__tests__/<name>.test.ts` alongside; new API routes need at least an input-validation test when no fetch mock is available. Tests are hermetic — no live network calls without `RUN_LIVE_TESTS=1`.
 
 ## Deployment
 
