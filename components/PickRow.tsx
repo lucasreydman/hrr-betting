@@ -675,10 +675,12 @@ function MathPanel({ pick, rung, localTime, storedLine }: {
         </p>
         <KV label={<>p̂ today <span className="text-ink-muted/70">— this game</span></>}>
           {pct(pick.pMatchup, 2)}
+          <span className="ml-1.5 text-[10px] text-ink-muted">/ {americanOdds(pick.pMatchup)}</span>
           {numerFloored && <span className="ml-1 text-warn">→ floor {pct(edgeFloor, 0)}</span>}
         </KV>
         <KV label={<>p̂ typical <span className="text-ink-muted/70">— player baseline</span></>}>
           {pct(pick.pTypical, 2)}
+          <span className="ml-1.5 text-[10px] text-ink-muted">/ {americanOdds(pick.pTypical)}</span>
           {denomFloored && <span className="ml-1 text-warn">→ floor {pct(edgeFloor, 0)}</span>}
         </KV>
         <KV label="= Edge">
@@ -1114,12 +1116,10 @@ export function PickRow({ pick, rung }: { pick: Pick; rung?: 1 | 2 | 3 }) {
             >
               {pct(pick.pTypical, 1)}
             </div>
-            <div className="font-mono text-[10px] tabular-nums text-ink-muted">
-              {americanOdds(pick.pTypical)}
-            </div>
           </div>
 
-          {/* PROB. TODAY — % over American odds. Green when ≥ rung's prob floor. */}
+          {/* PROB. TODAY — green when ≥ rung's prob floor. American-odds
+              equivalent moved to the expanded math panel only. */}
           <div className="text-center">
             <div
               className={
@@ -1128,9 +1128,6 @@ export function PickRow({ pick, rung }: { pick: Pick; rung?: 1 | 2 | 3 }) {
               }
             >
               {pct(pick.pMatchup, 1)}
-            </div>
-            <div className="font-mono text-[10px] tabular-nums text-ink-muted">
-              {americanOdds(pick.pMatchup)}
             </div>
           </div>
 
@@ -1284,7 +1281,7 @@ export function PickRow({ pick, rung }: { pick: Pick; rung?: 1 | 2 | 3 }) {
                     : undefined
                 }
               >
-                {pct(pick.pTypical, 1)} <span className="text-[10px] text-ink-muted">/ {americanOdds(pick.pTypical)}</span>
+                {pct(pick.pTypical, 1)}
               </span>
             </div>
             <div className="flex justify-between text-xs">
@@ -1295,7 +1292,7 @@ export function PickRow({ pick, rung }: { pick: Pick; rung?: 1 | 2 | 3 }) {
                   (passesProbFloor(pick.pMatchup, rung) ? 'font-semibold text-hit' : 'text-ink')
                 }
               >
-                {pct(pick.pMatchup, 1)} <span className="text-[10px] text-ink-muted">/ {americanOdds(pick.pMatchup)}</span>
+                {pct(pick.pMatchup, 1)}
               </span>
             </div>
             <div className="mt-1 flex gap-4 text-xs">

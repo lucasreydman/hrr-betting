@@ -14,11 +14,13 @@ export type PickWithRung = Pick & { rung: 1 | 2 | 3 }
 export type SortKey = 'score' | 'pTypical' | 'pMatchup' | 'edge' | 'confidence' | 'game'
 
 // p̂ = "p-hat", standard stats notation for an estimated probability. Used in
-// labels and column headers throughout the board. Object key order also drives
-// the `<select>` option order — Default (Kelly score) first, Game second since
-// "by game start" is the most-used alternative ordering.
+// labels and column headers throughout the board. Object key order drives the
+// `<select>` option order — Score (Kelly score) first as the default, Game
+// second as the most-used alternative ordering, then the remaining options
+// follow the left-to-right order of the table columns (p̂ typical, p̂ today,
+// edge, confidence) so the dropdown reads the same way as the row.
 const SORT_LABELS: Record<SortKey, string> = {
-  score: 'Default',
+  score: 'Score',
   game: 'Game',
   pTypical: 'p̂ typical',
   pMatchup: 'p̂ today',
@@ -75,9 +77,9 @@ const STATUS_TOOLTIPS: Record<GameStatusFilter, string> = {
 type BetStatusFilter = 'tracking' | 'targeting' | 'watching'
 
 const BET_STATUS_LABELS: Record<BetStatusFilter, string> = {
-  tracking: '🔒 Tracking',
-  targeting: '🎯 Targeting',
-  watching: '👀 Watching',
+  tracking: 'Tracking',
+  targeting: 'Targeting',
+  watching: 'Watching',
 }
 
 const BET_STATUS_TOOLTIPS: Record<BetStatusFilter, string> = {

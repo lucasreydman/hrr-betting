@@ -133,35 +133,28 @@ export function parseAmericanOdds(input: string): number | null {
 // ---------------------------------------------------------------------------
 
 /**
- * Typical vig added to model probability to approximate the book's implied
- * probability. Player props on FanDuel-class books typically run ~7-10%
- * total hold (split across both sides of a Yes/No market); 4pp on the side
- * we're betting is a reasonable middle estimate. Lower for sharper books
- * (DK reduced juice promotions), higher for less competitive markets.
- */
-const TYPICAL_BOOK_VIG_PP = 0.04
-
-/**
  * Estimate the American moneyline a sportsbook (FanDuel-class) would post
- * for a player prop. Books tend to be more conservative on matchup
- * adjustments than the model, so the book's implied probability typically
- * lands between our `pTypical` (the season-stabilized baseline) and
- * `pToday` (after factor composition on top of pTypical) — not at pToday
- * + vig. Empirically observed on a Turang 1+ HRR pick:
+ * for a player prop using the **vig-free midpoint** of `pTypical` and `pToday`.
+ *
+ * Books tend to be more conservative on matchup adjustments than the
+ * model — their implied probability typically lands between our `pTypical`
+ * (the season-stabilized baseline) and `pToday` (after factor composition).
+ * Empirically observed on a Turang 1+ HRR pick:
  *
  *     pTypical  0.767  →  -329
  *     pToday    0.862  →  -625
- *     book actual    -500     (implied 0.833 → ~0.79 stripped of vig)
+ *     book actual    -500     (implied 0.833)
  *
- * The book's true-prob estimate (0.79) sits roughly midway between
- * pTypical (0.767) and pToday (0.862). Suggests the book's own model
- * applies a smaller matchup boost than our factor product — they hedge
- * toward the season baseline. Using pToday alone over-extrapolates;
- * using pTypical alone under-extrapolates.
+ * The book's implied probability (0.833) sits between pTypical and pToday.
+ * Using pToday alone over-extrapolates; using pTypical alone under-
+ * extrapolates. Taking the midpoint and converting straight to American
+ * moneyline produces a fair-line estimate without baking in any assumed
+ * book vig — accuracy depends on which book/market you're comparing
+ * against, and a vig assumption introduces a constant per-prop bias that
+ *'s hard to back out later.
  *
  * Method:
- *   baseProb       = (pTypical + pToday) / 2          // midpoint
- *   bookImplied    = clamp(baseProb + 0.04, 0.01, 0.97)
+ *   bookImplied    = (pTypical + pToday) / 2          // pure midpoint, no vig
  *   americanOdds   = book-rounded moneyline from bookImplied
  *
  * Round to standard book increments:
@@ -170,8 +163,7 @@ const TYPICAL_BOOK_VIG_PP = 0.04
  *     |odds| > 500  → nearest 50
  *
  * `pTypical` is optional for backwards compatibility — when omitted, the
- * estimator falls back to `modelProb` alone (less accurate but still
- * yields a sensible starting estimate).
+ * estimator falls back to `modelProb` alone.
  *
  * Returns 100 (closest-to-neutral integer in valid American-odds space)
  * for non-finite or out-of-range probabilities.
@@ -186,7 +178,7 @@ export function estimateBookOddsFromModelProb(
     pTypical !== undefined && Number.isFinite(pTypical) && pTypical > 0 && pTypical < 1
   const baseProb = hasPTypical ? (modelProb + (pTypical as number)) / 2 : modelProb
 
-  const bookImpliedProb = Math.min(0.97, Math.max(0.01, baseProb + TYPICAL_BOOK_VIG_PP))
+  const bookImpliedProb = Math.min(0.97, Math.max(0.01, baseProb))
 
   // Convert implied probability → American moneyline.
   const raw = bookImpliedProb >= 0.5
