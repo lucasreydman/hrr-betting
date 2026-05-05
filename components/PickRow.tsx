@@ -359,6 +359,17 @@ function WagerCell({
   // the expanded panel underneath.
   const stopPropagation = (e: React.SyntheticEvent) => e.stopPropagation()
 
+  // On blur, prepend `+` to bare positive integers (`100` → `+100`) so the
+  // stored / displayed value matches American-odds convention. parseAmericanOdds
+  // already accepts bare positives, so this is purely cosmetic — but it keeps
+  // the row visually consistent with `-110` favourites that always carry a sign.
+  const normalizeOnBlur = (e: React.FocusEvent<HTMLInputElement>) => {
+    const v = e.target.value.trim()
+    if (v && !/^[+-]/.test(v) && /^\d+$/.test(v) && parseInt(v, 10) >= 100) {
+      setInput(`+${v}`)
+    }
+  }
+
   const bet = recommendedBet({
     modelProb,
     americanOdds: effectiveOdds,
@@ -404,6 +415,7 @@ function WagerCell({
         aria-label="FanDuel American moneyline odds for this prop (placeholder shows estimated book line)"
         value={input}
         onChange={e => setInput(e.target.value)}
+        onBlur={normalizeOnBlur}
         onClick={stopPropagation}
         onKeyDown={stopPropagation}
         onMouseDown={stopPropagation}
@@ -817,6 +829,15 @@ function MathPanel({ pick, rung, localTime, storedLine }: {
             aria-label="FanDuel American moneyline odds (placeholder shows estimated book line)"
             value={storedLine.input}
             onChange={e => storedLine.setInput(e.target.value)}
+            onBlur={e => {
+              // Prepend `+` to bare positive integers so the stored /
+              // displayed value matches American-odds convention. Mirrors
+              // the same normalization used by the row-level wager input.
+              const v = e.target.value.trim()
+              if (v && !/^[+-]/.test(v) && /^\d+$/.test(v) && parseInt(v, 10) >= 100) {
+                storedLine.setInput(`+${v}`)
+              }
+            }}
             onClick={e => e.stopPropagation()}
             onKeyDown={e => e.stopPropagation()}
             onMouseDown={e => e.stopPropagation()}
