@@ -475,12 +475,15 @@ americanOdds = round-to-book-increment(bookProb → moneyline)`}
         </p>
       </Section>
 
-      <Section heading="American odds" eyebrow="What the secondary number on each prob means">
+      <Section heading="American odds" eyebrow="Inside the expanded math panel">
         <p>
-          The <Code>−341</Code> next to <Code>p̂ typical</Code> 77.3% is the model&apos;s
-          fair line at zero juice. Standard probability → moneyline conversion:
-          favourites get a negative number, underdogs a positive. Beating the displayed
-          line at a sportsbook means you&apos;re getting positive expected value{' '}
+          The percentages on the row (<Code>p̂ typical</Code>, <Code>p̂ today</Code>)
+          are the model&apos;s estimated probabilities. The expanded math panel
+          surfaces the matching American moneyline alongside each — e.g.{' '}
+          <Code>77.3% / −341</Code>. That&apos;s the model&apos;s fair line at
+          zero juice: standard probability → moneyline conversion, favourites
+          negative and underdogs positive. Beating the displayed line at a
+          sportsbook means you&apos;re getting positive expected value{' '}
           <em>relative to the model</em>.
         </p>
         <Formula>
@@ -489,11 +492,11 @@ p < 0.5  →  odds = +round(100 × (1 − p) / p)        (underdog)`}
         </Formula>
         <p className="text-xs text-ink-muted">
           The app does not auto-ingest sportsbook lines — there is no live odds
-          feed, scraper, or aggregator. The American number shown next to{' '}
-          <Code>p̂ typical</Code> and <Code>p̂ today</Code> is purely the model&apos;s
-          own probability translated into a moneyline. The Wager sizing feature
-          accepts a FanDuel line per pick via manual entry; that entry is the
-          only place a real book line enters the system.
+          feed, scraper, or aggregator. The American moneyline shown alongside{' '}
+          <Code>p̂ typical</Code> and <Code>p̂ today</Code> in the math panel is
+          purely the model&apos;s own probability translated into a moneyline.
+          The Wager sizing feature accepts a FanDuel line per pick via manual
+          entry; that entry is the only place a real book line enters the system.
         </p>
       </Section>
 
