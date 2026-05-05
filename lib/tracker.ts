@@ -393,34 +393,6 @@ async function settlePicksKv(date: string): Promise<{ settled: number; pending: 
 // ============================================================================
 
 /**
- * Return the set of (game_id, player_id, rung) keys for picks already
- * locked into `locked_picks` for a slate. Used by the live ranker to
- * overlay tier='tracked' on picks whose lock window has fired.
- *
- * Returns each entry as the canonical lookup string `"{gameId}:{playerId}:{rung}"`.
- * Empty set on Supabase unavailable, fetch failure, or unlocked slate.
- *
- * For the *full* row data (needed to also overlay frozen p_matchup /
- * p_typical / edge / confidence / score values from lock-time), use
- * `getLockedPickRowsForDate` instead — both functions are kept because
- * the keys-only path is cheaper for callers that only need tier overlay.
- */
-export async function getLockedPickKeysForDate(date: string): Promise<Set<string>> {
-  if (!isSupabaseAvailable()) return new Set()
-  const supabase = getSupabase()!
-  try {
-    const { data, error } = await supabase
-      .from('locked_picks')
-      .select('game_id, player_id, rung')
-      .eq('date', date)
-    if (error || !data) return new Set()
-    return new Set(data.map(r => `${r.game_id}:${r.player_id}:${r.rung}`))
-  } catch {
-    return new Set()
-  }
-}
-
-/**
  * Map keyed by `"{gameId}:{playerId}:{rung}"` of the full locked-pick rows
  * for a slate. Used by the live ranker to overlay BOTH tier='tracked'
  * AND the lock-time snapshot values (p_matchup, p_typical, edge,

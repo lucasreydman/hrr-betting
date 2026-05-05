@@ -384,13 +384,14 @@ americanOdds = round-to-book-increment(bookProb → moneyline)`}
             with anything already locked.
           </li>
           <li>
-            <strong>Once a game starts, non-locked picks can&apos;t become
-            Tracked.</strong> Live boxscore stats, weather becoming irrelevant,
+            <strong>Once a game starts, non-locked picks are dropped from
+            the board.</strong> Live boxscore stats, weather going irrelevant,
             and schedule-cache-age shifts can all nudge a pick&apos;s confidence
             above the 0.85 floor mid-game or post-game — but if it wasn&apos;t
-            committed during the lock window, those drifts don&apos;t earn a
-            tracked badge after the fact. Picks for in-progress / final games
-            get capped at Watching unless they were already locked.
+            committed during the lock window, the decision window has closed
+            and the pick is no longer actionable. The board shows only locked
+            picks (🔒) for in-progress and final games; everything else
+            disappears from the slate at first pitch.
           </li>
         </ul>
         <p className="text-sm">
@@ -496,11 +497,12 @@ p < 0.5  →  odds = +round(100 × (1 − p) / p)        (underdog)`}
             (e.g. a late-recovering pick that crossed back into Tracked at T-15)
             still land. Once a pick is locked, the badge flips from{' '}
             <span className="text-tracked">🎯</span> to{' '}
-            <span className="text-ink-muted">🔒</span> and the tier is pinned —
-            real-time data drift after lock-time can&apos;t bounce the pick back
-            into Watching. The probability / edge / confidence numbers in the math
-            panel still update live so you can see *why* the model has softened
-            on the pick, but the tier itself is frozen at lock-time. See{' '}
+            <span className="text-ink-muted">🔒</span> and the displayed
+            top-line numbers (p̂ today, p̂ typical, edge, confidence, score)
+            are <strong>frozen at lock-time</strong>. The probability factor
+            breakdown in the math panel still shows the *current* live values,
+            so you can see what has shifted since lock — but the headline
+            numbers and the tracked tier are pinned through settlement. See{' '}
             <em>Tracked vs Watching</em> above for the full badge spec.
           </li>
           <li>

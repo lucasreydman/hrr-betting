@@ -2,18 +2,24 @@
  * lib/ranker.ts
  *
  * Composition layer that calls getPTypical + computeProbToday (closed-form),
- * then assembles ranked picks per rung for the /api/picks endpoint.
+ * then assembles ranked picks per rung for the /api/picks endpoint. Per-game
+ * sim cache is no longer used — probToday is computed directly from factor
+ * functions (pitcher, park, weather, handedness, bullpen, paCount, batter,
+ * bvp) applied to the player's pTypical baseline.
  *
- * Phase 8 change: per-game sim cache is no longer used. probToday is computed
- * directly from factor functions (pitcher, park, weather, handedness, bullpen,
- * paCount) applied to the player's pTypical baseline.
+ * Live behavior overlays:
+ *  - Locked picks (rows present in `locked_picks` for this slate): pinned to
+ *    `tier='tracked'` and their lock-time pMatchup/pTypical/edge/confidence/
+ *    score are restored, regardless of how live inputs drift.
+ *  - Non-locked picks for in-progress / final games: dropped entirely. The
+ *    decision window has closed; surfacing post-window noise misleads.
  *
- * V1 simplifications (documented):
- *  - hardHitRate falls back to LG_HARD_HIT_RATE when Savant pitcher data is unavailable
- *  - isOpener=false (opener detection deferred to later phase)
- *  - timeToFirstPitchMin computed live from game.gameDate
- *  - expectedPA hardcoded to 4 per player (hard gates only)
- *  - Hard gates evaluated once per game side (not per rung, not per player)
+ * Implementation notes:
+ *  - hardHitRate falls back to LG_HARD_HIT_RATE when Savant pitcher data
+ *    is unavailable (factor goes neutral, not crash).
+ *  - timeToFirstPitchMin computed live from game.gameDate.
+ *  - expectedPA hardcoded to 4 per player for the hard gates.
+ *  - Hard gates evaluated once per game side (not per rung, not per player).
  */
 
 import { computeEdge, computeScore } from './edge'
@@ -205,12 +211,12 @@ export interface Pick {
   /**
    * True when the pick has already been snapshotted into `locked_picks`
    * for this slate by `/api/lock`. The live ranker treats a locked pick
-   * as `tracked` regardless of current real-time confidence — once a
-   * pick is frozen at lock time, weather forecast updates or schedule
-   * cache shifts can't bounce it out of the tracked tier on the live
-   * board. Undefined / false for picks whose lock window hasn't fired
-   * yet (game still > 90 min out with confirmed lineup, or > 30 min
-   * out otherwise).
+   * as `tracked` regardless of current real-time confidence AND restores
+   * its lock-time top-line numbers — once a pick is frozen, neither
+   * weather updates, schedule-cache drift, nor post-game boxscore data
+   * can move pMatchup/pTypical/edge/confidence/score on the live board.
+   * Undefined / false for picks whose lock window hasn't fired yet
+   * (lock fires at ≤ 30 min before first pitch).
    */
   wasLocked?: boolean
   /**
