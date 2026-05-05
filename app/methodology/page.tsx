@@ -304,9 +304,46 @@ americanOdds = round-to-book-increment(bookProb → moneyline)`}
         </p>
       </Section>
 
-      <Section heading="Tracked vs Watching" eyebrow="Tier classification">
+      <Section heading="Tracking · Targeting · Watching" eyebrow="Bet status">
         <p>
-          A pick is <strong>Tracked</strong> only when all five floors clear:
+          Every pick on the board sits in one of three mutually-exclusive bet
+          statuses. The status answers <em>where is this pick in its lifecycle
+          today?</em> — independent of game state.
+        </p>
+        <ul className="ml-5 list-disc space-y-2 text-sm marker:text-ink-muted">
+          <li>
+            <span className="text-ink-muted">🔒 Tracking</span> — the pick has
+            been snapshotted into <Code>locked_picks</Code> by the lock cron at
+            T-30 min and is settlement-bound. Top-line numbers (p̂ today,
+            p̂ typical, edge, confidence, score) are <strong>frozen at
+            lock-time</strong>. The math panel still shows live factor values
+            so you can see what has shifted since lock, but the headline
+            numbers and the tracked tier won&apos;t move.
+          </li>
+          <li>
+            <span className="text-tracked">🎯 Targeting</span> — the pick is
+            currently passing all five tracked-tier floors but the lock window
+            (≤ T-30) hasn&apos;t fired yet. Conditions can still shift: a
+            weather forecast update or a late lineup change can drop the pick
+            back to Watching, or a lineup confirming late can promote a Watching
+            pick to Targeting. Treat 🎯 as &ldquo;trending toward locked, not
+            committed yet.&rdquo;
+          </li>
+          <li>
+            <span className="text-ink-muted/80">👀 Watching</span> — the pick
+            is below at least one tracked-tier floor right now but its score
+            still clears the display floor (<Code>0.05</Code>). It might cross
+            into Targeting before the lock window if conditions improve. Once
+            a game starts, any pick that hasn&apos;t locked is dropped from
+            the board — Watching picks for live or final games disappear
+            automatically.
+          </li>
+        </ul>
+
+        <h3 className="mt-6 text-base font-semibold text-ink">Tracked-tier floors</h3>
+        <p>
+          A pick is in <strong>Targeting</strong> (or <strong>Tracking</strong>,
+          if locked) only when all five floors clear:
         </p>
         <ul className="ml-5 list-disc space-y-1 text-sm marker:text-ink-muted">
           <li><Code>confidence ≥ {fmtFloor(CONFIDENCE_FLOOR_TRACKED)}</Code></li>
@@ -365,62 +402,38 @@ americanOdds = round-to-book-increment(bookProb → moneyline)`}
           hardest at longer rungs — a flat floor would erase 3+ from the board
           entirely on most slates.
         </p>
-        <p>
-          A pick that misses the Tracked thresholds but still has{' '}
-          <Code>score ≥ 0.05</Code> shows under <em>👀 Watching</em>. Below that, the
-          pick is dropped from the board. Watching picks for in-progress or final
-          games are dropped automatically — once first pitch has fired, a pick that
-          didn&apos;t commit to Tracked is no longer actionable. The board caps at 30 plays per slate via
-          per-rung quotas (15 / 10 / 5) so 3+ longshots don&apos;t get crowded out by
-          high-prob 1+ plays.
+        <p className="text-sm text-ink-muted">
+          The board caps at 30 plays per slate via per-rung quotas
+          (15 / 10 / 5) so 3+ longshots don&apos;t get crowded out by
+          high-prob 1+ plays. Below the <Code>score ≥ 0.05</Code> display
+          floor, picks are dropped from the board entirely.
         </p>
 
-        <h3 className="mt-6 text-base font-semibold text-ink">Badges: 🎯 vs 🔒</h3>
-        <p className="text-sm">
-          Tracked picks carry one of two badges. They&apos;re mutually exclusive
-          and reflect a meaningful state distinction:
-        </p>
-        <ul className="ml-5 list-disc space-y-2 text-sm marker:text-ink-muted">
-          <li>
-            <span className="text-tracked">🎯 Tracked (live)</span> — the pick is
-            currently passing all three floors, but the lock cron hasn&apos;t fired
-            yet for this game. Conditions can still shift: a weather forecast
-            update or late lineup change could push confidence below the floor and
-            drop the pick back to Watching. Treat 🎯 as &ldquo;trending toward
-            locked, not committed yet.&rdquo;
-          </li>
-          <li>
-            <span className="text-ink-muted">🔒 Tracked (locked)</span> — the pick
-            has been snapshotted into <Code>locked_picks</Code> by the lock cron,
-            which fires at <strong>≤ 30 minutes before first pitch</strong>. The
-            tracked tier is now pinned: real-time confidence will keep updating in
-            the math panel so you can see what&apos;s shifting, but the badge
-            won&apos;t come off and settlement will use the locked snapshot.
-          </li>
-        </ul>
         <h3 className="mt-6 text-base font-semibold text-ink">When does a pick lock?</h3>
         <p className="text-sm">
           The lock cron runs every 5 minutes through to first pitch. On each run,
           it asks <Code>shouldLock</Code> for every game on the slate:{' '}
           <em>is the game ≤ 30 minutes from first pitch?</em> If yes, every pick
-          currently in the Tracked tier for that game gets written to{' '}
-          <Code>locked_picks</Code> (insert-only — once locked, never overwritten).
+          currently in <strong>Targeting</strong> status (passing all five
+          floors) for that game gets written to <Code>locked_picks</Code> and
+          flips to <strong>Tracking</strong> (insert-only — once locked, never
+          overwritten).
         </p>
         <p className="text-sm text-ink-muted">
           Two things follow from this design:
         </p>
         <ul className="ml-5 list-disc space-y-1 text-sm marker:text-ink-muted">
           <li>
-            <strong>Picks that drop out of Tracked before T-30 min don&apos;t
-            lock.</strong> The cron only writes picks that are tracked at
+            <strong>Picks that fall out of Targeting before T-30 don&apos;t
+            lock.</strong> The cron only writes picks that are Targeting at
             cron-fire time, and the window doesn&apos;t open until 30 min before
-            first pitch. A pick tracked at T-45 that drifts to Watching by T-25
-            never makes it into the database — exactly the behavior you&apos;d
-            want when conditions deteriorate.
+            first pitch. A pick that was Targeting at T-45 but drifts to Watching
+            by T-25 never makes it into the database — exactly the behavior
+            you&apos;d want when conditions deteriorate.
           </li>
           <li>
-            <strong>Picks that recover into Tracked late still get locked.</strong>{' '}
-            A pick that&apos;s Watching at T-30 but recovers to Tracked at T-15
+            <strong>Picks that recover into Targeting late still get locked.</strong>{' '}
+            A pick that&apos;s Watching at T-30 but recovers to Targeting at T-15
             (e.g., weather forecast improves, or a strong batter gets confirmed
             into the cleanup spot) gets caught by the next cron run within the
             window. Insert-only semantics mean late additions don&apos;t conflict
@@ -533,20 +546,20 @@ p < 0.5  →  odds = +round(100 × (1 − p) / p)        (underdog)`}
           </li>
           <li>
             <strong className="text-ink">Lock.</strong> Every 5 minutes during slate
-            hours, <Code>/api/lock</Code> snapshots Tracked picks into the{' '}
+            hours, <Code>/api/lock</Code> snapshots Targeting picks into the{' '}
             <Code>locked_picks</Code> table once a game is{' '}
             <strong>≤ 30 minutes from first pitch</strong>. Insert-only: existing
-            rows never change, but new Tracked picks added later in the slate
-            (e.g. a late-recovering pick that crossed back into Tracked at T-15)
-            still land. Once a pick is locked, the badge flips from{' '}
-            <span className="text-tracked">🎯</span> to{' '}
-            <span className="text-ink-muted">🔒</span> and the displayed
+            rows never change, but new Targeting picks added later in the slate
+            (e.g. a late-recovering pick that crossed back into Targeting at T-15)
+            still land. Once a pick is locked, its status flips from{' '}
+            <span className="text-tracked">🎯 Targeting</span> to{' '}
+            <span className="text-ink-muted">🔒 Tracking</span> and the displayed
             top-line numbers (p̂ today, p̂ typical, edge, confidence, score)
             are <strong>frozen at lock-time</strong>. The probability factor
             breakdown in the math panel still shows the *current* live values,
             so you can see what has shifted since lock — but the headline
             numbers and the tracked tier are pinned through settlement. See{' '}
-            <em>Tracked vs Watching</em> above for the full badge spec.
+            <em>Tracking · Targeting · Watching</em> above for the full status spec.
           </li>
           <li>
             <strong className="text-ink">Live.</strong> Once a game ends, the next

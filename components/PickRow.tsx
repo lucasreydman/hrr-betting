@@ -878,9 +878,9 @@ function MathPanel({ pick, rung, localTime, storedLine }: {
         <KV label="Tier">
           <span className={isTracked ? 'font-semibold text-tracked' : 'text-ink-muted'}>
             {pick.wasLocked
-              ? '🔒 Tracked (locked)'
+              ? '🔒 Tracking (locked)'
               : isTracked
-                ? '🎯 Tracked (live)'
+                ? '🎯 Targeting (passing floors)'
                 : '👀 Watching'}
             {pick.wasLocked && (
               <span
@@ -1010,36 +1010,33 @@ export function PickRow({ pick, rung }: { pick: Pick; rung?: 1 | 2 | 3 }) {
           {/* BET — rung badge + tracked target */}
           <div className="flex min-w-0 items-center gap-1.5">
             {rung && <RungBadge rung={rung} />}
-            {/* Three mutually exclusive states:
-                🔒 locked — settlement-bound, tier frozen
-                🎯 tracked (not locked yet) — passes all floors, lock window
-                                              hasn't fired or pick not locked
-                👀 watching — below at least one tracked floor; we're
-                              monitoring but not committing.
-                Watching picks for live/final games are dropped upstream
-                in ranker.ts — the badge only appears on pre-first-pitch
-                picks that haven't locked. */}
+            {/* Three mutually exclusive bet statuses:
+                🔒 Tracking  — locked, settlement-bound, top-line frozen
+                🎯 Targeting — passing all five floors, lock window hasn't fired
+                👀 Watching  — below at least one floor; monitoring only
+                Watching picks for live/final games are dropped upstream in
+                ranker.ts — the 👀 badge only appears on pre-first-pitch picks. */}
             {pick.wasLocked ? (
               <span
                 className="text-ink-muted/80"
-                title="Locked — tracked tier pinned regardless of live data drift"
-                aria-label="Pick locked"
+                title="Tracking (locked) — settlement-bound, top-line numbers frozen at lock-time"
+                aria-label="Pick locked, status: tracking"
               >
                 🔒
               </span>
             ) : isTracked ? (
               <span
                 className="text-tracked"
-                title="Tracked — passing all floors right now, but lock window hasn't fired yet (could still drift)"
-                aria-label="Pick currently tracked, not yet locked"
+                title="Targeting — passing all five floors, but lock window (T-30) hasn't fired yet (could still drift before lock)"
+                aria-label="Pick targeting, not yet locked"
               >
                 🎯
               </span>
             ) : (
               <span
                 className="text-ink-muted/70"
-                title="Watching — below at least one tracked floor right now. Could still cross into Tracked before lock window."
-                aria-label="Pick in watching tier"
+                title="Watching — below at least one tracked floor right now. Could still cross into Targeting before lock window."
+                aria-label="Pick watching"
               >
                 👀
               </span>
@@ -1215,16 +1212,16 @@ export function PickRow({ pick, rung }: { pick: Pick; rung?: 1 | 2 | 3 }) {
             {pick.wasLocked ? (
               <span
                 className="text-ink-muted/80"
-                title="Locked — tracked tier pinned regardless of live data drift"
-                aria-label="Pick locked"
+                title="Tracking (locked) — settlement-bound, top-line numbers frozen at lock-time"
+                aria-label="Pick locked, status: tracking"
               >
                 🔒
               </span>
             ) : isTracked ? (
               <span
                 className="text-tracked"
-                title="Tracked — passing all floors right now, but lock window hasn't fired yet"
-                aria-label="Pick currently tracked, not yet locked"
+                title="Targeting — passing all five floors, but lock window (T-30) hasn't fired yet"
+                aria-label="Pick targeting, not yet locked"
               >
                 🎯
               </span>
@@ -1232,7 +1229,7 @@ export function PickRow({ pick, rung }: { pick: Pick; rung?: 1 | 2 | 3 }) {
               <span
                 className="text-ink-muted/70"
                 title="Watching — below at least one tracked floor right now"
-                aria-label="Pick in watching tier"
+                aria-label="Pick watching"
               >
                 👀
               </span>

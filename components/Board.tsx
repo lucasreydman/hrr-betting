@@ -72,16 +72,25 @@ const STATUS_TOOLTIPS: Record<GameStatusFilter, string> = {
   settled: 'Games that have finished (final)',
 }
 
-type BetTypeFilter = 'tracked' | 'other'
+type BetStatusFilter = 'tracking' | 'targeting' | 'watching'
 
-const BET_TYPE_LABELS: Record<BetTypeFilter, string> = {
-  tracked: 'Tracking',
-  other: 'Watching',
+const BET_STATUS_LABELS: Record<BetStatusFilter, string> = {
+  tracking: '🔒 Tracking',
+  targeting: '🎯 Targeting',
+  watching: '👀 Watching',
 }
 
-const BET_TYPE_TOOLTIPS: Record<BetTypeFilter, string> = {
-  tracked: 'Picks passing all floors right now (🎯) or already locked (🔒)',
-  other: 'Picks below at least one tracked floor (👀). Watching picks for live/final games are dropped automatically.',
+const BET_STATUS_TOOLTIPS: Record<BetStatusFilter, string> = {
+  tracking: 'Already locked into the slate. Numbers + tier are frozen at lock-time and settled-bound.',
+  targeting: 'Currently passing all five tracked floors but the lock window (T-30) has not fired yet — could still drift before lock.',
+  watching: 'Below at least one tracked floor right now. Watching picks for live/final games are dropped automatically.',
+}
+
+/** Map a Pick into one of the three bet-status buckets. */
+function bucketForPick(p: { tier: 'tracked' | 'watching'; wasLocked?: boolean }): BetStatusFilter {
+  if (p.wasLocked) return 'tracking'
+  if (p.tier === 'tracked') return 'targeting'
+  return 'watching'
 }
 
 /** Map a Pick's gameStatus to one of the three filter buckets. */
@@ -188,8 +197,8 @@ function BoardContents({ picks }: { picks: PickWithRung[] }) {
   const [enabledStatuses, setEnabledStatuses] = useState<Set<GameStatusFilter>>(
     new Set(['upcoming', 'live', 'settled']),
   )
-  const [enabledTypes, setEnabledTypes] = useState<Set<BetTypeFilter>>(
-    new Set(['tracked', 'other']),
+  const [enabledBetStatuses, setEnabledBetStatuses] = useState<Set<BetStatusFilter>>(
+    new Set(['tracking', 'targeting', 'watching']),
   )
 
   // The "universe" is built per-rung with a guaranteed minimum slot count for
@@ -222,9 +231,9 @@ function BoardContents({ picks }: { picks: PickWithRung[] }) {
         p =>
           enabledRungs.has(p.rung) &&
           enabledStatuses.has(bucketForStatus(p.gameStatus)) &&
-          enabledTypes.has(p.tier === 'tracked' ? 'tracked' : 'other'),
+          enabledBetStatuses.has(bucketForPick(p)),
       ),
-    [universe, enabledRungs, enabledStatuses, enabledTypes],
+    [universe, enabledRungs, enabledStatuses, enabledBetStatuses],
   )
 
   const tracked = useMemo(
@@ -261,13 +270,13 @@ function BoardContents({ picks }: { picks: PickWithRung[] }) {
     })
   }
 
-  const toggleType = (t: BetTypeFilter) => {
-    setEnabledTypes(prev => {
+  const toggleBetStatus = (s: BetStatusFilter) => {
+    setEnabledBetStatuses(prev => {
       const next = new Set(prev)
-      if (next.has(t)) {
-        if (next.size > 1) next.delete(t)
+      if (next.has(s)) {
+        if (next.size > 1) next.delete(s)
       } else {
-        next.add(t)
+        next.add(s)
       }
       return next
     })
@@ -314,22 +323,22 @@ function BoardContents({ picks }: { picks: PickWithRung[] }) {
               {STATUS_LABELS[s]}
             </button>
           ))}
-          <span className="ml-2 text-[11px] uppercase tracking-wider text-ink-muted">Bet type</span>
-          {(['tracked', 'other'] as const).map(t => (
+          <span className="ml-2 text-[11px] uppercase tracking-wider text-ink-muted">Bet status</span>
+          {(['tracking', 'targeting', 'watching'] as const).map(s => (
             <button
-              key={t}
+              key={s}
               type="button"
-              onClick={() => toggleType(t)}
-              title={BET_TYPE_TOOLTIPS[t]}
-              aria-pressed={enabledTypes.has(t)}
+              onClick={() => toggleBetStatus(s)}
+              title={BET_STATUS_TOOLTIPS[s]}
+              aria-pressed={enabledBetStatuses.has(s)}
               className={
                 'rounded border px-2 py-0.5 font-mono text-xs tabular-nums transition-colors ' +
-                (enabledTypes.has(t)
+                (enabledBetStatuses.has(s)
                   ? 'border-tracked/60 bg-tracked/10 text-tracked'
                   : 'border-border bg-card/30 text-ink-muted hover:bg-card/60')
               }
             >
-              {BET_TYPE_LABELS[t]}
+              {BET_STATUS_LABELS[s]}
             </button>
           ))}
         </div>
@@ -391,7 +400,7 @@ function BoardContents({ picks }: { picks: PickWithRung[] }) {
         <div className="p-4 sm:p-6">
           <EmptyState
             title="No picks match these filters"
-            description="Loosen the rung, game, or bet-type filters."
+            description="Loosen the rung, game, or bet-status filters."
           />
         </div>
       )}
