@@ -373,8 +373,11 @@ function WagerCell({
     display = { label: 'skip', tone: 'skip' }
   }
 
-  // Format estimated odds for the placeholder ("-110" / "+150" style).
-  const placeholder = `${estimatedOdds > 0 ? '+' : ''}${estimatedOdds}`
+  // Format estimated odds for the placeholder. Lead with `≈` so the input
+  // visually mirrors the leading-≈ convention used on every other estimated
+  // value (recommended bet, EV, implied book prob). Once the user types a
+  // real line, the placeholder vanishes.
+  const placeholder = `≈ ${estimatedOdds > 0 ? '+' : ''}${estimatedOdds}`
 
   const inputClass =
     'w-full max-w-[5.5rem] rounded border border-border/60 bg-card/40 px-1.5 py-0.5 ' +
