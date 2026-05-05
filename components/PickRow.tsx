@@ -318,7 +318,7 @@ function useStoredLine(args: {
   }
 
   const odds = parseAmericanOdds(input)
-  const estimatedOdds = estimateBookOddsFromModelProb(args.modelProb, args.pTypical)
+  const estimatedOdds = estimateBookOddsFromModelProb(args.modelProb, args.pTypical, args.rung)
   const effectiveOdds = odds ?? estimatedOdds
   const isEstimate = odds === null
 

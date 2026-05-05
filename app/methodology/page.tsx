@@ -197,14 +197,15 @@ score = kelly × confidence`}
           You set a <Code>Bankroll</Code> and a <Code>Kelly Fraction</Code>{' '}
           (Eighth / Quarter / Half / Full, default Quarter) at the top of the board.
           For every pick, the wager cell is pre-filled with an{' '}
-          <em>estimated</em> FanDuel line — the vig-free midpoint of{' '}
-          <Code>p̂ typical</Code> and <Code>p̂ today</Code> converted to American
-          moneyline. When you haven&apos;t entered the actual line yet, the row
-          still shows a rough bet size against that estimate (italicised, with
-          a leading <span className="text-tracked/70 italic">≈</span> tells you
-          it&apos;s a model-derived line, not the real book price). Type the
-          actual FanDuel line over the estimate and the row recomputes against
-          the real number.
+          <em>estimated</em> FanDuel line — derived from <Code>p̂ typical</Code>{' '}
+          with a small per-rung shrinkage (calibrated against real FD lines)
+          and converted to American moneyline. When you haven&apos;t entered
+          the actual line yet, the row still shows a rough bet size against
+          that estimate (italicised, with a leading{' '}
+          <span className="text-tracked/70 italic">≈</span> tells you it&apos;s
+          a model-derived line, not the real book price). Type the actual
+          FanDuel line over the estimate and the row recomputes against the
+          real number.
         </p>
         <Formula>
           {`b           = profit per $1 staked at the offered odds
@@ -212,9 +213,11 @@ implied_p   = book's implied probability (with vig)
 fullKelly   = max(0, (p̂_today × b − (1 − p̂_today)) / b)
 bet_dollars = fullKelly × kellyFraction × bankroll
 
-Estimated book line (vig-free midpoint of pTypical and pToday):
-midpoint    = (p̂_typical + p̂_today) / 2
-bookProb    = clamp(midpoint, 0.01, 0.97)
+Estimated book line (rung-aware shrinkage on pTypical):
+shrink[1+]   = 0.00     // book ≈ pTyp
+shrink[2+]   = 0.02     // book ~2pp below pTyp
+shrink[3+]   = 0.04     // book ~4pp below pTyp
+bookProb     = clamp(p̂_typical − shrink[rung], 0.01, 0.97)
 americanOdds = round-to-book-increment(bookProb → moneyline)`}
         </Formula>
         <p className="text-sm text-ink-muted">
@@ -224,27 +227,27 @@ americanOdds = round-to-book-increment(bookProb → moneyline)`}
           optimal but practically too aggressive given even small calibration errors.
           Settings persist to localStorage so reloads don&apos;t reset them.
         </p>
-        <Note label="Why the midpoint of pTypical and pToday">
-          Books are more conservative on matchup adjustments than our model.
-          When we boost <Code>p̂ typical</Code> → <Code>p̂ today</Code> by
-          ~10pp via factor composition (pitcher × park × weather × ...), the
-          book usually moves less aggressively from their own season baseline.
-          Empirically a 0.767 / 0.862 (pTypical / pToday) pick had FanDuel at
-          -500 — implied 0.833, very close to the midpoint of our two
-          probabilities (0.815). Using <Code>p̂ today</Code> alone over-
-          extrapolates and produces too-steep estimates (around -550 here)
-          while the real line was -500.
+        <Note label="Why pTypical (not pToday) anchors the estimate">
+          Calibrated 2026-05-05 against 24 hand-collected FanDuel lines. The
+          data showed FD applies <em>far less</em> matchup boost than our
+          model: across 1+/2+/3+ rungs, the book&apos;s implied probability
+          consistently sat at-or-below <Code>p̂ typical</Code>, never near our{' '}
+          <Code>p̂ today</Code>. The previous midpoint-of-pTyp-and-pToday
+          formula over-extrapolated by ~5pp implied prob at 1+ and ~10pp at
+          3+. Anchoring on pTyp with a small per-rung shrinkage drops the
+          estimator&apos;s RMSE from ~5pp to ~2pp.
         </Note>
-        <Note label="No vig assumption">
-          The displayed estimate is the <em>fair-line</em> American moneyline
-          for the midpoint probability — no book-vig nudge is added. We dropped
-          a previous +0.04 vig assumption because hold varies by book and market
-          and any constant introduces a systematic bias that&apos;s hard to back
-          out later. The estimate is meant as a sanity check (&ldquo;this pick
-          is roughly a -440 favourite by the model&rdquo;); type the actual
-          FanDuel line over it for the real bet size. When the entered line is
-          steeper than the estimate (book sees the matchup as more lopsided
-          than the model), the recommended bet shrinks or skips.
+        <Note label="Per-rung shrinkage grows with the rung">
+          The gap between FD-implied probability and our pTyp grows monotonically
+          with the rung. At 1+ HRR, FD typically sits right at pTyp. At 2+
+          it&apos;s about 2pp below. At 3+ it&apos;s 4-9pp below. This pattern
+          isn&apos;t a midpoint-formula problem — it&apos;s a distribution-
+          shape problem. Our offline Monte Carlo appears to model more
+          &ldquo;big games&rdquo; (≥3 HRR) than the book does, suggesting the
+          per-PA outcome rates or baserunner state machine over-state the
+          right tail. The shrinkage table is a coarse fix for the surface
+          symptom; the underlying model bias should be revisited once{' '}
+          <Code>npm run recalibrate</Code> has ≥30 days of settled history.
         </Note>
       </Section>
 

@@ -133,37 +133,60 @@ export function parseAmericanOdds(input: string): number | null {
 // ---------------------------------------------------------------------------
 
 /**
+ * Per-rung shrinkage applied to `pTypical` to approximate the book's
+ * implied probability for a given rung.
+ *
+ * Calibrated 2026-05-05 against 24 hand-collected FanDuel lines (10×1+,
+ * 10×2+, 5×3+). The data showed three things consistently:
+ *
+ *   1. Book applies far less matchup adjustment than our model. The
+ *      "midpoint of pTypical + pToday" estimator we used previously
+ *      over-extrapolated by ~5pp implied prob at 1+, ~7pp at 2+, ~10pp
+ *      at 3+.
+ *   2. For most picks, FD's implied probability sits at-or-below pTyp.
+ *      The book is essentially using "pTyp, full stop" as the line
+ *      anchor, ignoring the slate-specific factor product.
+ *   3. The gap to pTyp grows monotonically with the rung. Star-name
+ *      picks (Bleday, De La Cruz, Lowe, Trout) sat ~0pp below pTyp at
+ *      1+, ~3pp below at 2+, and ~5-9pp below at 3+. This implies our
+ *      offline MC's HRR distribution is more right-skewed than FD's:
+ *      we're modelling more "big games" (≥3 HRR) than the book does.
+ *
+ * The shrinkage table here is a coarse fix for (1) and (3) — it lines
+ * up our estimate with FD's typical posting at each rung. The deeper
+ * problem (2 / 3) is a model-bias issue: pTyp itself is too high for
+ * tougher rungs on certain players, which means our `edge` and `score`
+ * calculations are also inflated for those picks. Surface bias is
+ * fixed; underlying bias is not. See the model-bias note in CLAUDE.md.
+ *
+ * Empirical RMSE (implied probability error vs FD lines):
+ *   Old midpoint (w=0.5):    ~5.0pp
+ *   New (pTyp - shrink[r]):  ~2.0pp
+ */
+const RUNG_SHRINKAGE: Record<1 | 2 | 3, number> = {
+  1: 0.00,  // book ≈ pTyp directly (no matchup boost reflected)
+  2: 0.02,  // book ~2pp below pTyp on average
+  3: 0.04,  // book ~4pp below pTyp on average (model over-states 3+ density)
+}
+
+/**
  * Estimate the American moneyline a sportsbook (FanDuel-class) would post
- * for a player prop using the **vig-free midpoint** of `pTypical` and `pToday`.
+ * for a player prop, using a **rung-aware shrinkage** on the model's
+ * pTypical.
  *
- * Books tend to be more conservative on matchup adjustments than the
- * model — their implied probability typically lands between our `pTypical`
- * (the season-stabilized baseline) and `pToday` (after factor composition).
- * Empirically observed on a Turang 1+ HRR pick:
+ * For backwards compatibility, both `pTypical` and `rung` are optional.
+ * When `pTypical` is provided alongside `rung`, the rung-aware path runs:
  *
- *     pTypical  0.767  →  -329
- *     pToday    0.862  →  -625
- *     book actual    -500     (implied 0.833)
+ *     bookImplied = clamp(pTypical - RUNG_SHRINKAGE[rung], 0.01, 0.97)
  *
- * The book's implied probability (0.833) sits between pTypical and pToday.
- * Using pToday alone over-extrapolates; using pTypical alone under-
- * extrapolates. Taking the midpoint and converting straight to American
- * moneyline produces a fair-line estimate without baking in any assumed
- * book vig — accuracy depends on which book/market you're comparing
- * against, and a vig assumption introduces a constant per-prop bias that
- *'s hard to back out later.
- *
- * Method:
- *   bookImplied    = (pTypical + pToday) / 2          // pure midpoint, no vig
- *   americanOdds   = book-rounded moneyline from bookImplied
+ * When `pTypical` is provided without `rung`, falls back to the
+ * pre-2026-05-05 midpoint-of-pTyp-and-pToday formula. When `pTypical`
+ * is omitted entirely, falls back to using `modelProb` alone.
  *
  * Round to standard book increments:
  *     |odds| ≤ 200  → nearest 5
  *     |odds| ≤ 500  → nearest 10
  *     |odds| > 500  → nearest 50
- *
- * `pTypical` is optional for backwards compatibility — when omitted, the
- * estimator falls back to `modelProb` alone.
  *
  * Returns 100 (closest-to-neutral integer in valid American-odds space)
  * for non-finite or out-of-range probabilities.
@@ -171,12 +194,26 @@ export function parseAmericanOdds(input: string): number | null {
 export function estimateBookOddsFromModelProb(
   modelProb: number,
   pTypical?: number,
+  rung?: 1 | 2 | 3,
 ): number {
   if (!Number.isFinite(modelProb) || modelProb <= 0 || modelProb >= 1) return 100
 
   const hasPTypical =
     pTypical !== undefined && Number.isFinite(pTypical) && pTypical > 0 && pTypical < 1
-  const baseProb = hasPTypical ? (modelProb + (pTypical as number)) / 2 : modelProb
+
+  let baseProb: number
+  if (hasPTypical && rung) {
+    // Rung-aware path — use pTypical shrunk per rung. Book treats line
+    // as ~pTyp at 1+, lower at 2+/3+.
+    baseProb = (pTypical as number) - RUNG_SHRINKAGE[rung]
+  } else if (hasPTypical) {
+    // Legacy 2-arg path — midpoint of pTyp and pToday. Kept for
+    // back-compat with callers that don't have rung context.
+    baseProb = (modelProb + (pTypical as number)) / 2
+  } else {
+    // 1-arg fallback — pToday alone.
+    baseProb = modelProb
+  }
 
   const bookImpliedProb = Math.min(0.97, Math.max(0.01, baseProb))
 

@@ -98,6 +98,12 @@ npm run lint && npm run typecheck && npm test && npm run build
 
 Same four gates CI runs (`.github/workflows/ci.yml`). All four must pass.
 
+## Known Model-Bias Findings
+
+These are calibrated observations against real-world data; investigate when `npm run recalibrate` has enough history.
+
+- **Offline MC over-states 3+ HRR density.** Hand-collected calibration against 24 FanDuel lines on 2026-05-05 (10×1+ / 10×2+ / 5×3+) showed the book's implied probability consistently sits at-or-below our `p̂ typical`, never near our `p̂ today`. The gap to pTyp grows monotonically with the rung: ~0pp at 1+, ~2pp at 2+, ~4-9pp at 3+. Implication: our model thinks ≥3 HRR happens more often than reality. Likely culprits inside `lib/offline-sim/`: the times-through-the-order penalty (PAs 4+ vs bullpen with rates that may be too generous), the HR-trifecta correlation amplified by the baserunner state machine, or stabilization toward career rates not pulling enough on home-run-heavy hitters. The bet-sizing estimator masks the symptom via per-rung shrinkage in `lib/bet-sizing.ts:RUNG_SHRINKAGE`, but `pMatchup` / `edge` / `score` still carry the bias. Audit by comparing per-rung predicted hit rate vs actual settled hit rate once ≥30 days of `settled_picks` exist.
+
 ## Common Pitfalls
 
 - **Production missing `SUPABASE_URL` / `SUPABASE_SERVICE_ROLE_KEY`.** Code silently falls back to in-memory KV — no errors, but no data either. Verify on Vercel.

@@ -311,12 +311,9 @@ describe('estimateBookOddsFromModelProb — pToday-only fallback', () => {
   })
 })
 
-describe('estimateBookOddsFromModelProb — pTypical-aware (preferred path)', () => {
-  // Anchored on a real-world calibration data point: Brice Turang 1+ HRR
-  // pick on 2026-05-04. Our model: pTypical 0.767, pToday 0.862. FanDuel's
-  // actual posted line: -500. The vig-free midpoint reproduces this within
-  // typical book-rounding tolerance — and on a live slate it can be
-  // compared directly to the line the user enters in the wager cell.
+describe('estimateBookOddsFromModelProb — pTypical-aware (legacy 2-arg path)', () => {
+  // 2-arg signature kept for back-compat with any caller that doesn't have
+  // rung context. Rung-aware (preferred) path tested in the next describe.
 
   test('Turang 1+ HRR (pTypical 0.767, pToday 0.862) lands near -440 (no vig)', () => {
     // midpoint = 0.8145, raw = -(0.8145/0.1855)*100 = -439.1 → /10 → -440.
@@ -373,5 +370,86 @@ describe('estimateBookOddsFromModelProb — pTypical-aware (preferred path)', ()
       // numerically (less extreme).
       expect(blended).toBeGreaterThan(aggressive)
     }
+  })
+})
+
+describe('estimateBookOddsFromModelProb — rung-aware (preferred 3-arg path)', () => {
+  // Calibrated 2026-05-05 against 24 hand-collected FanDuel lines. Per-rung
+  // shrinkage table:
+  //   1+: bookProb = pTyp           (no shrink)
+  //   2+: bookProb = pTyp - 0.02    (book ~2pp below pTyp)
+  //   3+: bookProb = pTyp - 0.04    (book ~4pp below pTyp; model over-states 3+)
+  //
+  // The rung argument switches off the legacy midpoint-of-pTyp-and-pToday
+  // path. pToday is still passed (as `modelProb`) but ignored in the rung-
+  // aware path.
+
+  test('1+ HRR — Trout (pTypical 0.795) lands at -390 (matches FD)', () => {
+    // bookProb = 0.795 → -(0.795/0.205)*100 = -387.8 → /10 → -390.
+    // FD posted -390 on 2026-05-05; estimator hits it exactly.
+    const odds = estimateBookOddsFromModelProb(0.853, 0.795, 1)
+    expect(odds).toBe(-390)
+  })
+
+  test('1+ HRR — Caminero (pTypical 0.758) lands at -310', () => {
+    // bookProb = 0.758 → -(0.758/0.242)*100 = -313.2 → /10 → -310.
+    const odds = estimateBookOddsFromModelProb(0.804, 0.758, 1)
+    expect(odds).toBe(-310)
+  })
+
+  test('2+ HRR — Vladdy (pTypical 0.581) lands at -130 (matches FD -130)', () => {
+    // bookProb = 0.581 - 0.02 = 0.561 → -(0.561/0.439)*100 = -127.8 → /5 → -130.
+    // FD posted -130; estimator hits it exactly.
+    const odds = estimateBookOddsFromModelProb(0.659, 0.581, 2)
+    expect(odds).toBe(-130)
+  })
+
+  test('2+ HRR — Trout (pTypical 0.604) lands at -140 (matches FD -145)', () => {
+    // bookProb = 0.604 - 0.02 = 0.584 → -(0.584/0.416)*100 = -140.4 → /5 → -140.
+    const odds = estimateBookOddsFromModelProb(0.697, 0.604, 2)
+    expect(odds).toBe(-140)
+  })
+
+  test('3+ HRR — Trout (pTypical 0.446) lands at +145 (FD posted +130)', () => {
+    // bookProb = 0.446 - 0.04 = 0.406 → ((1-0.406)/0.406)*100 = +146.3 → /5 → +145.
+    const odds = estimateBookOddsFromModelProb(0.550, 0.446, 3)
+    expect(odds).toBe(145)
+  })
+
+  test('3+ HRR — De La Cruz (pTypical 0.416) lands at +165 (matches FD +180)', () => {
+    // bookProb = 0.416 - 0.04 = 0.376 → ((1-0.376)/0.376)*100 = +166.0 → /5 → +165.
+    const odds = estimateBookOddsFromModelProb(0.513, 0.416, 3)
+    expect(odds).toBe(165)
+  })
+
+  test('rung-aware path produces a DIFFERENT estimate than legacy midpoint', () => {
+    // Same inputs, with vs without rung. Rung-aware uses pTyp - shrink;
+    // legacy uses midpoint. They MUST diverge or there's a wiring bug.
+    const legacy = estimateBookOddsFromModelProb(0.85, 0.75)        // midpoint = 0.80
+    const rungAware = estimateBookOddsFromModelProb(0.85, 0.75, 1)  // pTyp = 0.75
+    expect(legacy).not.toBe(rungAware)
+    // Legacy midpoint produces a steeper line (more chalk) than rung-aware
+    // for any pick where pToday > pTyp. For favorites, "steeper" = more
+    // negative.
+    expect(legacy).toBeLessThan(rungAware)
+  })
+
+  test('rung-aware shrinkage grows monotonically with rung', () => {
+    // Same baseline pTyp, only the shrinkage differs across rungs.
+    // Higher rung → more shrinkage → bookProb lower → odds further from
+    // chalk (less negative for favorites, more positive for dogs).
+    const r1 = estimateBookOddsFromModelProb(0.7, 0.6, 1)
+    const r2 = estimateBookOddsFromModelProb(0.7, 0.6, 2)
+    const r3 = estimateBookOddsFromModelProb(0.7, 0.6, 3)
+    expect(r2).toBeGreaterThan(r1)
+    expect(r3).toBeGreaterThan(r2)
+  })
+
+  test('omitting rung falls back to legacy midpoint formula', () => {
+    // The 2-arg signature must keep working — back-compat for any caller
+    // without rung context.
+    const noRung = estimateBookOddsFromModelProb(0.85, 0.75)
+    const undefRung = estimateBookOddsFromModelProb(0.85, 0.75, undefined)
+    expect(noRung).toBe(undefRung)
   })
 })
