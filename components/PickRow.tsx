@@ -347,10 +347,19 @@ function WagerCell({
   modelProb,
   storedLine,
   variant,
+  isTracked,
 }: {
   modelProb: number
   storedLine: ReturnType<typeof useStoredLine>
   variant: 'desktop' | 'mobile'
+  /**
+   * True when the pick passes all five tracked-tier floors (i.e. status is
+   * Tracking or Targeting). Watching picks deliberately don't surface a
+   * recommended bet — Kelly will still produce a positive number on any
+   * +EV play, but a play that fails the conviction floors isn't one the
+   * user should be sizing real money against.
+   */
+  isTracked: boolean
 }) {
   const { bankroll, kellyMultiplier } = useBetSettings()
   const { input, effectiveOdds, estimatedOdds, isEstimate, setInput } = storedLine
@@ -377,7 +386,12 @@ function WagerCell({
     kellyMultiplier,
   })
   let display: { label: string; tone: 'bet' | 'skip' }
-  if (bet > 0) {
+  if (!isTracked) {
+    // Below conviction bar (Watching). Suppress bet sizing — Kelly is
+    // mathematically positive on any +EV play but a pick failing the
+    // floors isn't one we want the user putting money on.
+    display = { label: '—', tone: 'skip' }
+  } else if (bet > 0) {
     const dollar = `$${bet.toFixed(2).replace(/\.00$/, '')}`
     display = { label: isEstimate ? `≈ ${dollar}` : dollar, tone: 'bet' }
   } else {
@@ -892,10 +906,12 @@ function MathPanel({ pick, rung, localTime, storedLine }: {
                 </span>
               </KV>
               <KV label={<>Recommended bet <span className="text-ink-muted/70">(¼ Kelly × ${bankroll.toFixed(0)})</span></>}>
-                <span className={betClass}>
-                  {bet > 0
-                    ? `${approxPrefix}$${bet.toFixed(2).replace(/\.00$/, '')}`
-                    : `skip${isEstimate ? ' ≈' : ''} — no edge over book`}
+                <span className={isTracked ? betClass : 'text-ink-muted'}>
+                  {!isTracked
+                    ? '— · pick is below conviction floors (Watching tier)'
+                    : bet > 0
+                      ? `${approxPrefix}$${bet.toFixed(2).replace(/\.00$/, '')}`
+                      : `skip${isEstimate ? ' ≈' : ''} — no edge over book`}
                 </span>
               </KV>
             </>
@@ -1203,7 +1219,7 @@ export function PickRow({ pick, rung }: { pick: Pick; rung?: 1 | 2 | 3 }) {
               originally repurposed for this; now both coexist (Score got
               pulled back when a 4th tracked-tier gate was added on score). */}
           <div className="px-1">
-            <WagerCell modelProb={pick.pMatchup} storedLine={storedLine} variant="desktop" />
+            <WagerCell modelProb={pick.pMatchup} storedLine={storedLine} variant="desktop" isTracked={isTracked} />
           </div>
 
           {/* CARET — dedicated 8th column so score numbers don't shift.
@@ -1363,7 +1379,7 @@ export function PickRow({ pick, rung }: { pick: Pick; rung?: 1 | 2 | 3 }) {
                 squeeze the metrics above. */}
             <div className="mt-1.5 flex items-center justify-between gap-2 text-xs">
               <span className="text-ink-muted">Wager</span>
-              <WagerCell modelProb={pick.pMatchup} storedLine={storedLine} variant="mobile" />
+              <WagerCell modelProb={pick.pMatchup} storedLine={storedLine} variant="mobile" isTracked={isTracked} />
             </div>
           </div>
         </div>
